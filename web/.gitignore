@@ -1,0 +1,5 @@
+node_modules
+dist
+
+# Generated from legacy/ by scripts/convert-assets.ps1 - not source, don't commit.
+public/assets
