@@ -1,0 +1,188 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<meta name="description" content="Fish Fillets NG is a puzzle game for Linux" />
+<meta name="keywords" content="Fish Fillets NG, Linux game, puzzle" />
+<title>Fish Fillets - Next Generation</title>
+<link href="styles.css" rel="stylesheet" />
+</head>
+
+<body>
+
+<table width="100%">
+<tr>
+	<td><a href="http://fillets.sf.net"><img src="img/icon.png" alt="icon" width="32" height="32" border="0" /></a></td>
+	<td width="100%"><h1>Fish Fillets - Next Generation</h1></td>
+</tr>
+</table>
+
+<h2>Herní ovládání a pravidla</h2>
+
+<br />
+<ul>
+	<li>
+		<a href="#control">Ovládání</a>
+		<ul>
+			<li><a href="#running_a_level">Spouštění místností</a></li>
+			<li><a href="#control_keys">Ovládací klávesy</a></li>
+			<li>
+				<a href="#movement">Pohyb</a>
+				<ul>
+					<li><a href="#arrow_keys">Kurzorovými klávesami</a></li>
+					<li><a href="#mouse">Myší</a></li>
+					<li><a href="#direct_control">Přímo</a></li>
+				</ul>
+			</li>
+		</ul>
+	</li>
+	<li>
+		<a href="#about_the_game">Principy hry</a>
+		<ul>
+			<li><a href="#your_goal">Cíl hry</a></li>
+			<li>
+				<a href="#movement_rules">Pravidla pro pohyb</a>
+				<ul>
+					<li><a href="#pushing_objects">Posun předmětů</a></li>
+					<li><a href="#steel_object">Těžké předměty</a></li>
+					<li><a href="#transferring_objects">Předávání předmětů</a></li>
+					<li><a href="#pushing_along_other_objects">Posunování po jiných předmětech</a></li>
+					<li><a href="#falling_objects">Shazování předmětů</a></li>
+					<li><a href="#animated_object">Animované předměty</a></li>
+				</ul>
+			</li>
+		</ul>
+	</li>
+</ul>
+
+<a name="control"></a><h3>Ovládání</h3>
+
+<a name="running_a_level"></a><h4>Spouštění místností</h4>
+
+<p>Po startu hry se objeví mapa podmořského království, do které je zakreslena jedna nebo více cest. Na nich jsou vyznačeny místnosti, které jsi už vyřešil (zlaté kuličky), místnosti, které na řešení čekají (pulsující modré kuličky) a místnosti, do nichž jsi ještě nevstoupil (prázdné důlky).</p>
+
+<p>Místnosti je možné řešit jenom postupně, to znamená, že na dané cestě není možné řešit žádnou místnost za blikající kuličkou. Teprve když ji vyřešíš, rozbliká se ta za ní a tak dále.</p>
+
+<p>Blikající místnost můžeš spustit kliknutím levým tlačítkem. Pokud klikneš na místnost, kterou jsi už vyřešil, objeví se statistika tvého řešení - počet tahů - a nabídnou se ti dvě možnosti: řešit znovu (ikona mozku) a prohlížet řešení (ikona oka).</p>
+
+<a name="control_keys"></a><h4>Ovládací klávesy</h4>
+
+<p>Po spuštění místnosti máš možnost <b>uložit pozici (F2)</b>, <b>nahrát pozici (F3)</b>, <b>zrušit hru (Escape)</b> a <b>začít řešit danou místnost od začátku (Backspace)</b>.</p>
+
+<p>Při ukládání pozice měj na paměti, že tím přemažeš předešlou uloženou pozici v daném levelu. Proto ukládej jen tehdy, když máš jistotu, že jdeš správnou cestou.</p>
+
+<p>Dalšími užitečnými akcemi je <b>nápověda (F1)</b>, <b>zobrazení počtu tahů (F5)</b>, <b>zobrazení/skrytí titulků (F6)</b>, <b>zvýšení rychlosti hry (podržením Shift)</b>, <b>zobrazení menu (F10)</b> nebo <b>přepnutí hry na celou obrazovku (F11)</b>.</p>
+
+<p>Další volby se nachází v herním menu, které se objeví po kliknutí na Options v pravém dolním rohu herní mapy nebo stisknutím klávesy F10. V menu je ovládání hlasitosti hudby a zvuků, výběru jazyka pro titulky nebo možnosti titulky úplně vypnout.</p>
+
+
+<a name="movement"></a><h4>Pohyb</h4>
+
+<p>Svoje rybičky můžeš ovládat třemi různými způsoby:</p>
+
+<ol>
+	<li>
+		<a name="arrow_keys"></a><h5>Kurzorovými klávesami</h5>
+
+		<p><b>Klávesami nahoru, dolů, doprava a doleva ovládáš aktivní rybku</b>. <b>Mezerníkem se můžeš mezi rybkami přepínat</b>.</p>
+
+		<p>Pokud se ti zdá, že ryba na tvoje pokyny nereaguje, pravděpodobně se snažíš odsunout něco, co není volně upevněný předmět, nebo se snažíš malou rybičkou posunout ocelový předmět.</p>
+
+		<p>Budeš-li držet kurzorovou klávesu stisknutou, pohyb rybičky se asi po třech polích zrychlí.</p>
+	</li>
+
+	<li>
+		<a name="mouse"></a><h5>Myší</h5>
+
+		<p>Ukaž kurzorem myši na místo, kam chceš s rybkou dojet, stiskni a drž stisknuté levé tlačítko myši. Pokud tam rybka může dojet, aniž by něčím pohnula, vydá se na cestu. Asi po třech polích se její pohyb zrychlí.</p>
+
+		<p>Pokud chceš nějakým předmětem pohnout, stiskni a drž stisknuté pravé tlačítko myši. Aktivní rybka se pohne nejkratší možnou cestou k místu, kam jsi ukázal.</p>
+
+		<p>Mezi rybami se můžeš přepínat prostě tak, že na rybu, kterou chceš aktivovat, klikneš levým tlačítkem.</p>
+	</li>
+
+	<li>
+		<a name="direct_control"></a><h5>Přímo</h5>
+
+		<p><b>Klávesami A, S, D a W můžeš ovládat malou rybičku a klávesami J, K L a I velkou rybku</b>. Toto ovládání má jedinou výhodu - nemusíš se přepínat mezi rybkami.</p>
+	</li>
+</ol>
+
+<hr />
+<a name="about_the_game"></a><h3>Principy hry</h3>
+
+<a name="your_goal"></a><h4>Cíl hry</h4>
+
+<p>V naprosté většině místností je tvým cílem dostat obě rybičky ven. Abys toho dosáhl, musíš různě přerovnat a přeskupit předměty v místnosti. Při tom je třeba dbát velké  opatrnosti, neboť rybičky jsou stvoření křehká a je snadno je zahubit. Viz také <a href="#movement_rules">Pravidla pro pohyb</a>.</p>
+
+<p>Cílem hry je vyřešit všechny místnosti ve hře.</p>
+
+
+<a name="movement_rules"></a><h4>Pravidla pro pohyb</h4>
+
+<p>Zvláště ze začátku se ti bude zdát, že tvoje rybičky hynou ze zcela nepochopitelných důvodů. Zde popíšeme pravidla, kterými se život rybiček řídí.</p>
+
+<blockquote>
+	<i>Definice dovoleného pohybu zní takto:</i>
+
+	<p>Velká rybka zahyne, pokud se nějaký předmět pohne jiným směrem než vzhůru a tento předmět ve své nové pozici spočívá přímo a pouze na rybce.</p>
+
+	<p>Velká rybka také zahyne, pokud se nějaký předmět pohne dolů a ve své nové pozici spočívá pouze na předmětu nebo skupině předmětů, které spočívají přímo a pouze na rybce.</p>
+
+	<p>Malá rybička zahyne ve všech případech, kdy by zahynula velká rybka. Navíc také zahyne v případě, že se dostane do situace, kdy pouze na ní spočívá ocelový předmět nebo skupina předmětů, která obsahuje ocelový předmět.</p>
+</blockquote>
+
+<p>Co to vlastně znamená, je vysvětleno v následujících odstavcích:</p>
+
+<a name="pushing_objects"></a><h5>Posun předmětů</h5>
+
+<p>Rybičkám hrozí nebezpečí jen tehdy, když nějakým předmětem hýbou. Nejjednodušší situace nastává, když jedna rybička předmět zdvihá - v takovém případě jí žádné nebezpečí nehrozí. Pokud v situaci na obrázku vlevo jde rybička nahoru, zdvihá sebou předmět. Jde-li doprava nebo doleva, nic se jí nestane, ale předmět zůstává na místě. Půjde-li doleva nebo doprava dost dlouho, nakonec zpod něj vyjede a předmět spadne na zem a nijak jí neublíží. Jediný směr, který pro ní znamená smrt, je pohyb dolů. V takovém případě na ni vlastně předmět, který dosud podpírala, spadne.</p>
+
+<p>Jestliže rybička před sebou nějaký předmět tlačí, musí ho mít položený na nějaké podložce. Kdyby držela ve vzduchu (vlastně ve vodě) předmět vhodného tvaru k tlačení jako na obrázku uprostřed, stejně ho nemůže posunout, tj. v tomto případě se nesmí pohnout vlevo. Jinak pro ni platí to samé jak v minulé situaci.</p>
+
+<p>Rybička může předmět, který se o nic neopírá, posunout jen tehdy, když se o něco opře v nové pozici, jako třeba na obrázku vpravo.</p>
+
+<img src="img/manual/pushing_objects.png" width="630" height="212" alt="pushing objects" />
+
+<a name="steel_object"></a><h5>Těžké předměty</h5>
+
+<p>Ve hře občas narazíš na tzv. těžké neboli ocelové předměty. Jsou to různé válce, které vypadají jako předmět vedle. <img src="img/manual/steel_object.png" width="15" height="45" alt="steel object" /> Těžké předměty může zdvihat a posunovat jen velká ryba. Malá rybička s nimi nepohne a pokud se někdy dostane pod ně, zahyne i v situaci, kterou by normálně (kdyby se nejednalo o těžký předmět) přežila.</p>
+
+<a name="transferring_objects"></a><h5>Předávání předmětů</h5>
+
+<p>Rybičky si mohou předměty předávat. Když jedna rybička předmět podpírá a druhá rybička najede do pozice, kdy předmět spočívá i na ní, může první rybička zase odjet. Na obrázku vlevo může odjet kterákoliv z rybek a předmět zůstane ležet na zbývající.</p>
+
+<p>Pozor na předávání těžkých předmětů. V situaci na obrázku vpravo může odjet jen malá rybička.</p>
+
+<img src="img/manual/transferring_objects.png" width="421" height="212" alt="transferring objects" />
+
+<a name="pushing_along_other_objects"></a><h5>Posunování po jiných předmětech</h5>
+
+<p>Oblíbeným trikem tvůrců místností jsou situace, kdy se přesunuje předmět po předmětu, který leží na rybičce. To je možné a je to vidět na obrázku vlevo.</p>
+
+<p>Není ovšem možné posunovat předmět po jiné rybičce stejně, jako rybička sama nemůže tlačit předmět, který se o nic neopírá. Na obrázku uprostřed nemůže malá rybička zatlačit, protože by posunula i spodní předmět a tím by velkou rybku zabila. Mohla by ovšem zatlačit na předmět ve tvaru L z druhé strany.</p>
+
+<p>Stejně tak není možné na rybičku přesunout předmět, který se dosud opíral o konstrukci, jak to vidíme na obrázku vpravo.</p>
+
+<img src="img/manual/pushing_along_other_objects.png" width="630" height="212" alt="pushing along other objects" />
+
+<a name="falling_objects"></a><h5>Shazování předmětů</h5>
+
+<p>Shazování předmětů je vždycky smrtelné. Nezáleží na tom, co shodíte nebo z jaké výšky; pokud předmět dopadne na rybičku nebo na něco, co se o rybičku opírá, znamená to pro ni smrt.</p>
+
+<p>Jediné případy, kdy je možné předmět po rybičce posunout, jsou situace, kdy předmět buď hned spadne nebo se opře o podklad. To je vidět na obrázku vlevo a uprostřed.</p>
+
+<p>Dávej si pozor na situace, kdy předmět sice spadne "na rybičku" ale ve skutečnosti dopadne na nějaký pevný podklad. V takovém případě je rybička v bezpečí, i když to tak na první pohled nevypadá. Příklad takové situace je na obrázku vpravo.</p>
+
+<img src="img/manual/falling_objects.png" width="625" height="212" alt="falling objects" />
+
+<a name="animated_object"></a><h5>Animované předměty</h5>
+
+<p>Některé předměty ve hře jsou animované: chobotnice hraje na balalajku, sasanky tančí, Vikingové si povídají a tak dále. To všechno je tu jen proto, aby ses při řešení místností nenudil. Nic z toho nemá význam pro řešení logických problémů. Ve skutečnosti jsou ve hře jen dva druhy objektů: obyčejné a těžké. Nezávisle na tom, jak vypadají, zaujímají určité množství elementárních čtverečků a to je jediná důležitá informace o každém předmětu.</p>
+
+<p>Nepokoušej se dotlačit pokličku na hrnec, rozbít sklenice, spojit magnety - nic v místnosti se nezmění. Můžeš se dočkat nějaké pěkné animace (takže si to radši přece jen zkus), ale tvar ani rozložení předmětů to neovlivní.</p>
+
+</body>
+
+</html>
