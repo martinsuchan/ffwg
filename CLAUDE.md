@@ -37,8 +37,13 @@ reasoning; check for later numbered entries too — decisions here can change):
 - Lua runtime: **wasmoon** (`wasmoon@^1.16.0`, Lua 5.4 via WASM). POC in
   `web/src/lua/luaPoc.ts` + `web/public/lua/sample.lua` confirms host callbacks work both
   ways (scalar return values and table round-trips) — see
-  `docs/002-2026-07-06-wasmoon-lua-poc.md`. Not yet tested against an actual legacy Lua 5.0
-  script (`fengari` remains the fallback if that spike finds something wasmoon can't run).
+  `docs/002-2026-07-06-wasmoon-lua-poc.md`. Checked against the real legacy corpus too:
+  `web/tools/check-lua-compat.mjs` (`scripts/check-lua-compat.ps1`) parses all 1,469
+  `legacy/script/**/*.lua` files with wasmoon's actual Lua 5.4 — 1,468 parse clean; the one
+  real incompatibility category found (`table.getn`, `loadstring`) is fixed via a loaded-once
+  shim, `web/public/lua/lua50-compat.lua`, not per-file edits — see
+  `docs/005-2026-07-06-lua-5-4-compatibility-check.md`. `fengari` fallback is no longer
+  needed.
 
 Commands (from repo root):
 

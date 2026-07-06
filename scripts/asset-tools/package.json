@@ -1,0 +1,11 @@
+{
+  "name": "ffwg-asset-tools",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Build-time only tooling for packing legacy level images into Phaser texture atlases. Not part of the shipped web app.",
+  "dependencies": {
+    "maxrects-packer": "^2.7.3",
+    "sharp": "^0.35.3"
+  }
+}
