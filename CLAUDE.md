@@ -44,6 +44,15 @@ reasoning; check for later numbered entries too — decisions here can change):
   shim, `web/public/lua/lua50-compat.lua`, not per-file edits — see
   `docs/005-2026-07-06-lua-5-4-compatibility-check.md`. `fengari` fallback is no longer
   needed.
+- First real level render: `web/src/lua/levelLoader.ts` runs a level's actual, unmodified
+  `legacy/script/<level>/models.lua` (+ `legacy/script/share/level_creation.lua`) through
+  wasmoon, and `web/src/scenes/LevelScene.ts` draws the result in Phaser — background, wall
+  overlay, items and both fish, all at their real grid positions (`x*15, y*15`, see
+  `legacy/src/level/View.h`'s `SCALE`). Dev-only: legacy `.lua`/image files are fetched
+  straight off disk via Vite's `/@fs/` route (`server.fs.allow` in `web/vite.config.ts`),
+  not copied — production packaging of Lua content is still open. Scoped to "models only"
+  (no dialogs/code.lua/animation/sound) — see
+  `docs/006-2026-07-07-level-models-rendering-poc.md`.
 
 Commands (from repo root):
 

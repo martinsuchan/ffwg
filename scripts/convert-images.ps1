@@ -33,6 +33,16 @@ if (-not (Test-Path $Source)) {
     throw "Source directory not found: $Source"
 }
 
+# Resolve to absolute, backslash-normalized paths so the relative-path
+# substring math below lines up with Get-ChildItem's FullName values
+# regardless of how -Source/-Destination were spelled (relative, forward
+# slashes, trailing slash, ...).
+$Source = (Resolve-Path -LiteralPath $Source).ProviderPath.TrimEnd('\', '/')
+if (-not [System.IO.Path]::IsPathRooted($Destination)) {
+    $Destination = Join-Path (Get-Location).Path $Destination
+}
+$Destination = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\', '/')
+
 $imageExtensions = @(".png", ".jpg", ".jpeg", ".gif", ".bmp")
 $files = Get-ChildItem -Path $Source -Recurse -File |
     Where-Object { $imageExtensions -contains $_.Extension.ToLowerInvariant() }

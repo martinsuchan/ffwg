@@ -1,1 +1,1 @@
-{"root":["./src/main.ts","./src/lua/luapoc.ts"],"version":"5.9.3"}
+{"root":["./src/main.ts","./src/lua/levelloader.ts","./src/lua/luapoc.ts","./src/scenes/levelscene.ts"],"version":"5.9.3"}
