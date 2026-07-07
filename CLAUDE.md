@@ -73,6 +73,27 @@ reasoning; check for later numbered entries too — decisions here can change):
   `file_include(...)` calls via a pre-scan (not a live host binding — calling back into a
   running wasmoon engine from a host callback corrupts its WASM state) — see
   `docs/008-2026-07-07-final-level-goals-and-file-include.md`.
+- Fish animation (body swim/turn/vertical/idle poses + head blink/pushing overlays) is done:
+  `file_exists` in `levelLoader.ts` is a real lookup now (`web/public/lua/image-manifest.json`,
+  built by `scripts/build-image-manifest.ps1`), so every real anim frame gets discovered, not
+  just phase 0 — `LevelModel.picture` (one resolved frame) is gone, replaced by the full
+  per-anim/per-side frame data. `web/src/game/UnitAnimator.ts` is a direct TS port of
+  `level_update.lua`'s `animateFish`/`animateHead` (which anim to play); `web/src/scenes/
+  ModelAnimator.ts` owns *when* frames actually change on screen plus position-slide tweening,
+  deliberately decoupled from `docs/007`'s physics round loop (confirmed with the user first —
+  see `docs/009` for the tradeoff). See
+  `docs/009-2026-07-07-fish-animation-system.md`, which also covers why texture atlases
+  (`docs/004`) are still deferred.
+- Position-slide timing bug fixed: the slide tween duration must stay under the physics
+  round interval or consecutive rounds stack tweens on top of each other — visible as a
+  continuously-driven fish's sprite lagging further and further behind its true grid cell,
+  or as a pushed item appearing to move diagonally when a horizontal push transitions into
+  a vertical fall. `web/src/game/timing.ts` (`ROUND_MS`) is now the single source of truth
+  for the round interval, shared by `LevelScene`'s round timer and `ModelAnimator`'s slide
+  duration; `ModelAnimator.sync()` also kills any in-flight tween and snaps to the last
+  grid-aligned pixel position before starting a new one, since a cube only ever moves one
+  axis per round (`Rules.dir` is a single value) — see
+  `docs/010-2026-07-07-position-slide-timing-fix.md`.
 
 Commands (from repo root):
 

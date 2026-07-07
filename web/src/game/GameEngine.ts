@@ -42,23 +42,26 @@ export interface RenderModel {
   isAlive: boolean;
   isOut: boolean;
   isLost: boolean;
-  /** Lua-style picture path, same as LevelModel.picture - resolve via the scene's asset URL mapping. */
-  picture: string | null;
+  /** Rules.getAction() this tick ("move_left"/"turn"/"rest"/...) - see web/src/game/UnitAnimator.ts. */
+  action: string;
+  /** Rules.getState() this tick ("pushing"/"normal"/"dead"/...) - see web/src/game/UnitAnimator.ts. */
+  state: string;
 }
 
 /**
  * Wires the parsed Lua level (web/src/lua/levelLoader.ts) into the game
  * rules port (Room/Cube/Unit/Rules/...), and exposes a per-round tick plus
  * render-friendly state snapshots. This is the "bare game logic" layer -
- * no animation, sound, dialogs or save/load. See docs/007.
+ * no rendering, sound, dialogs or save/load. Animation frame data
+ * (LevelModel.anims) is static per level and lives in the LevelData the
+ * caller already holds - GameEngine only reports live state. See docs/007
+ * for the physics/rules port, docs/009 for animation.
  */
 export class GameEngine {
   readonly room: Room;
-  private readonly pictures: (string | null)[];
 
   constructor(levelData: LevelData) {
     this.room = new Room(levelData.roomWidth, levelData.roomHeight);
-    this.pictures = levelData.models.map((m) => m.picture);
 
     for (const modelData of levelData.models) {
       const cube = buildCube(modelData);
@@ -98,7 +101,8 @@ export class GameEngine {
       isAlive: cube.isAlive,
       isOut: cube.isOut,
       isLost: cube.isLost,
-      picture: this.pictures[index],
+      action: cube.rules.getAction(),
+      state: cube.rules.getState(),
     }));
   }
 }

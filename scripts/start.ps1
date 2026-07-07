@@ -28,6 +28,12 @@ try {
         npm install
     }
 
+    $imageManifest = Join-Path $webDir "public\lua\image-manifest.json"
+    if (-not (Test-Path $imageManifest)) {
+        Write-Host "Generating image manifest..."
+        & (Join-Path $PSScriptRoot "build-image-manifest.ps1")
+    }
+
     $devArgs = @("run", "dev")
     if (-not $NoOpen) {
         $devArgs += @("--", "--open")

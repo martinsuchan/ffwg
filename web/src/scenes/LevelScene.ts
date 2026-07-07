@@ -1,10 +1,9 @@
 import Phaser from "phaser";
 
-import { GRID_SCALE, type LevelData } from "../lua/levelLoader";
+import { GRID_SCALE, type LevelData, type LevelModel } from "../lua/levelLoader";
 import { GameEngine } from "../game/GameEngine";
-
-/** One simulation round per this many ms - see docs/007 "Round timing". */
-const TICK_MS = 130;
+import { ROUND_MS } from "../game/timing";
+import { ModelAnimator, preloadModelFrames, resolveTextureKey } from "./ModelAnimator";
 
 /**
  * Maps a Lua-style picture path ("images/<level>/name.png") to the
@@ -17,17 +16,22 @@ function pictureToAssetUrl(picture: string): string {
   return `/assets/images/${withoutExt}.webp`;
 }
 
+function isFishKind(kind: string): boolean {
+  return kind.startsWith("fish_");
+}
+
 /**
  * Renders and plays a level's puzzle: background + every model, driven by
- * the real game-logic port (web/src/game/) on a fixed round tick. No
- * sprite animation, sound or dialogs - each model just snaps to its new
- * cell every round. WASD drives the big fish, IJKL the small fish (their
- * real legacy key bindings - see ModelFactory::createUnit). R restarts.
- * See docs/007 for the rules this plays by.
+ * the real game-logic port (web/src/game/) on a fixed round tick, with
+ * real fish body/head animation and item/fish position sliding on top
+ * (web/src/scenes/ModelAnimator.ts - see docs/009). WASD drives the big
+ * fish, IJKL the small fish (their real legacy key bindings - see
+ * ModelFactory::createUnit). R restarts. See docs/007 for the rules this
+ * plays by, docs/009 for the animation system.
  */
 export class LevelScene extends Phaser.Scene {
   private engine!: GameEngine;
-  private sprites = new Map<number, Phaser.GameObjects.Image>();
+  private animators = new Map<number, ModelAnimator>();
   private statusText!: Phaser.GameObjects.Text;
   private heldKeys = new Set<string>();
   private gameOver = false;
@@ -39,9 +43,7 @@ export class LevelScene extends Phaser.Scene {
   preload(): void {
     this.load.image("bg", pictureToAssetUrl(this.levelData.bgPicture));
     this.levelData.models.forEach((model, index) => {
-      if (model.picture) {
-        this.load.image(`model-${index}`, pictureToAssetUrl(model.picture));
-      }
+      preloadModelFrames(this, index, model.anims, pictureToAssetUrl);
     });
   }
 
@@ -69,35 +71,51 @@ export class LevelScene extends Phaser.Scene {
     this.startEngine();
 
     this.time.addEvent({
-      delay: TICK_MS,
+      delay: ROUND_MS,
       loop: true,
       callback: () => this.tick(),
     });
   }
 
   private startEngine(): void {
+    for (const animator of this.animators.values()) {
+      animator.destroy();
+    }
+    this.animators.clear();
+
     this.engine = new GameEngine(this.levelData);
     this.gameOver = false;
     this.statusText.setText("WASD = big fish, IJKL = small fish, R = restart");
 
     for (const model of this.engine.getRenderModels()) {
-      if (!model.picture) continue;
-      const existing = this.sprites.get(model.index);
-      if (existing) {
-        existing.setPosition(model.x * GRID_SCALE, model.y * GRID_SCALE);
-        existing.setVisible(true);
-        existing.setFlipX(!model.isLeft);
-        existing.clearTint();
-      } else {
-        const sprite = this.add
-          .image(
-            model.x * GRID_SCALE,
-            model.y * GRID_SCALE,
-            `model-${model.index}`,
-          )
-          .setOrigin(0, 0);
-        this.sprites.set(model.index, sprite);
-      }
+      const levelModel = this.levelData.models[model.index];
+      const initialKey = resolveInitialTextureKey(model.index, levelModel);
+      if (!initialKey) continue;
+
+      const isFish = isFishKind(model.kind);
+      const bodySprite = this.add
+        .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
+        .setOrigin(0, 0);
+      const headSprite = isFish
+        ? this.add
+            .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
+            .setOrigin(0, 0)
+            .setVisible(false)
+        : undefined;
+
+      const animator = new ModelAnimator(
+        this,
+        model.index,
+        levelModel.anims,
+        bodySprite,
+        isFish,
+        headSprite,
+        model.x,
+        model.y,
+        model.isLeft,
+      );
+      animator.sync(model);
+      this.animators.set(model.index, animator);
     }
   }
 
@@ -110,7 +128,10 @@ export class LevelScene extends Phaser.Scene {
 
     const input = { isPressed: (code: string) => this.heldKeys.has(code) };
     this.engine.tick(input);
-    this.syncSprites();
+
+    for (const model of this.engine.getRenderModels()) {
+      this.animators.get(model.index)?.sync(model);
+    }
 
     if (this.engine.isSolved()) {
       this.gameOver = true;
@@ -120,29 +141,18 @@ export class LevelScene extends Phaser.Scene {
       this.statusText.setText("A fish died - press R to restart.");
     }
   }
+}
 
-  private syncSprites(): void {
-    for (const model of this.engine.getRenderModels()) {
-      const sprite = this.sprites.get(model.index);
-      if (!sprite) continue;
-
-      if (model.isLost) {
-        sprite.setVisible(false);
-        continue;
-      }
-
-      sprite
-        .setPosition(model.x * GRID_SCALE, model.y * GRID_SCALE)
-        .setFlipX(!model.isLeft);
-
-      // Only fish have a meaningful alive/dead state - every inert item is
-      // "not alive" by definition, so only tint fish that actually died.
-      const isDeadFish = model.kind.startsWith("fish_") && !model.isAlive;
-      if (isDeadFish) {
-        sprite.setTint(0xaa3333);
-      } else {
-        sprite.clearTint();
-      }
-    }
-  }
+function resolveInitialTextureKey(
+  index: number,
+  levelModel: LevelModel,
+): string | null {
+  if (!levelModel.initialAnim) return null;
+  return resolveTextureKey(
+    index,
+    levelModel.anims,
+    levelModel.initialAnim,
+    levelModel.isLeft ? "left" : "right",
+    levelModel.initialPhase,
+  );
 }
