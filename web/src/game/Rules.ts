@@ -6,6 +6,19 @@ import { MarkMask } from "./MarkMask";
 import { OnCondition, OnStack, OnWall, onStrongPad } from "./OnCondition";
 
 /**
+ * Rounds a dead model stays masked/solid before it's unmasked and removed
+ * from the Field - port of legacy/src/effect/EffectDisintegrate.h's pixel-
+ * dissolve counter (`DISINT_START = 400`, `DISINT_SPEED = 30`, decremented
+ * once per rendered frame - `ceil(400/30) = 14` frames to reach zero). The
+ * original ties that counter to draw calls, which `docs/009` established
+ * run in lockstep with game-logic cycles in the original engine; here it's
+ * counted in physics rounds directly instead (docs/009's animation/physics
+ * decoupling means there's no render-call equivalent to hook on the
+ * physics side) - see docs/011.
+ */
+const DEATH_REMOVE_ROUNDS = 14;
+
+/**
  * Movement, pushing, falling and death rules for one Cube. Port of
  * legacy/src/level/Rules.h/.cpp - see docs/007 for the plain-English
  * writeup of what each check means.
@@ -24,6 +37,8 @@ export class Rules {
   private pushing = false;
   private lastFall = false;
   private outDepth = 0;
+  /** Rounds left before a corpse unmasks and is removed - see DEATH_REMOVE_ROUNDS. */
+  private deathRoundsLeft = 0;
 
   private mask: MarkMask | null = null;
 
@@ -119,6 +134,13 @@ export class Rules {
     if (this.readyToDie) {
       this.readyToDie = false;
       this.model.changeDie();
+      this.deathRoundsLeft = DEATH_REMOVE_ROUNDS;
+    } else if (!this.model.isLost && this.deathRoundsLeft > 0) {
+      this.deathRoundsLeft -= 1;
+      if (this.deathRoundsLeft === 0) {
+        this.m.unmask();
+        this.model.changeRemove();
+      }
     }
   }
 

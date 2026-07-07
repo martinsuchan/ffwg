@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 
 import { GRID_SCALE, type LevelData, type LevelModel } from "../lua/levelLoader";
+import { createLevelScript, type LevelScript } from "../lua/levelScript";
 import { GameEngine } from "../game/GameEngine";
 import { ROUND_MS } from "../game/timing";
 import { ModelAnimator, preloadModelFrames, resolveTextureKey } from "./ModelAnimator";
@@ -35,6 +36,13 @@ export class LevelScene extends Phaser.Scene {
   private statusText!: Phaser.GameObjects.Text;
   private heldKeys = new Set<string>();
   private gameOver = false;
+  /** Item animation (docs/014) - null until the async Lua bootstrap for
+   *  this play session resolves; tick()/ModelAnimator handle that gap by
+   *  just not applying any override yet, not by waiting for it. */
+  private levelScript: LevelScript | null = null;
+  /** Guards against a superseded startEngine()'s createLevelScript() call
+   *  resolving *after* a newer restart already happened - see startEngine(). */
+  private scriptGeneration = 0;
 
   constructor(private readonly levelData: LevelData) {
     super("level");
@@ -83,11 +91,18 @@ export class LevelScene extends Phaser.Scene {
     }
     this.animators.clear();
 
+    this.levelScript?.destroy();
+    this.levelScript = null;
+    this.scriptGeneration += 1;
+    const generation = this.scriptGeneration;
+
     this.engine = new GameEngine(this.levelData);
     this.gameOver = false;
     this.statusText.setText("WASD = big fish, IJKL = small fish, R = restart");
 
-    for (const model of this.engine.getRenderModels()) {
+    const initialRenderModels = this.engine.getRenderModels();
+
+    for (const model of initialRenderModels) {
       const levelModel = this.levelData.models[model.index];
       const initialKey = resolveInitialTextureKey(model.index, levelModel);
       if (!initialKey) continue;
@@ -117,6 +132,26 @@ export class LevelScene extends Phaser.Scene {
       animator.sync(model);
       this.animators.set(model.index, animator);
     }
+
+    // Fire-and-forget: physics/animators above already reset synchronously
+    // (no visible restart delay), and levelScript swaps in whenever the
+    // Lua bootstrap resolves - tick() just skips item-anim overrides until
+    // then. The generation check discards a superseded restart's result
+    // instead of resurrecting a stale engine (see docs/014).
+    createLevelScript(this.levelData.levelName, initialRenderModels)
+      .then((script) => {
+        if (generation !== this.scriptGeneration) {
+          script.destroy();
+          return;
+        }
+        this.levelScript = script;
+      })
+      .catch((error: unknown) => {
+        console.error(
+          `Failed to load level script for "${this.levelData.levelName}"`,
+          error,
+        );
+      });
   }
 
   private restart(): void {
@@ -124,14 +159,25 @@ export class LevelScene extends Phaser.Scene {
   }
 
   private tick(): void {
-    if (this.gameOver) return;
-
+    // The round loop keeps running even after the level is unwinnable, so
+    // e.g. a dead fish's corpse still disintegrates and drops whatever was
+    // resting on it (see docs/011) - only the status text/flag latch once.
     const input = { isPressed: (code: string) => this.heldKeys.has(code) };
     this.engine.tick(input);
 
-    for (const model of this.engine.getRenderModels()) {
-      this.animators.get(model.index)?.sync(model);
+    const renderModels = this.engine.getRenderModels();
+    this.levelScript?.tick(renderModels);
+
+    for (const model of renderModels) {
+      // Fish stay entirely TS-owned (docs/009/013) - only items consult the
+      // level's Lua-driven anim override (docs/014).
+      const scriptAnim = isFishKind(model.kind)
+        ? null
+        : (this.levelScript?.getScriptAnim(model.index) ?? null);
+      this.animators.get(model.index)?.sync(model, scriptAnim);
     }
+
+    if (this.gameOver) return;
 
     if (this.engine.isSolved()) {
       this.gameOver = true;

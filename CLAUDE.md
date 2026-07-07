@@ -94,6 +94,47 @@ reasoning; check for later numbered entries too — decisions here can change):
   grid-aligned pixel position before starting a new one, since a cube only ever moves one
   axis per round (`Rules.dir` is a single value) — see
   `docs/010-2026-07-07-position-slide-timing-fix.md`.
+- Corpse disintegration/removal ported: the original doesn't unmask a dead fish from the
+  Field on death — it stays solid for ~14 game cycles (`EffectDisintegrate`'s
+  `DISINT_START`/`DISINT_SPEED` math) before `Rules::changeState()` unmasks it and calls
+  `change_remove()` (the same removal an escaped/`goal_out` model gets). `web/src/game/
+  Rules.ts` now ports this as a round-counted timer (`DEATH_REMOVE_ROUNDS = 14`); until it
+  fires, a corpse still fully supports whatever rests on it, matching the original. Also
+  fixed a related bug found while verifying this: `LevelScene.tick()` was halting the round
+  loop entirely the instant a fish died (level unsolvable), which would have prevented the
+  new countdown from ever completing in real play — the loop now always keeps running,
+  `gameOver` only latches the status text once. See
+  `docs/011-2026-07-07-corpse-disintegration-and-removal.md`.
+- Restart sprite leak fixed: `ModelAnimator.destroy()` only removed its two `TimerEvent`s,
+  never the `bodySprite`/`headSprite` `Image` GameObjects it owns — every `R` restart left
+  the previous run's sprites on screen (frozen at their old texture/position) and added a
+  whole new set on top, compounding on every restart. Fix was one line: `destroy()` now also
+  calls `.destroy()` on both sprites. See `docs/012-2026-07-07-restart-sprite-leak-fix.md`.
+- Death-reaction visual timing fixed: compared `Rules.ts`'s death checks line-by-line against
+  `legacy/src/level/Rules.cpp` and confirmed the physics is faithful — the original's crush
+  detection is predictive by design (adjacent + already moving, not literal cell overlap,
+  since two cubes can never occupy the same Field cell). The bug was presentation-only:
+  `ModelAnimator` swapped a dying fish to its skeleton texture instantly, while the killer
+  item's own position slide (`SLIDE_MS`, `docs/010`) was still gliding into place, making the
+  fish look dead before its killer visibly arrived. Fix: the skeleton-pose swap is now
+  delayed by `SLIDE_MS` via `scene.time.delayedCall`, landing back in sync with the killer's
+  slide. See `docs/013-2026-07-07-death-reaction-visual-timing.md`.
+- Item animation (grail's aura pulse, airplane's eye blink, etc.) is done via **live Lua**,
+  not a TypeScript port — item animation is ~66 levels' worth of one-off hand-written
+  `code.lua` state machines (not one shared algorithm like physics/fish-animation), so
+  porting each would mean translating and re-verifying dozens of scripts, against this
+  project's own goal of reusing legacy Lua content unmodified. `web/src/lua/levelScript.ts`
+  runs each level's real bootstrap chain (`level_start.lua`'s `script_update()`, previously
+  never executed post-load) in a *persistent* wasmoon engine kept alive for the play
+  session — confirmed via research spikes that wasmoon's per-round Lua calls are
+  synchronous and ~0.1ms/round (no `async` restructuring needed), and that this repeated-call
+  pattern is safe (the `docs/008` reentrancy bug is specific to calling `doString()` from
+  inside a host callback, a different pattern). Host bindings read live model state from the
+  same `RenderModel[]` snapshot `LevelScene` already computes each round; `model_setAnim`/
+  `runAnim`/`useSpecialAnim` write into an override map `ModelAnimator` applies for
+  **non-fish models only** — fish stay entirely TS-owned (`docs/009`/`013`) even though the
+  real `script_update()` also drives fish anim internally via the same calls; those writes
+  are just never read. See `docs/014-2026-07-08-item-animation-via-live-lua.md`.
 
 Commands (from repo root):
 

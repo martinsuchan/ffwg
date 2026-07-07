@@ -53,7 +53,7 @@ interface HostModel {
   isLeft: boolean;
 }
 
-async function fetchText(url: string | URL): Promise<string> {
+export async function fetchText(url: string | URL): Promise<string> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`failed to fetch ${url}: ${response.status}`);
@@ -74,11 +74,11 @@ async function fetchText(url: string | URL): Promise<string> {
 // trailing slash as "replace the last segment" rather than "append to
 // it" - normalize explicitly so new URL(relativePath, LEGACY_ROOT) below
 // actually appends instead of silently landing one directory up.
-const LEGACY_ROOT = new URL(
+export const LEGACY_ROOT = new URL(
   new URL("../../../legacy/", import.meta.url).href.replace(/\/?$/, "/"),
 );
 
-function fetchLegacyFile(relativePath: string): Promise<string> {
+export function fetchLegacyFile(relativePath: string): Promise<string> {
   return fetchText(new URL(relativePath, LEGACY_ROOT));
 }
 
@@ -88,7 +88,7 @@ function fetchLegacyFile(relativePath: string): Promise<string> {
  * the two shapes actually used across legacy/script/*\/code.lua: a plain
  * string literal, and "script/"..codename.."/name.lua" concatenation.
  */
-function extractFileIncludes(source: string, levelName: string): string[] {
+export function extractFileIncludes(source: string, levelName: string): string[] {
   const paths: string[] = [];
 
   const literalRe = /file_include\(\s*['"]([^'"]+)['"]\s*\)/g;

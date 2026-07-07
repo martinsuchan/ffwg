@@ -4,6 +4,7 @@ import { GRID_SCALE, type AnimFrames } from "../lua/levelLoader";
 import type { RenderModel } from "../game/GameEngine";
 import { ROUND_MS } from "../game/timing";
 import { computeBodyAnim, computeHeadAnim } from "../game/UnitAnimator";
+import type { ScriptAnim } from "../lua/levelScript";
 
 type Side = "left" | "right";
 
@@ -30,6 +31,13 @@ const TRIGGER_WINDOW_MS = 300;
  *  defense for the same failure mode (e.g. a dropped frame delaying a
  *  round). */
 const SLIDE_MS = Math.round(ROUND_MS * 0.8);
+/** How long a model fades out once it's actually removed (isLost) - covers
+ *  both a disintegrated corpse (docs/011) and a goal_out/escape model
+ *  vanishing at the border. The original dissolves a corpse pixel-by-pixel
+ *  over ~1.4s while it's still solid (see DEATH_REMOVE_ROUNDS in Rules.ts);
+ *  this plays a plain alpha fade only *after* removal, as a cheap stand-in
+ *  for that per-level-shader-adjacent effect (out of scope - see docs/009). */
+const REMOVE_FADE_MS = 400;
 
 export function textureKey(
   index: number,
@@ -100,6 +108,9 @@ export class ModelAnimator {
   private lastPxX: number;
   private lastPxY: number;
   private lastIsLeft: boolean;
+  private removalStarted = false;
+  private deathReactionPending = false;
+  private deathReactionTimer?: Phaser.Time.TimerEvent;
 
   private bodyAnim = "rest";
   private bodyPhase = 0;
@@ -149,13 +160,32 @@ export class ModelAnimator {
   destroy(): void {
     this.bodyTimer.remove();
     this.headTimer?.remove();
+    this.deathReactionTimer?.remove();
+    this.bodySprite.destroy();
+    this.headSprite?.destroy();
   }
 
-  /** Called once per physics tick with the latest engine state. */
-  sync(model: RenderModel): void {
+  /** Called once per physics tick with the latest engine state. `scriptAnim`
+   *  is the level's Lua-driven (animName, phase) override for this round
+   *  (docs/014's item animation), consulted only for non-fish models - see
+   *  docs/014's "Fish vs item anim ownership" for why fish never look at it. */
+  sync(model: RenderModel, scriptAnim: ScriptAnim | null = null): void {
     if (model.isLost) {
-      this.bodySprite.setVisible(false);
-      this.headSprite?.setVisible(false);
+      if (!this.removalStarted) {
+        this.removalStarted = true;
+        const targets = this.headSprite ? [this.bodySprite, this.headSprite] : this.bodySprite;
+        this.scene.tweens.killTweensOf(targets);
+        this.scene.tweens.add({
+          targets,
+          alpha: 0,
+          duration: REMOVE_FADE_MS,
+          ease: "Linear",
+          onComplete: () => {
+            this.bodySprite.setVisible(false);
+            this.headSprite?.setVisible(false);
+          },
+        });
+      }
       return;
     }
     this.bodySprite.setVisible(true);
@@ -188,18 +218,32 @@ export class ModelAnimator {
     }
     this.lastIsLeft = model.isLeft;
 
-    if (!this.isFish) return;
+    if (!this.isFish) {
+      this.applyScriptAnim(scriptAnim);
+      return;
+    }
 
     this.lastIsAlive = model.isAlive;
     this.lastState = model.state;
 
     if (!model.isAlive) {
       // Dead: permanently show the skeleton pose, bypassing the trigger
-      // window entirely (nothing should ever supersede it again).
-      if (this.bodyAnim !== "skeleton") {
-        this.bodyAnim = "skeleton";
-        this.bodyPhase = 0;
-        this.applyBodyTexture();
+      // window entirely (nothing should ever supersede it again). Delayed
+      // by SLIDE_MS rather than shown instantly - the physics already
+      // detects this the round the killer (e.g. a falling item) becomes
+      // adjacent, one round before it would visually occupy this cell
+      // (matches the original's Rules::checkDeadFall exactly - see
+      // docs/013), and that killer's own position slide is still
+      // animating into place for the next SLIDE_MS. Showing the corpse
+      // immediately made it look like the fish died before the thing that
+      // killed it ever visually arrived.
+      if (this.bodyAnim !== "skeleton" && !this.deathReactionPending) {
+        this.deathReactionPending = true;
+        this.deathReactionTimer = this.scene.time.delayedCall(SLIDE_MS, () => {
+          this.bodyAnim = "skeleton";
+          this.bodyPhase = 0;
+          this.applyBodyTexture();
+        });
       }
       this.headSprite?.setVisible(false);
       return;
@@ -264,6 +308,18 @@ export class ModelAnimator {
     } else {
       this.headSprite.setVisible(false);
     }
+  }
+
+  /** Item animation (docs/014): applies the level's Lua-driven (name, phase)
+   *  override, if any, through the same texture pathway fish body anim
+   *  uses - reusing bodyAnim/bodyPhase as "this item's current anim" rather
+   *  than a parallel field, since items never used them before this. */
+  private applyScriptAnim(scriptAnim: ScriptAnim | null): void {
+    if (!scriptAnim) return;
+    if (scriptAnim.name === this.bodyAnim && scriptAnim.phase === this.bodyPhase) return;
+    this.bodyAnim = scriptAnim.name;
+    this.bodyPhase = scriptAnim.phase;
+    this.applyBodyTexture();
   }
 
   private currentSide(): Side {
