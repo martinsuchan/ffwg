@@ -1,0 +1,358 @@
+import { Dir, dir2xy } from "./Dir";
+import { V2 } from "./V2";
+import { Cube, Weight, Action } from "./Cube";
+import { Field } from "./Field";
+import { MarkMask } from "./MarkMask";
+import { OnCondition, OnStack, OnWall, onStrongPad } from "./OnCondition";
+
+/**
+ * Movement, pushing, falling and death rules for one Cube. Port of
+ * legacy/src/level/Rules.h/.cpp - see docs/007 for the plain-English
+ * writeup of what each check means.
+ *
+ * Intentionally dropped vs. the original: save/undo (change_setLocation),
+ * touchDir-triggered hint dialogs (touchSpec/setTouched - both no-ops:
+ * output_* border items, the only thing touchSpec affects, don't exist in
+ * airplane), and the "strict_rules" option toggle (this POC always uses
+ * the strict, default branch of checkDeadMove).
+ */
+export class Rules {
+  dir: Dir = Dir.NO;
+  private readyToDie = false;
+  private readyToTurn = false;
+  private readyToActive = false;
+  private pushing = false;
+  private lastFall = false;
+  private outDepth = 0;
+
+  private mask: MarkMask | null = null;
+
+  constructor(private readonly model: Cube) {}
+
+  takeField(field: Field): void {
+    this.mask = new MarkMask(this.model, field);
+    const resist = this.mask.getResist(Dir.NO);
+    if (resist.length > 0) {
+      throw new Error(
+        `position is occupied: model=${this.model.kind}@${this.model.location} resist=${resist[0].kind}`,
+      );
+    }
+    this.mask.mask();
+  }
+
+  private get m(): MarkMask {
+    if (!this.mask) throw new Error("Rules used before takeField()");
+    return this.mask;
+  }
+
+  /** Apply the move decided last round (occupyNewPos runs at the start of the *next* round - see docs/007). */
+  occupyNewPos(): void {
+    if (this.dir !== Dir.NO) {
+      this.pushing = false;
+      const shift = dir2xy(this.dir);
+      this.model.changeSetLocation(this.model.location.plus(shift));
+      this.m.mask();
+    }
+  }
+
+  checkDead(lastAction: Action): boolean {
+    let dead = false;
+    if (this.model.isAlive) {
+      switch (lastAction) {
+        case Action.FALL:
+          dead = this.checkDeadFall();
+          break;
+        case Action.MOVE:
+          dead = this.checkDeadMove();
+          break;
+        default:
+          dead = false;
+      }
+      if (!dead) {
+        dead = this.checkDeadStress();
+      }
+      if (dead) {
+        this.readyToDie = true;
+      }
+    }
+    return dead;
+  }
+
+  /** Crushed by an object that was just pushed/fell squarely onto your back. */
+  private checkDeadMove(): boolean {
+    const resist = this.m.getResist(Dir.UP);
+    for (const r of resist) {
+      if (!r.isAlive) {
+        const resistDir = r.rules.dir;
+        if (resistDir !== Dir.NO && resistDir !== Dir.UP) {
+          if (r.rules.isOnHolderBacks()) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Something actively falling lands on you with no wall in its support chain. */
+  private checkDeadFall(): boolean {
+    const killers = this.whoIsFalling();
+    return killers.some((k) => !k.rules.isOnWall());
+  }
+
+  /** Something too heavy for your power is resting on you with no other adequate support. */
+  private checkDeadStress(): boolean {
+    const killers = this.whoIsHeavier(this.model.power);
+    return killers.some((k) => !k.rules.isOnStrongPad(k.weight));
+  }
+
+  changeState(): void {
+    this.dir = Dir.NO;
+
+    if (this.readyToTurn) {
+      this.readyToTurn = false;
+      this.model.changeTurnSide();
+    }
+
+    this.readyToActive = false;
+
+    if (this.readyToDie) {
+      this.readyToDie = false;
+      this.model.changeDie();
+    }
+  }
+
+  /** Let a goal_escape/goal_out model walk toward and through the room border. Returns out-depth (0 = not going out, -1 = just vanished). */
+  actionOut(): number {
+    if (!this.model.isLost && !this.model.busy && this.dir === Dir.NO) {
+      if (this.model.goal.shouldGoOut()) {
+        if (this.m.isFullyOut()) {
+          this.model.changeGoOut();
+          this.outDepth = -1;
+        } else {
+          const borderDir = this.m.getBorderDir();
+          if (borderDir !== Dir.NO) {
+            this.model.changeGoingOut();
+            this.moveDirBrute(borderDir);
+            this.outDepth += 1;
+          } else {
+            this.outDepth = 0;
+          }
+        }
+      }
+    }
+    return this.outDepth;
+  }
+
+  actionFall(): void {
+    this.dir = Dir.DOWN;
+    this.lastFall = true;
+  }
+
+  clearLastFall(): boolean {
+    const last = this.lastFall;
+    this.lastFall = false;
+    return last;
+  }
+
+  freeOldPos(): void {
+    if (this.dir !== Dir.NO) {
+      this.m.unmask();
+    }
+  }
+
+  private isOnCond(cond: OnCondition): boolean {
+    if (cond.isSatisfy(this.model)) return true;
+    if (cond.isWrong(this.model)) return false;
+
+    this.m.unmask();
+    let result = false;
+    const resist = this.m.getResist(Dir.DOWN);
+    for (const r of resist) {
+      if (r.rules.isOnCond(cond)) {
+        result = true;
+        break;
+      }
+    }
+    this.m.mask();
+    return result;
+  }
+
+  isOnStack(): boolean {
+    return this.isOnCond(OnStack);
+  }
+
+  isOnWall(): boolean {
+    return this.isOnCond(OnWall);
+  }
+
+  isOnStrongPad(weight: Weight): boolean {
+    return this.isOnCond(onStrongPad(weight));
+  }
+
+  /** True when every alive model directly under us fully accounts for all our (possibly indirect) support. */
+  private isOnHolderBacks(): boolean {
+    let numDirectHolders = 0;
+    for (const r of this.m.getResist(Dir.DOWN)) {
+      if (r.isAlive) numDirectHolders += 1;
+    }
+    const pads = Array.from(new Set(this.getPads()));
+    return numDirectHolders === pads.length;
+  }
+
+  /** All alive fish and walls (transitively) supporting us from below. */
+  private getPads(): Cube[] {
+    const pads: Cube[] = [];
+    this.m.unmask();
+    for (const r of this.m.getResist(Dir.DOWN)) {
+      if (r.isAlive || r.isWall) {
+        pads.push(r);
+      } else {
+        pads.push(...r.rules.getPads());
+      }
+    }
+    this.m.mask();
+    return pads;
+  }
+
+  private isFalling(): boolean {
+    return !this.model.isAlive && this.dir === Dir.DOWN;
+  }
+
+  /** Actively-falling objects positioned directly above us (through a stack of inert items). */
+  private whoIsFalling(): Cube[] {
+    const result: Cube[] = [];
+    this.m.unmask();
+    for (const r of this.m.getResist(Dir.UP)) {
+      if (!r.isWall && !r.isAlive) {
+        if (r.rules.isFalling()) {
+          result.push(r);
+        } else {
+          result.push(...r.rules.whoIsFalling());
+        }
+      }
+    }
+    this.m.mask();
+    return result;
+  }
+
+  private isHeavier(power: Weight): boolean {
+    return !this.model.isWall && !this.model.isAlive && this.model.weight > power;
+  }
+
+  /** Objects above us (transitively) too heavy for `power` to safely hold. */
+  private whoIsHeavier(power: Weight): Cube[] {
+    const result: Cube[] = [];
+    this.m.unmask();
+    for (const r of this.m.getResist(Dir.UP)) {
+      if (!r.isWall) {
+        if (r.rules.isHeavier(power)) {
+          result.push(r);
+        } else {
+          result.push(...r.rules.whoIsHeavier(power));
+        }
+      }
+    }
+    this.m.mask();
+    return result;
+  }
+
+  /** Whether everything resisting us in `dir` would retreat before a push of `power`. */
+  canMoveOthers(dir: Dir, power: Weight): boolean {
+    let result = true;
+    this.m.unmask();
+    for (const r of this.m.getResist(dir)) {
+      if (this.model.goal.shouldGoOut() && r.isBorder) {
+        continue;
+      }
+      if (!r.rules.canDir(dir, power)) {
+        result = false;
+        break;
+      }
+    }
+    this.m.mask();
+    return result;
+  }
+
+  /** Whether others (pushing with `power`) can move us. Alive models can never be pushed. */
+  private canDir(dir: Dir, power: Weight): boolean {
+    if (!this.model.isAlive && power >= this.model.weight) {
+      if (this.model.isWall && !this.model.goal.shouldGoOut()) {
+        return false;
+      }
+      return this.canMoveOthers(dir, power);
+    }
+    return false;
+  }
+
+  private moveDirBrute(dir: Dir): void {
+    this.m.unmask();
+    for (const r of this.m.getResist(dir)) {
+      if (!r.isBorder) {
+        r.rules.moveDirBrute(dir);
+        this.pushing = true;
+      }
+    }
+    this.dir = dir;
+    this.m.mask();
+  }
+
+  /** Try to move. Only sets `dir` (see occupyNewPos) - either everything resisting retreats, or nothing moves. */
+  actionMoveDir(dir: Dir): boolean {
+    if (this.canMoveOthers(dir, this.model.power)) {
+      this.moveDirBrute(dir);
+      return true;
+    }
+    return false;
+  }
+
+  actionTurnSide(): void {
+    this.readyToTurn = true;
+  }
+
+  actionActivate(): void {
+    this.readyToActive = true;
+  }
+
+  getAction(): string {
+    if (this.readyToTurn) return "turn";
+    if (this.readyToActive) return "activate";
+    if (this.model.busy) return "busy";
+
+    switch (this.dir) {
+      case Dir.LEFT:
+        return "move_left";
+      case Dir.RIGHT:
+        return "move_right";
+      case Dir.UP:
+        return "move_up";
+      case Dir.DOWN:
+        return "move_down";
+      default:
+        return "rest";
+    }
+  }
+
+  getState(): string {
+    if (this.outDepth === 1) return "goout";
+    if (!this.model.isAlive) return "dead";
+    if (this.pushing) return "pushing";
+    return "normal";
+  }
+
+  isAtBorder(): boolean {
+    return this.m.getBorderDir() !== Dir.NO;
+  }
+
+  isFreePlace(loc: V2): boolean {
+    return this.m.getPlacedResist(loc).length === 0;
+  }
+
+  getResist(dir: Dir): Cube[] {
+    return this.m.getResist(dir);
+  }
+
+  resetLastDir(): void {
+    this.dir = Dir.NO;
+  }
+}

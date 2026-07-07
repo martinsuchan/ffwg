@@ -53,6 +53,26 @@ reasoning; check for later numbered entries too — decisions here can change):
   not copied — production packaging of Lua content is still open. Scoped to "models only"
   (no dialogs/code.lua/animation/sound) — see
   `docs/006-2026-07-07-level-models-rendering-poc.md`.
+- First playable puzzle logic: `web/src/game/` is a line-for-line TS port of the physics/
+  rules classes (`Field`, `MarkMask`, `Rules`, `Landslip`, `Cube`, `Goal`, `Unit`,
+  `ModelFactory`, `Room` — see "Legacy game" below for what each does), wired to the parsed
+  Lua level via `web/src/game/GameEngine.ts`. `airplane` is playable end-to-end in
+  `LevelScene` on a fixed round tick: WASD drives the big fish, IJKL the small fish (their
+  real legacy key bindings, from `ModelFactory::createUnit`) — no animation/sound/save/undo.
+  Verified against the real ported code via synthetic-room tests (push/fall/death/escape) and
+  an extended real-browser playthrough, not just read-through — see
+  `docs/007-2026-07-07-game-logic-port-and-playable-poc.md`, which also documents the actual
+  gameplay rules (who can push what, the three ways a fish can die, win/lose conditions).
+- `levelLoader.ts` also runs each level's `code.lua` now (not just `models.lua`), since 9
+  levels — each world's final level (`grail`, `barrel`, `floppy`, `atlantis`, `gods`,
+  `linux`, `map`, `propulsion`, `turtle`) — reassign goals there: both fish get `goal_alive`
+  instead of `goal_escape`, and a specific item gets `goal_out` instead (push *that* out of
+  the room). The physics port needed zero changes for this — `Rules::actionOut()` already
+  works on any model with `shouldGoOut()`, not just fish. Also loads `level_plan.lua` and
+  `prog_goanim.lua` (pure-Lua utilities these depend on) and resolves each level's own
+  `file_include(...)` calls via a pre-scan (not a live host binding — calling back into a
+  running wasmoon engine from a host callback corrupts its WASM state) — see
+  `docs/008-2026-07-07-final-level-goals-and-file-include.md`.
 
 Commands (from repo root):
 
