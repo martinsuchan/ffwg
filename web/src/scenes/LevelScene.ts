@@ -25,15 +25,23 @@ function isFishKind(kind: string): boolean {
  * Renders and plays a level's puzzle: background + every model, driven by
  * the real game-logic port (web/src/game/) on a fixed round tick, with
  * real fish body/head animation and item/fish position sliding on top
- * (web/src/scenes/ModelAnimator.ts - see docs/009). WASD drives the big
- * fish, IJKL the small fish (their real legacy key bindings - see
- * ModelFactory::createUnit). R restarts. See docs/007 for the rules this
- * plays by, docs/009 for the animation system.
+ * (web/src/scenes/ModelAnimator.ts - see docs/009). One fish is "active"
+ * at a time (small fish first, legacy's default): arrow keys always drive
+ * the active fish, WASD/IJKL drive the big/small fish directly (their real
+ * legacy key bindings - see ModelFactory::createUnit) and silently make it
+ * active, and Space explicitly switches active fish with a brief "greet"
+ * pose (see docs/016, web/src/game/Controls.ts). R restarts. See docs/007
+ * for the rules this plays by, docs/009 for the animation system.
  */
 export class LevelScene extends Phaser.Scene {
   private engine!: GameEngine;
   private animators = new Map<number, ModelAnimator>();
   private statusText!: Phaser.GameObjects.Text;
+  /** Dialog text (docs/015) - fixed screen position, matching the
+   *  original's own fixed on-screen subtitle region rather than per-fish
+   *  floating speech bubbles (SubTitleAgent's TITLE_BASE, confirmed from
+   *  source). English only, no audio. */
+  private subtitleText!: Phaser.GameObjects.Text;
   private heldKeys = new Set<string>();
   private gameOver = false;
   /** Item animation (docs/014) - null until the async Lua bootstrap for
@@ -68,6 +76,24 @@ export class LevelScene extends Phaser.Scene {
       })
       .setDepth(1000);
 
+    const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
+    const roomHeightPx = this.levelData.roomHeight * GRID_SCALE;
+    this.subtitleText = this.add
+      .text(roomWidthPx / 2, roomHeightPx - 8, "", {
+        fontFamily: "sans-serif",
+        fontSize: "13px",
+        color: "#ffffff",
+        backgroundColor: "#000000c0",
+        padding: { x: 8, y: 4 },
+        align: "center",
+        wordWrap: { width: roomWidthPx - 40 },
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(1000)
+      .setVisible(false);
+
+    // Capture arrows/space so the browser doesn't scroll the page while playing.
+    this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE");
     this.input.keyboard!.on("keydown", (e: KeyboardEvent) =>
       this.heldKeys.add(e.code),
     );
@@ -75,6 +101,7 @@ export class LevelScene extends Phaser.Scene {
       this.heldKeys.delete(e.code),
     );
     this.input.keyboard!.on("keydown-R", () => this.restart());
+    this.input.keyboard!.on("keydown-SPACE", () => this.engine.switchFish());
 
     this.startEngine();
 
@@ -98,7 +125,9 @@ export class LevelScene extends Phaser.Scene {
 
     this.engine = new GameEngine(this.levelData);
     this.gameOver = false;
-    this.statusText.setText("WASD = big fish, IJKL = small fish, R = restart");
+    this.statusText.setText(
+      "Arrows = active fish, WASD = big fish, IJKL = small fish, Space = switch, R = restart",
+    );
 
     const initialRenderModels = this.engine.getRenderModels();
 
@@ -138,7 +167,7 @@ export class LevelScene extends Phaser.Scene {
     // Lua bootstrap resolves - tick() just skips item-anim overrides until
     // then. The generation check discards a superseded restart's result
     // instead of resurrecting a stale engine (see docs/014).
-    createLevelScript(this.levelData.levelName, initialRenderModels)
+    createLevelScript(this.levelData.levelName, initialRenderModels, generation)
       .then((script) => {
         if (generation !== this.scriptGeneration) {
           script.destroy();
@@ -167,6 +196,13 @@ export class LevelScene extends Phaser.Scene {
 
     const renderModels = this.engine.getRenderModels();
     this.levelScript?.tick(renderModels);
+
+    const subtitle = this.levelScript?.getActiveSubtitle() ?? null;
+    if (subtitle) {
+      this.subtitleText.setText(subtitle.text).setVisible(true);
+    } else {
+      this.subtitleText.setVisible(false);
+    }
 
     for (const model of renderModels) {
       // Fish stay entirely TS-owned (docs/009/013) - only items consult the

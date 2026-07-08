@@ -74,6 +74,11 @@ export class GameEngine {
     this.room.nextRound(input);
   }
 
+  /** Space key: switch which fish is active - see docs/016. */
+  switchFish(): void {
+    this.room.switchFish();
+  }
+
   isSolved(): boolean {
     return this.room.isSolved();
   }
@@ -119,8 +124,10 @@ function buildCube(modelData: LevelModel): Cube {
 
 function buildUnit(cube: Cube, kind: string): Unit | undefined {
   if (!isFishKind(kind)) return undefined;
-  const keys = kind === "fish_small" ? SMALL_FISH_KEYS : BIG_FISH_KEYS;
-  return new Unit(cube, keys);
+  const isSmall = kind === "fish_small";
+  const keys = isSmall ? SMALL_FISH_KEYS : BIG_FISH_KEYS;
+  // legacy/src/level/ModelFactory.cpp's createUnit(): only fish_small starts active.
+  return new Unit(cube, keys, isSmall);
 }
 
 export type { InputProvider };

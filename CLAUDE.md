@@ -135,6 +135,28 @@ reasoning; check for later numbered entries too — decisions here can change):
   **non-fish models only** — fish stay entirely TS-owned (`docs/009`/`013`) even though the
   real `script_update()` also drives fish anim internally via the same calls; those writes
   are just never read. See `docs/014-2026-07-08-item-animation-via-live-lua.md`.
+- Dialog/subtitle text is real now (English only, no voice audio/music yet). Built on
+  `docs/014`'s live Lua engine: `game_planAction`/`game_isPlanning` are real now (a FIFO
+  matching `legacy/src/plan/CommandQueue.cpp`'s single-command-at-a-time design, not the
+  previous docs/014 no-op stub), `model_talk`/`dialog_isDialog`/`model_isTalking` are real,
+  and `dialogLoad()` is deliberately bypassed (would enumerate ~15 languages via
+  `select_lang.lua` and re-trigger `docs/008`'s reentrancy risk) in favor of pre-fetching
+  each level's English `dialogs_en.lua` files directly. Subtitle duration is
+  `Dialog::getMinTime()`'s own no-sound fallback formula (`min(180, textLength)` cycles,
+  ported from `legacy/src/gengine/Dialog.cpp`) — not an invented heuristic, the original's
+  own answer for exactly this case. `level_getRestartCounter()` is also real now, backed by
+  `LevelScene`'s existing per-restart counter — so `code.lua`'s attempt-based dialog
+  probability/delay (`pokus`) genuinely varies across restarts. See
+  `docs/015-2026-07-08-dialog-text-display.md`.
+- Controls now match the original's real scheme instead of the earlier "WASD always
+  drives big fish, IJKL always drives small fish" POC: one fish is "active" at a time
+  (small fish first, matching `ModelFactory::createUnit`'s `startActive`), arrow keys
+  always drive whichever fish is active, WASD/IJKL still drive their own fish directly
+  and silently make it active, and Space explicitly switches the active fish — which
+  triggers a brief "greet" animation (a held turn-pose frame) via `Rules.actionActivate()`,
+  a code path `docs/007`/`docs/009` had already ported but left unreachable pending this
+  feature. `web/src/game/Controls.ts` (new) ports the relevant subset of
+  `legacy/src/level/Controls.cpp`. See `docs/016-2026-07-08-active-fish-control-scheme.md`.
 
 Commands (from repo root):
 

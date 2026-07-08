@@ -1,19 +1,20 @@
 import { Cube, Action } from "./Cube";
 import { Field } from "./Field";
 import { Landslip } from "./Landslip";
+import { Controls } from "./Controls";
 import { Unit, InputProvider } from "./Unit";
 
 /**
  * One round of the puzzle: apply the previous round's pending moves, check
  * for deaths, let goal_escape models walk out through the border, then let
  * unsupported items fall. Port of legacy/src/level/Room.h/.cpp, reduced to
- * just the simulation - drawing, sound, mouse control, save/undo and the
- * shared-arrow/active-unit switching scheme are dropped (see docs/007).
+ * just the simulation - drawing, sound, mouse control and save/undo are
+ * dropped; the active-fish-switch scheme (docs/016) lives in Controls.ts.
  */
 export class Room {
   readonly field: Field;
   readonly models: Cube[] = [];
-  readonly units: Unit[] = [];
+  private readonly controls = new Controls();
   private lastAction: Action = Action.NO;
   /** Cubes that died (isAlive -> false) during the most recently finished round. */
   lastDead: Cube[] = [];
@@ -30,7 +31,7 @@ export class Room {
     this.models.push(model);
     model.index = this.models.length - 1;
     if (unit) {
-      this.units.push(unit);
+      this.controls.addUnit(unit);
     }
     return model.index;
   }
@@ -96,17 +97,18 @@ export class Room {
     return slip.computeFall();
   }
 
-  /** First unit (in registration order) whose own keys are held and can move wins the round. */
   private driving(input: InputProvider): boolean {
-    for (const unit of this.units) {
-      if (unit.drive(input)) return true;
-    }
-    return false;
+    return this.controls.driving(input);
+  }
+
+  /** Space key: switch to the next drivable fish - legacy's Room::switchFish(). */
+  switchFish(): void {
+    this.controls.requestSwitch();
   }
 
   /** No unit will ever be able to move again (all driven fish dead/lost). */
   cannotMove(): boolean {
-    return this.units.every((u) => !u.willMove());
+    return this.controls.cannotMove();
   }
 
   /** All goals can still possibly be satisfied (false forever once a goal_escape fish dies). */
