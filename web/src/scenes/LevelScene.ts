@@ -1,10 +1,13 @@
 import Phaser from "phaser";
 
 import { GRID_SCALE, type LevelData, type LevelModel } from "../lua/levelLoader";
-import { createLevelScript, type LevelScript } from "../lua/levelScript";
+import { createLevelScript, type LevelScript, type ResolvedSound } from "../lua/levelScript";
 import { GameEngine } from "../game/GameEngine";
+import { V2 } from "../game/V2";
+import { Weight } from "../game/Cube";
 import { ROUND_MS } from "../game/timing";
 import { ModelAnimator, preloadModelFrames, resolveTextureKey } from "./ModelAnimator";
+import { AudioManager } from "./AudioManager";
 
 /**
  * Maps a Lua-style picture path ("images/<level>/name.png") to the
@@ -30,8 +33,12 @@ function isFishKind(kind: string): boolean {
  * the active fish, WASD/IJKL drive the big/small fish directly (their real
  * legacy key bindings - see ModelFactory::createUnit) and silently make it
  * active, and Space explicitly switches active fish with a brief "greet"
- * pose (see docs/016, web/src/game/Controls.ts). R restarts. See docs/007
- * for the rules this plays by, docs/009 for the animation system.
+ * pose (see docs/016, web/src/game/Controls.ts). Mouse: click a fish to
+ * select it, click-and-hold the left button to path the active fish
+ * around obstacles toward the cursor, hold the right button to push it
+ * straight toward the cursor (see docs/017, web/src/game/MouseControl.ts).
+ * R restarts. See docs/007 for the rules this plays by, docs/009 for the
+ * animation system.
  */
 export class LevelScene extends Phaser.Scene {
   private engine!: GameEngine;
@@ -51,6 +58,11 @@ export class LevelScene extends Phaser.Scene {
   /** Guards against a superseded startEngine()'s createLevelScript() call
    *  resolving *after* a newer restart already happened - see startEngine(). */
   private scriptGeneration = 0;
+  /** Music/sound-effect/dialog-voice playback - see docs/018. */
+  private audioManager!: AudioManager;
+  /** Identity of the dialog last seen active, so a new dialog's voice clip
+   *  plays exactly once (docs/018) rather than every round it's showing. */
+  private lastDialogId: string | null = null;
 
   constructor(private readonly levelData: LevelData) {
     super("level");
@@ -103,6 +115,16 @@ export class LevelScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-R", () => this.restart());
     this.input.keyboard!.on("keydown-SPACE", () => this.engine.switchFish());
 
+    // Right-click is a real game action (push-toward-cursor) now, so the
+    // browser's context menu would otherwise get in the way.
+    this.input.mouse?.disableContextMenu();
+    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (pointer.leftButtonDown()) {
+        this.engine.selectAt(this.toFieldPos(pointer));
+      }
+    });
+
+    this.audioManager = new AudioManager(this);
     this.startEngine();
 
     this.time.addEvent({
@@ -122,11 +144,16 @@ export class LevelScene extends Phaser.Scene {
     this.levelScript = null;
     this.scriptGeneration += 1;
     const generation = this.scriptGeneration;
+    // Level::own_initState() always stops music on a fresh restart (this
+    // port has no undo to exempt) - docs/018.
+    this.audioManager.reset();
+    this.lastDialogId = null;
 
     this.engine = new GameEngine(this.levelData);
     this.gameOver = false;
     this.statusText.setText(
-      "Arrows = active fish, WASD = big fish, IJKL = small fish, Space = switch, R = restart",
+      "Arrows = active fish, WASD = big fish, IJKL = small fish, Space = switch, " +
+        "click = select, hold-click = swim there, hold-right-click = push there, R = restart",
     );
 
     const initialRenderModels = this.engine.getRenderModels();
@@ -187,11 +214,25 @@ export class LevelScene extends Phaser.Scene {
     this.startEngine();
   }
 
+  /** Converts a pointer's world position (already zoom/scroll-adjusted by
+   *  Phaser) to a field cell, the same GRID_SCALE mapping sprites use -
+   *  legacy's View::getFieldPos(), simplified since this project never
+   *  scrolls the camera. */
+  private toFieldPos(pointer: Phaser.Input.Pointer): V2 {
+    return new V2(Math.floor(pointer.worldX / GRID_SCALE), Math.floor(pointer.worldY / GRID_SCALE));
+  }
+
   private tick(): void {
     // The round loop keeps running even after the level is unwinnable, so
     // e.g. a dead fish's corpse still disintegrates and drops whatever was
     // resting on it (see docs/011) - only the status text/flag latch once.
-    const input = { isPressed: (code: string) => this.heldKeys.has(code) };
+    const pointer = this.input.activePointer;
+    const input = {
+      isPressed: (code: string) => this.heldKeys.has(code),
+      isLeftPressed: () => pointer.leftButtonDown(),
+      isRightPressed: () => pointer.rightButtonDown(),
+      getMouseField: () => this.toFieldPos(pointer),
+    };
     this.engine.tick(input);
 
     const renderModels = this.engine.getRenderModels();
@@ -203,6 +244,7 @@ export class LevelScene extends Phaser.Scene {
     } else {
       this.subtitleText.setVisible(false);
     }
+    this.tickAudio(subtitle);
 
     for (const model of renderModels) {
       // Fish stay entirely TS-owned (docs/009/013) - only items consult the
@@ -222,6 +264,44 @@ export class LevelScene extends Phaser.Scene {
       this.gameOver = true;
       this.statusText.setText("A fish died - press R to restart.");
     }
+  }
+
+  /** Music, one-shot sound effects, built-in impact/death sounds, and
+   *  dialog/NPC voice playback for this round - see docs/018. */
+  private tickAudio(subtitle: { sound: ResolvedSound | null; volume: number } | null): void {
+    void this.audioManager.applyMusicCommand(this.levelScript?.getMusicCommand() ?? null);
+
+    for (const effect of this.levelScript?.getPendingSoundEffects() ?? []) {
+      void this.audioManager.playSoundEffect(effect.sound, effect.volume);
+    }
+
+    // Built-in sounds (Room::playImpact/playDead) - no Lua call site at
+    // all, resolved through the same sound_addSound()-populated registry
+    // (level_creation.lua registers these 4 names for every level).
+    const impact = this.engine.lastImpact;
+    if (impact === Weight.LIGHT) this.playNamedSound("impact_light", 50);
+    else if (impact === Weight.HEAVY) this.playNamedSound("impact_heavy", 50);
+
+    for (const dead of this.engine.lastDead) {
+      this.levelScript?.killSound(dead.index);
+      if (dead.power === Weight.LIGHT) this.playNamedSound("dead_small", 100);
+      else if (dead.power === Weight.HEAVY) this.playNamedSound("dead_big", 100);
+    }
+
+    // Dialog/NPC voice: play once when a *new* dialog starts, not every
+    // round it's still showing.
+    const dialogId = this.levelScript?.getActiveDialogId() ?? null;
+    if (dialogId !== this.lastDialogId) {
+      this.lastDialogId = dialogId;
+      if (dialogId && subtitle?.sound) {
+        void this.audioManager.playSoundEffect(subtitle.sound, subtitle.volume);
+      }
+    }
+  }
+
+  private playNamedSound(name: string, volume: number): void {
+    const sound = this.levelScript?.resolveSound(name) ?? null;
+    if (sound) void this.audioManager.playSoundEffect(sound, volume);
   }
 }
 

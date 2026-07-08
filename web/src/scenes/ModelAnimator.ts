@@ -20,6 +20,22 @@ const PHASE_MS = 100;
  *  PhaseLocker-style round pacing. A held key keeps re-triggering the same
  *  anim every physics tick, which just extends this window smoothly. */
 const TRIGGER_WINDOW_MS = 300;
+/**
+ * Visual-only "swims faster" tiers (docs/017), keyed off Rules.moveStreak
+ * (consecutive non-turn, non-pushing moves). Inspired by, not a literal
+ * port of, the original's SPEED_WARP1=6/SPEED_WARP2=10 thresholds - the
+ * original ties speedup to shortening the round's real-world duration
+ * itself (PhaseLocker), which this project deliberately doesn't do
+ * (docs/010's fixed ROUND_MS); this instead scales how fast the swim
+ * animation cycles and how quickly the position-slide tween completes,
+ * so grid movement stays exactly one cell per round throughout.
+ */
+function speedStepsFor(moveStreak: number): number {
+  if (moveStreak > 10) return 3;
+  if (moveStreak > 6) return 2;
+  return 1;
+}
+
 /** Position-slide duration must stay under ROUND_MS (docs/010) - a new
  *  RenderModel (and thus a new tween target) arrives every ROUND_MS, so a
  *  slide has to finish with margin to spare or the next round's tween
@@ -116,6 +132,8 @@ export class ModelAnimator {
   private bodyPhase = 0;
   private bodyRunning = true;
   private triggerExpiresAt = 0;
+  /** Visual "swims faster" multiplier from the latest sync() - see speedStepsFor(). */
+  private speedSteps = 1;
 
   private headAnim: string | null = null;
   private headPhase = 0;
@@ -189,6 +207,7 @@ export class ModelAnimator {
       return;
     }
     this.bodySprite.setVisible(true);
+    this.speedSteps = speedStepsFor(model.moveStreak);
 
     const targetX = model.x * GRID_SCALE;
     const targetY = model.y * GRID_SCALE;
@@ -210,7 +229,9 @@ export class ModelAnimator {
         targets,
         x: targetX,
         y: targetY,
-        duration: SLIDE_MS,
+        // Swims-faster streak (docs/017) shortens the glide itself, not
+        // just the fin-flap rate - stays well under ROUND_MS at every tier.
+        duration: SLIDE_MS / this.speedSteps,
         ease: "Linear",
       });
       this.lastPxX = targetX;
@@ -274,7 +295,11 @@ export class ModelAnimator {
     if (this.bodyRunning) {
       const count = frameCount(this.anims, this.bodyAnim, this.currentSide());
       if (count > 0) {
-        this.bodyPhase = (this.bodyPhase + 1) % count;
+        // Swims-faster streak (docs/017) only speeds up the swim cycle
+        // itself, matching the original scoping its speedup divisor to
+        // non-turning moves only - vertical/turn anims always step by 1.
+        const steps = this.bodyAnim === "swam" ? this.speedSteps : 1;
+        this.bodyPhase = (this.bodyPhase + steps) % count;
       }
       this.applyBodyTexture();
     }

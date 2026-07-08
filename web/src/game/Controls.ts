@@ -1,3 +1,4 @@
+import { Cube } from "./Cube";
 import { InputProvider, KeyControl, Unit } from "./Unit";
 
 /**
@@ -16,10 +17,9 @@ const ARROW_KEYS: KeyControl = {
  * Tracks which fish is "active" and resolves one round of key input to a
  * move. Port of legacy/src/level/Controls.h/.cpp, reduced to the driving/
  * switching subset this port needs - save/undo move recording (m_moves),
- * mouse selection (activateSelected), phase-lock speedup and discrete-
- * keystroke/demo replay (controlEvent/useStroke/m_strokeSymbol) are
- * dropped, matching this project's existing no-save/no-demo scope
- * (docs/007). See docs/016.
+ * phase-lock speedup and discrete-keystroke/demo replay (controlEvent/
+ * useStroke/m_strokeSymbol) are dropped, matching this project's existing
+ * no-save/no-demo scope (docs/007). See docs/016, docs/017.
  */
 export class Controls {
   private units: Unit[] = [];
@@ -58,6 +58,18 @@ export class Controls {
   /** True once every driven fish is permanently unable to move (dead/lost). */
   cannotMove(): boolean {
     return this.units.every((u) => !u.willMove());
+  }
+
+  /** Click-to-select: makes the unit owning `model` active, with the same
+   *  greet flash as Space - legacy's Controls::activateSelected(). Even
+   *  reclicking the already-active fish re-triggers the flash, matching
+   *  the original (it never checks whether active actually changed). */
+  activateSelected(model: Cube): boolean {
+    const index = this.units.findIndex((u) => u.cube === model);
+    if (index === -1) return false;
+    this.active = index;
+    this.switchPending = true;
+    return true;
   }
 
   /** Consumes a pending switch: greets the new active fish (activate())

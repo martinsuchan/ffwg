@@ -1,4 +1,5 @@
 import { Dir } from "./Dir";
+import { V2 } from "./V2";
 import { Cube } from "./Cube";
 
 export interface KeyControl {
@@ -10,6 +11,11 @@ export interface KeyControl {
 
 export interface InputProvider {
   isPressed(key: string): boolean;
+  /** Mouse controls (docs/017) - optional so keyboard-only test harnesses
+   *  keep working unmodified; real gameplay input implements all three. */
+  isLeftPressed?(): boolean;
+  isRightPressed?(): boolean;
+  getMouseField?(): V2 | null;
 }
 
 /**
@@ -53,10 +59,38 @@ export class Unit {
   }
 
   /** Greets the player with a brief held pose - legacy's Unit::activate(),
-   *  triggered when this unit becomes active via Space or an automatic
-   *  switch (see Controls.ts). */
+   *  triggered when this unit becomes active via Space, a click, or an
+   *  automatic switch (see Controls.ts). */
   activate(): void {
     this.cube.rules.actionActivate();
+  }
+
+  /** Whether this unit's whole shape would fit at `loc` with nothing
+   *  resisting - legacy's Unit::isFreePlace(), used by FinderAlg. */
+  isFreePlace(loc: V2): boolean {
+    return this.cube.rules.isFreePlace(loc);
+  }
+
+  /** Drives directly in `dir`, bypassing the symbol/key lookup entirely -
+   *  used by MouseControl, which already knows the exact direction it
+   *  wants (from pathfinding or coordinate comparison), not a held key.
+   *  Replaces the original's driveOrder()/ControlSym symbol round-trip,
+   *  which existed only for move-string recording (save/replay) this
+   *  port doesn't have (docs/007). */
+  driveDir(dir: Dir): boolean {
+    if (!this.canDrive()) return false;
+    switch (dir) {
+      case Dir.LEFT:
+        return this.goLeft();
+      case Dir.RIGHT:
+        return this.goRight();
+      case Dir.UP:
+        return this.goUp();
+      case Dir.DOWN:
+        return this.goDown();
+      default:
+        return false;
+    }
   }
 
   /** Facing left is required before a left move actually happens - facing

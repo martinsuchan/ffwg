@@ -1,7 +1,7 @@
 import type { LevelData, LevelModel } from "../lua/levelLoader";
 import { V2 } from "./V2";
 import { Goal } from "./Goal";
-import { Cube } from "./Cube";
+import { Cube, Weight } from "./Cube";
 import { createModel, isFishKind } from "./ModelFactory";
 import { Room } from "./Room";
 import { Unit, KeyControl, InputProvider } from "./Unit";
@@ -46,6 +46,9 @@ export interface RenderModel {
   action: string;
   /** Rules.getState() this tick ("pushing"/"normal"/"dead"/...) - see web/src/game/UnitAnimator.ts. */
   state: string;
+  /** Rules.getMoveStreak() this tick - consecutive-move streak driving the
+   *  visual "swims faster" effect (docs/017). */
+  moveStreak: number;
 }
 
 /**
@@ -79,6 +82,13 @@ export class GameEngine {
     this.room.switchFish();
   }
 
+  /** Click-to-select: activates whichever fish (if any) occupies
+   *  `fieldPos` - see docs/017. */
+  selectAt(fieldPos: V2): void {
+    const model = this.room.askField(fieldPos);
+    if (model) this.room.selectFish(model);
+  }
+
   isSolved(): boolean {
     return this.room.isSolved();
   }
@@ -96,6 +106,12 @@ export class GameEngine {
     return this.room.lastDead;
   }
 
+  /** Weight of whatever just landed after falling this round, NONE if
+   *  nothing did - see docs/018. */
+  get lastImpact(): Weight {
+    return this.room.lastImpact;
+  }
+
   getRenderModels(): RenderModel[] {
     return this.room.models.map((cube, index) => ({
       index,
@@ -108,6 +124,7 @@ export class GameEngine {
       isLost: cube.isLost,
       action: cube.rules.getAction(),
       state: cube.rules.getState(),
+      moveStreak: cube.rules.getMoveStreak(),
     }));
   }
 }

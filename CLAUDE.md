@@ -157,6 +157,39 @@ reasoning; check for later numbered entries too — decisions here can change):
   a code path `docs/007`/`docs/009` had already ported but left unreachable pending this
   feature. `web/src/game/Controls.ts` (new) ports the relevant subset of
   `legacy/src/level/Controls.cpp`. See `docs/016-2026-07-08-active-fish-control-scheme.md`.
+- Mouse controls added on top of `docs/016`'s scheme: click a fish to select it (same
+  greet flash as Space), click-and-hold the left button to path the active fish around
+  obstacles toward the cursor (new `web/src/game/FinderAlg.ts`, a plain BFS recomputed
+  fresh every round — port of `legacy/src/level/FinderAlg.cpp`, minus its explicit
+  `w*h`-bounded closed array, unneeded since `Field.getModel` already returns the border
+  Cube for any out-of-bounds probe), and hold the right button to push straight toward the
+  cursor instead (new `web/src/game/MouseControl.ts`, port of `MouseControl.cpp` — included
+  after confirming with the user, since only left-click behavior had been described). Mouse
+  is only tried when keyboard produces no move that round, matching the original's real
+  precedence. Also added a visual-only "swims faster" effect after several tiles of
+  continuous movement (`Rules.moveStreak`, `ModelAnimator`'s `speedStepsFor`) — the
+  original ties speedup to shortening the physics round's own real-world duration
+  (`PhaseLocker`), which conflicts with this project's fixed `ROUND_MS` (`docs/010`), so
+  after confirming with the user this only speeds up the swim animation/position-slide
+  tween, not actual grid-cell traversal rate. See
+  `docs/017-2026-07-08-mouse-controls-and-swim-speedup.md`.
+- Real audio: per-level looping background music (some levels stop it mid-game, e.g.
+  `viking1`'s musician-band gag — `sound_playMusic`/`sound_stopMusic` are real host
+  bindings now), dialog/NPC voice (`model_talk`'s sound arg actually plays, with subtitle
+  duration driven by the real clip length when one resolves, text-length formula
+  otherwise), built-in impact/death sounds (`Room.lastImpact`, ported since `docs/007` via
+  `Landslip.getImpact()` but unread until now — no Lua call site, resolved through the same
+  `sound_addSound`-populated registry Lua uses), and Lua-driven ambient sound (bubbles).
+  New `web/src/scenes/AudioManager.ts` owns lazy-loaded Phaser playback (asset needs aren't
+  known until the async Lua bootstrap runs). **Default dialog language switched from
+  English to Czech** (text and audio both — supersedes `docs/015`'s "English only"):
+  Czech has near-universal voice-over coverage across levels vs. English's ~30/82.
+  `scripts/convert-assets.ps1`/`convert-music.ps1` (built in `docs/003`, unused until now)
+  converted a small verification set (`airplane`, `viking1`, the shared sound pool, all
+  music) — the full ~80-level batch is a documented follow-up. New `web/tools/
+  build-audio-manifest.mjs` mirrors the image-manifest tooling, but reads the *converted
+  web output* (`web/public/assets/sound/**/sprite.json`) rather than `legacy/sound/`
+  directly, since sound is sprite-packed. See `docs/018-2026-07-09-sound-and-music.md`.
 
 Commands (from repo root):
 

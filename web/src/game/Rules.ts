@@ -39,6 +39,9 @@ export class Rules {
   private outDepth = 0;
   /** Rounds left before a corpse unmasks and is removed - see DEATH_REMOVE_ROUNDS. */
   private deathRoundsLeft = 0;
+  /** Consecutive-move streak driving the visual "swims faster" effect -
+   *  see updateMoveStreak(). */
+  private moveStreak = 0;
 
   private mask: MarkMask | null = null;
 
@@ -334,6 +337,38 @@ export class Rules {
 
   actionActivate(): void {
     this.readyToActive = true;
+  }
+
+  /**
+   * Updates the "swims faster" streak - ported from
+   * legacy/src/level/Controls.cpp's lockPhases()/m_speedup condition
+   * structure, but per-Cube instead of a single counter on Controls
+   * (only one unit ever moves per round, so this is behaviorally
+   * equivalent, with one deliberate minor difference: a fish resumes its
+   * own warm streak if reselected shortly after being paused, rather
+   * than the original's hard reset the instant a different fish becomes
+   * active - see docs/017). Must run after this round's driving()/
+   * mouseDrive() decide dir/pushing/readyToTurn, but before the next
+   * round's changeState()/occupyNewPos() reset them - i.e. once per
+   * round, right after Room.nextRound() resolves input, matching the
+   * original's finishRound() -> lockPhases() timing. Visual-only (see
+   * docs/017): does not affect the physics round rate, only
+   * ModelAnimator's swim-animation/slide speed.
+   */
+  updateMoveStreak(): void {
+    if (this.pushing) {
+      this.moveStreak = 0;
+    } else if (this.readyToTurn) {
+      // turning neither builds nor breaks the streak
+    } else if (this.dir !== Dir.NO) {
+      this.moveStreak += 1;
+    } else {
+      this.moveStreak = 0;
+    }
+  }
+
+  getMoveStreak(): number {
+    return this.moveStreak;
   }
 
   getAction(): string {
