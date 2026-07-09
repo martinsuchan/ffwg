@@ -1,4 +1,4 @@
-import { LuaFactory } from "wasmoon";
+import { LuaFactory, LuaMultiReturn } from "wasmoon";
 
 import { Shape } from "../game/Shape";
 
@@ -106,6 +106,17 @@ export function extractFileIncludes(source: string, levelName: string): string[]
 }
 
 /**
+ * Extracts the `saved_moves = '...'` string from a `legacy/solution/
+ * <level>.lua` file (docs/021's move-symbol format, docs/022-024's
+ * validator) - used by ReplayScene (docs/025) to source a watchable
+ * replay's move data. Returns null if the file doesn't define one.
+ */
+export function extractSavedMoves(source: string): string | null {
+  const match = source.match(/saved_moves\s*=\s*'([^']*)'/);
+  return match ? match[1] : null;
+}
+
+/**
  * Runs the real legacy/script/<levelName>/models.lua and code.lua - plus
  * the shared level_creation.lua/level_plan.lua glue they depend on
  * (createRoom/addModel/addFishAnim/random/createArray/...) - through
@@ -121,13 +132,25 @@ export function extractFileIncludes(source: string, levelName: string): string[]
  * (inside its `local update_table = prog_init()`), so this loader only
  * needs code.lua's *synchronous* init to complete - its returned per-round
  * update closures (dialogs/hints/ambient animation) are never called,
- * since we never run the level's own script_update() loop. initModels()
- * (the real one pulls in fonts/jokes/border-shout sound content) is
- * stubbed as a no-op for the same reason - nothing in a goal-setting
- * prefix depends on its side effects. dialogs.lua is still not run (only
- * needed for translated text), and this loader will throw if a level's
- * code.lua needs host bindings beyond this stub set - that's a deliberate
- * "fail loud" so gaps are obvious rather than silently wrong goals.
+ * since we never run the level's own script_update() loop.
+ *
+ * initModels() was originally stubbed as a no-op here, on the assumption
+ * that nothing in a goal-setting prefix depends on its side effects - true
+ * for most levels, but wrong for several (alibaba/city/gems/...) whose
+ * code.lua calls a model's :updateAnim() *synchronously* during
+ * prog_init() (not deferred into a per-round closure), which only exists
+ * because the real initModels() attaches it. See docs/024: this loader
+ * now runs a faithful subset of the real initModels() (see
+ * level_start.lua) via INIT_MODELS_SOURCE below - the per-model
+ * .afaze/.updateAnim/.X/.Y/.dir/.anim setup - deliberately excluding its
+ * trailing borderShoutLoad()/stdBoreJokeLoad()/stdBlackJokeLoad()/
+ * stdBublesLoad()/loadFonts() calls, which pull in sound/font content
+ * this goal-extraction-only loader still doesn't need.
+ *
+ * dialogs.lua is still not run (only needed for translated text), and
+ * this loader will throw if a level's code.lua needs host bindings beyond
+ * this stub set - that's a deliberate "fail loud" so gaps are obvious
+ * rather than silently wrong goals.
  *
  * legacy/ files are fetched straight off disk via Vite's dev-only /@fs/
  * route (server.fs.allow in vite.config.ts) so this proves the port against
@@ -174,6 +197,36 @@ export function getAudioManifest(): Promise<Set<string>> {
   return audioManifestPromise;
 }
 
+/**
+ * A faithful *subset* of legacy/script/share/level_start.lua's real
+ * initModels() - the per-model setup its own trailing content-loaders
+ * depend on skip needing (see docs/024): `.afaze`/`.updateAnim`/`.X`/`.Y`/
+ * `.XStart`/`.YStart`/`.dir`/`.anim`, exactly as the original sets them.
+ * Deliberately omits the original's trailing borderShoutLoad()/
+ * stdBoreJokeLoad()/stdBlackJokeLoad()/stdBublesLoad()/loadFonts() calls -
+ * this loader only extracts goal-setting state (see loadLevelModels's own
+ * doc comment), so pulling in sound/font content for that would be pure
+ * waste, not fidelity. `resetanim` comes from prog_goanim.lua (already
+ * loaded, pure Lua, no host bindings needed); `dir_no` comes from
+ * prog_finder.lua (loaded alongside this, see loadLevelModels).
+ */
+const INIT_MODELS_SOURCE = `
+function initModels()
+    local models = getModelsTable()
+    for key, model in pairs(models) do
+        model.afaze = 0
+        model.X, model.Y = model:getLoc()
+        model.XStart, model.YStart = model:getLoc()
+        model.dir = dir_no
+        model.updateAnim = function(self)
+            self:setAnim("default", self.afaze)
+        end
+        model.anim = ""
+        resetanim(model)
+    end
+end
+`;
+
 export async function loadLevelModels(levelName: string): Promise<LevelData> {
   const imageManifest = await getImageManifest();
   const audioManifest = await getAudioManifest();
@@ -182,6 +235,23 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     "script/share/level_creation.lua",
   );
   const levelPlanSource = await fetchLegacyFile("script/share/level_plan.lua");
+  // dir_no/dir_up/dir_down/dir_left/dir_right + pure-Lua pathfinding
+  // helpers (unused here, harmless to define) - INIT_MODELS_SOURCE above
+  // needs dir_no. prog_compatible.lua below file_include()s this too, but
+  // that's a no-op stub in this loader (see below), so fetching it
+  // directly here is what actually makes it run.
+  const progFinderSource = await fetchLegacyFile("script/share/prog_finder.lua");
+  // addm/addv/adddel/planSet/planBusy/xdist/ydist/dist/look_at/no_dialog/
+  // isReady/odd/modelEquals/isWater - pure-Lua dialog-planning/distance
+  // helpers several levels' code.lua call *synchronously* during
+  // prog_init() (docs/024, same "some levels do more top-level work than
+  // airplane/viking1 ever exercised" pattern as INIT_MODELS_SOURCE). Its
+  // own getRestartCount() redefinition (calling the unbound
+  // level_getRestartCounter()) is overridden back to this loader's fixed
+  // stub right after it's loaded, below.
+  const progCompatibleSource = await fetchLegacyFile(
+    "script/share/prog_compatible.lua",
+  );
   // Pure Lua (setanim/resetanim/goanim/endanim), no host bindings - several
   // final levels' code.lua call setanim() synchronously at init time (e.g.
   // barrel's decorative barrel-wobble sequence) to queue a scripted anim
@@ -293,6 +363,10 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
       "model_isLeft",
       (modelIndex: number) => hostModels[modelIndex].isLeft,
     );
+    lua.global.set("model_getLoc", (modelIndex: number) => {
+      const model = hostModels[modelIndex];
+      return LuaMultiReturn.of(model.x, model.y);
+    });
     lua.global.set("model_setGoal", (modelIndex: number, goal: string) => {
       hostModels[modelIndex].goal = goal;
     });
@@ -303,11 +377,11 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     lua.global.set("model_setBusy", () => {});
     lua.global.set("model_setEffect", () => {});
 
-    // code.lua's top-level init prefix (initModels/sound_playMusic/
-    // getRestartCount, occasionally dialog_addFont - see linux) - all
-    // no-ops or fixed values, since we only care about the goal-setting
-    // statements that follow them, not fonts/sound/restart-flavored text.
-    lua.global.set("initModels", () => {});
+    // code.lua's top-level init prefix (sound_playMusic/getRestartCount,
+    // occasionally dialog_addFont - see linux) - no-ops or fixed values,
+    // since we only care about the goal-setting statements that follow
+    // them, not sound/restart-flavored text. initModels() itself is real
+    // now (INIT_MODELS_SOURCE, doString'd below) - see docs/024.
     lua.global.set("sound_playMusic", () => {});
     lua.global.set("getRestartCount", () => 1);
     lua.global.set("dialog_addFont", () => {});
@@ -315,6 +389,31 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     // run just before codeSource below (extractFileIncludes) instead of
     // being handled reentrantly here - see the comment by that call.
     lua.global.set("file_include", () => {});
+    // Real C++ host bindings (legacy/src/level/game-script.cpp,
+    // legacy/src/level/level-script.cpp, legacy/src/gengine/
+    // options-script.cpp) some levels' code.lua also calls synchronously
+    // during prog_init() - safe no-ops here, same reasoning as
+    // model_setBusy/model_setEffect above: purely visual (game_addDecor),
+    // schedules a callback this loader never runs the per-round loop to
+    // fire (level_planShow), or reads a config value nothing in a
+    // goal-setting prefix depends on (options_getParam - returns "", a
+    // stand-in for "no such option" callers already handle gracefully:
+    // e.g. level_plan.lua's optionsGetAsInt() does
+    // tonumber(options_getParam(x)) and falls back to 0 when that's nil).
+    // Can't return null or undefined here even though both *mean* nil:
+    // wasmoon's PromiseTypeExtension throws marshaling a returned `null`
+    // (tries `.then` on it before reaching the plain-nil path), and
+    // `undefined` marshals as *zero* Lua return values rather than one
+    // nil - tonumber(options_getParam(x)) would call tonumber() with no
+    // arguments, a Lua error, not a graceful nil.
+    lua.global.set("game_addDecor", () => {});
+    lua.global.set("level_planShow", () => {});
+    lua.global.set("options_getParam", () => "");
+    // level_plan.lua's planTimeAction() (itself pulled in by prog_compatible
+    // .lua's adddel/planSet/planBusy/planDialog helpers above) queues its
+    // callback via this - same "schedules something this loader's one-shot
+    // synchronous pass never fires" reasoning as level_planShow.
+    lua.global.set("game_planAction", () => {});
 
     lua.global.set("codename", levelName);
 
@@ -325,7 +424,13 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     await lua.doString("text = {}");
     await lua.doString(levelCreationSource);
     await lua.doString(levelPlanSource);
+    await lua.doString(progFinderSource);
+    await lua.doString(progCompatibleSource);
+    // prog_compatible.lua redefines getRestartCount() to call the unbound
+    // level_getRestartCounter() - put this loader's own fixed stub back.
+    lua.global.set("getRestartCount", () => 1);
     await lua.doString(goanimSource);
+    await lua.doString(INIT_MODELS_SOURCE);
     await lua.doString(modelsSource);
     for (const includedSource of includedSources) {
       await lua.doString(includedSource);

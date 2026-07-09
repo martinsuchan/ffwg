@@ -1,28 +1,14 @@
 import Phaser from "phaser";
 
-import { GRID_SCALE, type LevelData, type LevelModel } from "../lua/levelLoader";
+import { GRID_SCALE, fetchLegacyFile, extractSavedMoves, type LevelData } from "../lua/levelLoader";
 import { createLevelScript, type LevelScript, type ResolvedSound } from "../lua/levelScript";
 import { GameEngine } from "../game/GameEngine";
 import { V2 } from "../game/V2";
 import { Weight } from "../game/Cube";
 import { ROUND_MS } from "../game/timing";
-import { ModelAnimator, preloadModelFrames, resolveTextureKey } from "./ModelAnimator";
+import { ModelAnimator, preloadModelFrames } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
-
-/**
- * Maps a Lua-style picture path ("images/<level>/name.png") to the
- * converted web asset. scripts/convert-images.ps1 mirrors legacy/images/**
- * into web/public/assets/images/** 1:1, swapping the extension to .webp.
- */
-function pictureToAssetUrl(picture: string): string {
-  const withoutPrefix = picture.replace(/^images\//, "");
-  const withoutExt = withoutPrefix.replace(/\.[^./]+$/, "");
-  return `/assets/images/${withoutExt}.webp`;
-}
-
-function isFishKind(kind: string): boolean {
-  return kind.startsWith("fish_");
-}
+import { pictureToAssetUrl, isFishKind, resolveInitialTextureKey } from "./sceneUtils";
 
 /** Keys that can drive a fish - the only ones worth buffering as a queued
  *  edge (see LevelScene.queuedKey). Space/R are already handled as
@@ -91,6 +77,9 @@ export class LevelScene extends Phaser.Scene {
   /** Identity of the dialog last seen active, so a new dialog's voice clip
    *  plays exactly once (docs/018) rather than every round it's showing. */
   private lastDialogId: string | null = null;
+  /** Guards keydown-P against double-firing while the reference-solution
+   *  fetch for launchReplay() is still in flight - see docs/025. */
+  private launchingReplay = false;
 
   constructor(private readonly levelData: LevelData) {
     super("level");
@@ -145,6 +134,7 @@ export class LevelScene extends Phaser.Scene {
     );
     this.input.keyboard!.on("keydown-R", () => this.restart());
     this.input.keyboard!.on("keydown-SPACE", () => this.engine.switchFish());
+    this.input.keyboard!.on("keydown-P", () => void this.launchReplay());
 
     // Right-click is a real game action (push-toward-cursor) now, so the
     // browser's context menu would otherwise get in the way.
@@ -162,6 +152,14 @@ export class LevelScene extends Phaser.Scene {
       delay: ROUND_MS,
       loop: true,
       callback: () => this.tick(),
+    });
+
+    // The Sound Manager is game-global, not scene-scoped (docs/025) - stop
+    // this scene's music explicitly when leaving (e.g. P -> replay) so it
+    // doesn't keep playing underneath whichever scene comes next.
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.audioManager.destroy();
+      this.levelScript?.destroy();
     });
   }
 
@@ -185,7 +183,8 @@ export class LevelScene extends Phaser.Scene {
     this.gameOver = false;
     this.statusText.setText(
       "Arrows = active fish, WASD = big fish, IJKL = small fish, Space = switch, " +
-        "click = select, hold-click = swim there, hold-right-click = push there, R = restart",
+        "click = select, hold-click = swim there, hold-right-click = push there, " +
+        "R = restart, P = watch reference solution replay",
     );
 
     const initialRenderModels = this.engine.getRenderModels();
@@ -244,6 +243,36 @@ export class LevelScene extends Phaser.Scene {
 
   private restart(): void {
     this.startEngine();
+  }
+
+  /** P: launch a watchable replay of this level's reference solution -
+   *  see docs/025. Reads the same legacy/solution/<level>.lua files the
+   *  headless validator (docs/022-024) already checks, since there's no
+   *  player-solved-level persistence yet (step 4 of the roadmap) to
+   *  replay from instead. */
+  private async launchReplay(): Promise<void> {
+    if (this.launchingReplay) return;
+    this.launchingReplay = true;
+    try {
+      const solutionSource = await fetchLegacyFile(
+        `solution/${this.levelData.levelName}.lua`,
+      );
+      const moves = extractSavedMoves(solutionSource);
+      if (!moves) {
+        console.warn(
+          `No reference solution found for "${this.levelData.levelName}"`,
+        );
+        return;
+      }
+      this.scene.start("replay", { levelData: this.levelData, moves });
+    } catch (error) {
+      console.error(
+        `Failed to load reference solution for "${this.levelData.levelName}"`,
+        error,
+      );
+    } finally {
+      this.launchingReplay = false;
+    }
   }
 
   /** Converts a pointer's world position (already zoom/scroll-adjusted by
@@ -340,18 +369,4 @@ export class LevelScene extends Phaser.Scene {
     const sound = this.levelScript?.resolveSound(name) ?? null;
     if (sound) void this.audioManager.playSoundEffect(sound, volume);
   }
-}
-
-function resolveInitialTextureKey(
-  index: number,
-  levelModel: LevelModel,
-): string | null {
-  if (!levelModel.initialAnim) return null;
-  return resolveTextureKey(
-    index,
-    levelModel.anims,
-    levelModel.initialAnim,
-    levelModel.isLeft ? "left" : "right",
-    levelModel.initialPhase,
-  );
 }

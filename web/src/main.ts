@@ -2,6 +2,7 @@ import Phaser from "phaser";
 
 import { GRID_SCALE, loadLevelModels } from "./lua/levelLoader";
 import { LevelScene } from "./scenes/LevelScene";
+import { ReplayScene } from "./scenes/ReplayScene";
 
 const LEVEL_NAME = "airplane";
 const ZOOM = 1.5;
@@ -16,7 +17,11 @@ async function boot(): Promise<void> {
     height: levelData.roomHeight * GRID_SCALE,
     zoom: ZOOM,
     backgroundColor: "#0a1a2a",
-    scene: new LevelScene(levelData),
+    // LevelScene needs levelData up front (current single-level-boot
+    // design); ReplayScene gets its data dynamically via init() each time
+    // LevelScene launches it (P key - see docs/025), so it's registered by
+    // class rather than a pre-built instance.
+    scene: [new LevelScene(levelData), ReplayScene],
   });
 }
 

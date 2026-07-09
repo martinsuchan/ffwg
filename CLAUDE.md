@@ -248,6 +248,39 @@ reasoning; check for later numbered entries too — decisions here can change):
   2127-move solutions. The remaining 12 failures are entirely the pre-existing, unrelated
   missing-Lua-binding/`fish_extra`/no-such-level gaps from docs/022. See
   `docs/023-2026-07-09-initial-facing-direction-bug.md`.
+- Closed the remaining 10 level-load gaps: `levelLoader.ts`'s goal-extraction-only loader
+  stubbed `initModels()` as a complete no-op, correct for `airplane`/`viking1` (whose
+  `code.lua` only touches per-model animation state inside deferred per-round closures) but
+  wrong for `alibaba`/`bathroom`/`briefcase`/`chest`/`city`/`elevator1`/`elevator2`/
+  `experiments`/`gems`/`music`, whose `code.lua` calls things like `:updateAnim()`
+  *synchronously* in `prog_init()`. Fixed with `INIT_MODELS_SOURCE` (a faithful subset of the
+  real `initModels()` from `level_start.lua`, minus its trailing sound/font-loading calls
+  this loader doesn't need) plus running two more real shared files (`prog_finder.lua`,
+  `prog_compatible.lua`) and a handful of new no-op stubs (`game_addDecor`,
+  `level_planShow`, `game_planAction`) and one real one (`model_getLoc`). Also fixed
+  `math.mod` (Lua 5.0's integer modulo, missed by `docs/005`'s compat checker since that
+  only verifies parsing, not execution) in the compat shim. Found two wasmoon marshaling
+  quirks along the way worth remembering for future host bindings: returning `null` crashes
+  `PromiseTypeExtension`, and `undefined` marshals as *zero* Lua return values rather than
+  one `nil` - `options_getParam` returns `""` instead. Full batch re-run: **79/81 passed** -
+  only `windoze` (`fish_extra`, unsupported) and `redhat` (no matching level in this repo)
+  remain, both explicitly out of scope. See
+  `docs/024-2026-07-09-closing-the-level-load-gap.md`.
+- Replay mode (step 3): a new `ReplayScene` plays back a level's recorded move string
+  (docs/021's symbol format) round-by-round in real time, launched from normal play via `P`
+  (reads `legacy/solution/<level>.lua` for now - the same reference solutions docs/022-024
+  validated - since solved-level persistence, step 4, isn't built yet). Deliberately better
+  than the original's own replay (`LevelLoading::loadReplay()`: one fixed fast pace, no
+  pause/step/speed control at all): starts at normal speed immediately, shows a step counter,
+  and has Pause/Step/Play/Fast-forward buttons (media-player Unicode glyphs). Only fish
+  animation and background music play - no subtitles, no item decorative animation, no sound
+  effects/dialog voice - though the live Lua engine still runs every round regardless, since
+  music commands (including mid-level stops like `viking1`'s musician gag) come from it. New
+  `Room.replayRound()`/`GameEngine.tickReplay()` mirror `nextRound()`'s round-by-round shape
+  exactly (unlike the fast, instantly-settling `loadMove()` validator path from docs/022) -
+  verified to reach the same solved outcome the validator already confirmed. Shared scene
+  helpers moved to new `web/src/scenes/sceneUtils.ts`. See
+  `docs/025-2026-07-09-replay-mode.md`.
 
 Commands (from repo root):
 

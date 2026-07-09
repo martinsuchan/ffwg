@@ -146,6 +146,13 @@ export class GameEngine {
     this.room.settleAll();
   }
 
+  /** One round of watchable replay, sourced from a recorded move string
+   *  instead of live input - see docs/025.
+   *  @return whether `symbol` was consumed this round. */
+  tickReplay(symbol: string | null): boolean {
+    return this.room.replayRound(symbol);
+  }
+
   getRenderModels(): RenderModel[] {
     return this.room.models.map((cube, index) => ({
       index,

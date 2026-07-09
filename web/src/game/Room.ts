@@ -177,6 +177,27 @@ export class Room {
     this.fastForwardSettle();
   }
 
+  /** One round of *watchable* replay - same physics shape as nextRound()
+   *  (settle, then only accept new input once fresh), but sourced from a
+   *  recorded move string instead of live keyboard/mouse. Unlike
+   *  loadMove(), does not fast-forward through pending falls - each call
+   *  is exactly one round, so a caller ticking this on a real-time timer
+   *  sees the same falling/sliding animation live play would. Doesn't
+   *  consume `symbol` unless the round is actually fresh, matching how it
+   *  was originally recorded (docs/021: a symbol is only ever captured
+   *  when isFresh()). See docs/025.
+   *  @return whether `symbol` was consumed this round. */
+  replayRound(symbol: string | null): boolean {
+    this.beginFall();
+    let consumed = false;
+    if (this.isFresh() && symbol !== null) {
+      consumed = this.controls.makeMove(symbol);
+      if (consumed) this.lastAction = Action.MOVE;
+    }
+    this.updateMoveStreaks();
+    return consumed;
+  }
+
   /** Repeatedly resolves falls/fallout until nothing is left pending
    *  (isFresh()) - legacy's loadMove()'s "let object to fall fast" loop.
    *  Bounded defensively: a real level can never fall forever, so hitting
