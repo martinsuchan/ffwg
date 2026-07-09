@@ -24,6 +24,24 @@ function isFishKind(kind: string): boolean {
   return kind.startsWith("fish_");
 }
 
+/** Keys that can drive a fish - the only ones worth buffering as a queued
+ *  edge (see LevelScene.queuedKey). Space/R are already handled as
+ *  immediate, un-queued actions, not through this movement path. */
+const MOVE_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "KeyW",
+  "KeyA",
+  "KeyS",
+  "KeyD",
+  "KeyI",
+  "KeyJ",
+  "KeyK",
+  "KeyL",
+]);
+
 /**
  * Renders and plays a level's puzzle: background + every model, driven by
  * the real game-logic port (web/src/game/) on a fixed round tick, with
@@ -50,6 +68,16 @@ export class LevelScene extends Phaser.Scene {
    *  source). English only, no audio. */
   private subtitleText!: Phaser.GameObjects.Text;
   private heldKeys = new Set<string>();
+  /** One-shot queued keydown edge, drained by Controls.driving() at most
+   *  once per round - see MOVE_KEYS and docs/019 "input reliability". Fixes
+   *  a real bug: sampling only heldKeys at each round's tick() instant (pure
+   *  level-triggered polling) let any keypress shorter than ~one round
+   *  interval fall entirely between two polls and vanish, since a fast tap's
+   *  keydown *and* keyup could both land inside that ~130ms gap. Legacy's
+   *  Controls::controlEvent()/m_strokeSymbol avoids this by capturing the
+   *  raw keydown edge itself, independent of round timing - this mirrors
+   *  that design instead of only polling held state. */
+  private queuedKey: string | null = null;
   private gameOver = false;
   /** Item animation (docs/014) - null until the async Lua bootstrap for
    *  this play session resolves; tick()/ModelAnimator handle that gap by
@@ -106,9 +134,12 @@ export class LevelScene extends Phaser.Scene {
 
     // Capture arrows/space so the browser doesn't scroll the page while playing.
     this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE");
-    this.input.keyboard!.on("keydown", (e: KeyboardEvent) =>
-      this.heldKeys.add(e.code),
-    );
+    this.input.keyboard!.on("keydown", (e: KeyboardEvent) => {
+      this.heldKeys.add(e.code);
+      if (this.queuedKey === null && MOVE_KEYS.has(e.code)) {
+        this.queuedKey = e.code;
+      }
+    });
     this.input.keyboard!.on("keyup", (e: KeyboardEvent) =>
       this.heldKeys.delete(e.code),
     );
@@ -143,6 +174,7 @@ export class LevelScene extends Phaser.Scene {
     this.levelScript?.destroy();
     this.levelScript = null;
     this.scriptGeneration += 1;
+    this.queuedKey = null;
     const generation = this.scriptGeneration;
     // Level::own_initState() always stops music on a fresh restart (this
     // port has no undo to exempt) - docs/018.
@@ -232,6 +264,11 @@ export class LevelScene extends Phaser.Scene {
       isLeftPressed: () => pointer.leftButtonDown(),
       isRightPressed: () => pointer.rightButtonDown(),
       getMouseField: () => this.toFieldPos(pointer),
+      takeQueuedKey: () => {
+        const key = this.queuedKey;
+        this.queuedKey = null;
+        return key;
+      },
     };
     this.engine.tick(input);
 

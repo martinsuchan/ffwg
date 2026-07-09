@@ -190,6 +190,64 @@ reasoning; check for later numbered entries too — decisions here can change):
   build-audio-manifest.mjs` mirrors the image-manifest tooling, but reads the *converted
   web output* (`web/public/assets/sound/**/sprite.json`) rather than `legacy/sound/`
   directly, since sound is sprite-packed. See `docs/018-2026-07-09-sound-and-music.md`.
+- Keyboard input reliability fixed: `LevelScene`/`Controls.ts` only polled `heldKeys` once
+  per round (`ROUND_MS`), so a discrete tap shorter than one round interval could land
+  entirely between two polls and vanish - measured ~65-70% drop rate for a realistic fast
+  tap, confirmed with timestamped traces. The original avoids this via
+  `Controls::controlEvent()`/`m_strokeSymbol` (`legacy/src/level/Controls.cpp`), a single-
+  slot buffer that captures the raw keydown edge independent of round timing and is
+  guaranteed to be consumed by the next round - a mechanism `docs/016` had deliberately
+  dropped when porting `Controls.cpp`. Ported as `InputProvider.takeQueuedKey()` +
+  `LevelScene.queuedKey` + `Controls.driving()` trying the queued key before falling back
+  to held-state polling; 100% tap reliability after (36/36 vs. ~30% before). The initial
+  level-load input freeze (while unsupported items settle) and mouse click-and-hold
+  pathing both turned out to be faithful/working already, not bugs. See
+  `docs/019-2026-07-09-keyboard-input-reliability-fix.md`.
+- Immediate slide start on decide, not apply: traced the original's real animation timing
+  (`PhaseLocker`/`Controls::lockPhases()`/`View::getScreenPos()`) rather than assuming it -
+  it computes screen position from the just-decided direction (`Cube::getLastMoveDir()`)
+  plus a growing shift, never from the committed grid location, so its slide starts the
+  instant a move is decided with no dead zone, even though it has the same decide-this-
+  round/apply-next-round split internally as this port. `ModelAnimator.ts` used to wait
+  until it *saw* `model.x`/`model.y` change (one round after the move was decided) before
+  starting a tween, leaving the fish standing still replaying its swim texture for one
+  extra `ROUND_MS`. Fixed with `MOVE_OFFSETS`: `ModelAnimator.sync()` now predicts the
+  slide target from `RenderModel.action` (e.g. `"move_right"`) immediately, falling back to
+  the official `model.x`/`y` whenever it disagrees (so a missed prediction can never leave
+  a sprite stuck) - applies uniformly to pushed/falling items too, not just fish. Worst-case
+  time to visually arrive at the next cell measured 173-274ms after this (was up to 362ms).
+  See `docs/020-2026-07-09-immediate-slide-start-and-original-comparison.md`.
+- Move recording (step 1 of turning the POC into a real game - solution validation/replay/
+  save are the planned next steps): every successful move or turn now appends a symbol to
+  `Controls`' recorded move string - lowercase `udlr` for `fish_small`, uppercase `UDLR` for
+  `fish_big` (`ControlSym`, matching `ModelFactory::createUnit()` exactly), regardless of
+  whether it came from a held key, `docs/019`'s queued-key edge trigger, or mouse - all paths
+  record through the same mechanism. A turn records the same symbol as the eventual move
+  (legacy's `Unit::goLeft()` does this too), so replaying a string reproduces turn-then-move
+  splits without a separate "turn" marker. `GameEngine.getMoves()`/`getStepCount()` expose it.
+  This is also the flat-string format `legacy/solution/*.lua`'s `saved_moves` already use.
+  See `docs/021-2026-07-09-move-recording.md`.
+- Headless solution validator (step 2): `Unit.driveOrder()`/`Controls.makeMove()`/
+  `Room.loadMove()`/`settleAll()` port legacy's `Room::loadMove()` - settle pending falls,
+  apply exactly one move symbol (throwing if invalid), repeat. New
+  `web/src/game/SolutionValidator.ts`'s `validateSolution(engine, moves)` replays a whole
+  move string against a fresh `GameEngine`, no Phaser/rendering at all. First run against
+  all 81 `legacy/solution/*.lua` files: only 32 validated cleanly - see `docs/023` for why
+  that number was misleading and jumped to 69 after one bug fix. See
+  `docs/022-2026-07-09-headless-solution-validator.md`.
+- Initial facing direction bug: `GameEngine.buildCube()` never applied the level-parsed
+  `isLeft` onto a newly built `Cube` - every model in every level always spawned facing left
+  (`Cube`'s own default), regardless of a level's `addFishAnim(model, LOOK_RIGHT, ...)`.
+  Invisible until now because `airplane`/`viking1` (the only two levels ever exercised before
+  docs/022's validator) both specify `LOOK_LEFT`, where the bug's effect happens to match the
+  correct spec. Confirmed the blast radius *before* fixing: 44 levels request `LOOK_RIGHT` for
+  a fish, and that list is an exact match for docs/022's 37 "solution fails partway" failures -
+  none of the 32 passing levels use it. One-line fix (`cube.isLeft = modelData.isLeft;`,
+  mirroring the existing `cube.goal = ...` line beside it) took the validation pass rate from
+  32/81 to **69/81** - every one of those 37 levels now solves correctly, including 1691- and
+  2127-move solutions. The remaining 12 failures are entirely the pre-existing, unrelated
+  missing-Lua-binding/`fish_extra`/no-such-level gaps from docs/022. See
+  `docs/023-2026-07-09-initial-facing-direction-bug.md`.
 
 Commands (from repo root):
 

@@ -16,10 +16,11 @@ const ARROW_KEYS: KeyControl = {
 /**
  * Tracks which fish is "active" and resolves one round of key input to a
  * move. Port of legacy/src/level/Controls.h/.cpp, reduced to the driving/
- * switching subset this port needs - save/undo move recording (m_moves),
- * phase-lock speedup and discrete-keystroke/demo replay (controlEvent/
- * useStroke/m_strokeSymbol) are dropped, matching this project's existing
- * no-save/no-demo scope (docs/007). See docs/016, docs/017.
+ * switching/recording subset this port needs - phase-lock speedup and
+ * discrete-keystroke/demo replay (controlEvent/useStroke/m_strokeSymbol)
+ * are dropped (superseded by docs/019's queued-key edge trigger, which
+ * covers the same reliability need without the full symbol-string demo
+ * machinery). See docs/016, docs/017, docs/021 (move recording).
  */
 export class Controls {
   private units: Unit[] = [];
@@ -28,6 +29,11 @@ export class Controls {
    *  that can no longer drive) is pending consumption by the next
    *  driving() call - legacy's m_switch. */
   private switchPending = false;
+  /** Every move symbol produced so far, in order - legacy's Controls::
+   *  m_moves / StepCounter. Recorded regardless of input source (held key,
+   *  queued-key edge, or mouse - see driveUnit()/recordMove()), so replay
+   *  doesn't need to know how a move was originally triggered. */
+  private moves = "";
 
   /** legacy's Controls::addUnit(): re-scans for a startActive() unit (or
    *  defaults to the first) every time a unit is added. */
@@ -41,11 +47,64 @@ export class Controls {
     return this.active !== -1 ? this.units[this.active] : null;
   }
 
+  /** The recorded move string so far - legacy's StepCounter::getMoves(),
+   *  used for solution validation/replay and step-count display. */
+  getMoves(): string {
+    return this.moves;
+  }
+
+  getStepCount(): number {
+    return this.moves.length;
+  }
+
+  /** Appends a move symbol produced outside driveUnit()'s own key-lookup
+   *  path - used by MouseControl, which already resolves a Unit + Dir
+   *  itself (pathfinding or coordinate comparison) and calls Unit.driveDir()
+   *  directly. Legacy's Controls::makeMove() is the single choke point
+   *  both keyboard and mouse paths record through; this port splits it in
+   *  two (driveUnit() records its own successful moves internally) for the
+   *  same effect. */
+  recordMove(symbol: string): void {
+    this.moves += symbol;
+  }
+
+  /** Drives whichever unit owns `symbol` (independent of held keys or
+   *  which fish is "active"), for solution replay/validation - legacy's
+   *  Controls::makeMove(). Since symbols never overlap between units, this
+   *  fully identifies both the unit and the direction on its own.
+   *  @return whether a unit successfully drove (and recorded) `symbol`. */
+  makeMove(symbol: string): boolean {
+    for (let i = 0; i < this.units.length; i++) {
+      if (this.units[i].driveOrder(symbol) !== null) {
+        this.active = i;
+        this.moves += symbol;
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** One round of input resolution. @return whether a fish moved/turned
-   *  this round - a switch alone does not count (legacy's driving(),
-   *  without the discrete-stroke branch this port doesn't use). */
+   *  this round - a switch alone does not count (legacy's driving()).
+   *
+   *  A queued keydown edge (see InputProvider.takeQueuedKey) is tried
+   *  first and, if present, always counts as "used" for this round even
+   *  if the move it resolves to is blocked - legacy's useStroke() ("NOTE:
+   *  returns true even for bad move"). This guarantees a fast tap that's
+   *  already released by the time this round polls held-key state still
+   *  produces exactly one move attempt, instead of silently vanishing
+   *  into the gap between two round polls. Held-key polling (driveUnit)
+   *  is still the fallback for genuinely continuous holding once the
+   *  queued edge (set at most once per keydown) has been drained. */
   driving(input: InputProvider): boolean {
     if (this.useSwitch()) return false;
+
+    const queuedKey = input.takeQueuedKey?.();
+    if (queuedKey != null) {
+      this.driveUnit({ isPressed: (code) => code === queuedKey });
+      return true;
+    }
+
     return this.driveUnit(input);
   }
 
@@ -117,19 +176,24 @@ export class Controls {
 
   /** Arrow keys always try the active fish first (borrowed input); failing
    *  that, any unit's own dedicated keys can drive it directly, silently
-   *  making it active (no greet animation - legacy's setActive()). */
+   *  making it active (no greet animation - legacy's setActive()). Records
+   *  the resulting symbol on success - legacy's driveUnit() appending to
+   *  m_moves. */
   private driveUnit(input: InputProvider): boolean {
-    let moved =
-      this.active !== -1 && this.units[this.active].driveBorrowed(input, ARROW_KEYS);
-    if (!moved) {
+    let symbol: string | null =
+      this.active !== -1 ? this.units[this.active].driveBorrowed(input, ARROW_KEYS) : null;
+    if (symbol === null) {
       for (let i = 0; i < this.units.length; i++) {
-        moved = this.units[i].drive(input);
-        if (moved) {
+        symbol = this.units[i].drive(input);
+        if (symbol !== null) {
           this.active = i;
           break;
         }
       }
     }
-    return moved;
+    if (symbol !== null) {
+      this.moves += symbol;
+    }
+    return symbol !== null;
   }
 }

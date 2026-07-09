@@ -142,6 +142,56 @@ export class Room {
     this.controls.activateSelected(model);
   }
 
+  /** Every move symbol recorded so far, in order - legacy's Room::
+   *  stepCounter(). See docs/021. */
+  getMoves(): string {
+    return this.controls.getMoves();
+  }
+
+  getStepCount(): number {
+    return this.controls.getStepCount();
+  }
+
+  /** Fast, render-free replay of one recorded move symbol - legacy's
+   *  Room::loadMove(): settle any pending falls first, then apply exactly
+   *  this one move. The move's own consequences (position committing, and
+   *  whatever it triggers falling) are picked up by the *next* loadMove()/
+   *  settleAll() call's own settling, exactly like the interactive round
+   *  pipeline's decide-this-round/apply-next-round split (docs/007) - just
+   *  run back to back with no real-time pause instead of one real round at
+   *  a time. Used by the headless solution validator (docs/022).
+   *  @throws Error if `symbol` doesn't name a valid move for any unit here. */
+  loadMove(symbol: string): void {
+    this.fastForwardSettle();
+    if (!this.controls.makeMove(symbol)) {
+      throw new Error(`invalid move: "${symbol}"`);
+    }
+    this.lastAction = Action.MOVE;
+    this.updateMoveStreaks();
+  }
+
+  /** Settles any pending falls with nothing left to drive - call once
+   *  after the last loadMove() in a solution to apply its consequences
+   *  before checking isSolved(). */
+  settleAll(): void {
+    this.fastForwardSettle();
+  }
+
+  /** Repeatedly resolves falls/fallout until nothing is left pending
+   *  (isFresh()) - legacy's loadMove()'s "let object to fall fast" loop.
+   *  Bounded defensively: a real level can never fall forever, so hitting
+   *  the cap means something is wrong, not just a long level. */
+  private fastForwardSettle(): void {
+    const MAX_SETTLE_ROUNDS = 1000;
+    let rounds = 0;
+    do {
+      this.beginFall();
+      if (++rounds > MAX_SETTLE_ROUNDS) {
+        throw new Error("settling did not converge - possible infinite fall loop");
+      }
+    } while (!this.isFresh());
+  }
+
   /** No unit will ever be able to move again (all driven fish dead/lost). */
   cannotMove(): boolean {
     return this.controls.cannotMove();

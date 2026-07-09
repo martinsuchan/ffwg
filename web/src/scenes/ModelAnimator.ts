@@ -47,6 +47,26 @@ function speedStepsFor(moveStreak: number): number {
  *  defense for the same failure mode (e.g. a dropped frame delaying a
  *  round). */
 const SLIDE_MS = Math.round(ROUND_MS * 0.8);
+/**
+ * Grid-cell offset for each of Rules.getAction()'s move directions - lets
+ * sync() predict a model's slide target the same round the move is decided
+ * (Rules.dir just got set), instead of waiting for model.x/y to actually
+ * change via occupyNewPos() at the *start of the following round*
+ * (docs/007's decide-this-round/apply-next-round pipeline). Without this,
+ * the swim texture already starts immediately (computeBodyAnim reacts to
+ * `action`, not position) but the fish stands in place for one whole extra
+ * round before any real motion follows - the opposite of the original,
+ * whose View::getScreenPos() computes screen position from
+ * Cube::getLastMoveDir() plus a growing shift, never from the committed
+ * grid location. See docs/020.
+ */
+const MOVE_OFFSETS: Record<string, { dx: number; dy: number }> = {
+  move_left: { dx: -1, dy: 0 },
+  move_right: { dx: 1, dy: 0 },
+  move_up: { dx: 0, dy: -1 },
+  move_down: { dx: 0, dy: 1 },
+};
+
 /** How long a model fades out once it's actually removed (isLost) - covers
  *  both a disintegrated corpse (docs/011) and a goal_out/escape model
  *  vanishing at the border. The original dissolves a corpse pixel-by-pixel
@@ -209,8 +229,26 @@ export class ModelAnimator {
     this.bodySprite.setVisible(true);
     this.speedSteps = speedStepsFor(model.moveStreak);
 
-    const targetX = model.x * GRID_SCALE;
-    const targetY = model.y * GRID_SCALE;
+    // The "official" location this round - matches model.x/y exactly once
+    // occupyNewPos() has actually applied a move (one round after it was
+    // decided). Falls back to whichever target we're already sliding
+    // toward if it still agrees, so a predicted-but-not-yet-official move
+    // never gets silently overwritten with a stale value.
+    const officialX = model.x * GRID_SCALE;
+    const officialY = model.y * GRID_SCALE;
+    // Predicted target from this round's own decision (MOVE_OFFSETS),
+    // used only while the official position hasn't caught up to it yet.
+    const offset = MOVE_OFFSETS[model.action];
+    const predictedX = offset ? this.lastPxX + offset.dx * GRID_SCALE : officialX;
+    const predictedY = offset ? this.lastPxY + offset.dy * GRID_SCALE : officialY;
+    // Official position is ground truth whenever it disagrees with our
+    // last known target (the normal case once occupyNewPos() runs, and a
+    // safe fallback for any move that isn't reflected in `action` for some
+    // reason - the sprite can never get stuck on a missed prediction).
+    // Otherwise, a fresh direction this round predicts the next target
+    // immediately instead of waiting a full round for `official` to move.
+    const targetX = officialX !== this.lastPxX ? officialX : predictedX;
+    const targetY = officialY !== this.lastPxY ? officialY : predictedY;
     if (targetX !== this.lastPxX || targetY !== this.lastPxY) {
       const targets = this.headSprite ? [this.bodySprite, this.headSprite] : this.bodySprite;
       // Defensive: stop any still-running slide before starting the next

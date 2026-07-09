@@ -4,7 +4,7 @@ import { Goal } from "./Goal";
 import { Cube, Weight } from "./Cube";
 import { createModel, isFishKind } from "./ModelFactory";
 import { Room } from "./Room";
-import { Unit, KeyControl, InputProvider } from "./Unit";
+import { Unit, KeyControl, ControlSym, InputProvider } from "./Unit";
 
 /** legacy/src/level/ModelFactory.cpp's createUnit() - real per-fish keys, unchanged. */
 const SMALL_FISH_KEYS: KeyControl = {
@@ -18,6 +18,20 @@ const BIG_FISH_KEYS: KeyControl = {
   down: "KeyS",
   left: "KeyA",
   right: "KeyD",
+};
+/** legacy/src/level/ModelFactory.cpp's createUnit(): recorded-move symbols -
+ *  lowercase for fish_small, uppercase for fish_big. See docs/021. */
+const SMALL_FISH_SYMBOLS: ControlSym = {
+  up: "u",
+  down: "d",
+  left: "l",
+  right: "r",
+};
+const BIG_FISH_SYMBOLS: ControlSym = {
+  up: "U",
+  down: "D",
+  left: "L",
+  right: "R",
 };
 
 function goalFromName(name: string): Goal {
@@ -112,6 +126,26 @@ export class GameEngine {
     return this.room.lastImpact;
   }
 
+  /** Every move symbol recorded so far, in order - see docs/021. */
+  getMoves(): string {
+    return this.room.getMoves();
+  }
+
+  getStepCount(): number {
+    return this.room.getStepCount();
+  }
+
+  /** Fast, render-free replay of one move symbol - throws for a move that
+   *  doesn't belong to any unit or is currently blocked. See docs/022. */
+  loadMove(symbol: string): void {
+    this.room.loadMove(symbol);
+  }
+
+  /** Settles any pending falls once a solution's moves are exhausted. */
+  settleAll(): void {
+    this.room.settleAll();
+  }
+
   getRenderModels(): RenderModel[] {
     return this.room.models.map((cube, index) => ({
       index,
@@ -136,6 +170,12 @@ function buildCube(modelData: LevelModel): Cube {
     modelData.shape,
   );
   cube.goal = goalFromName(modelData.goal);
+  // legacy/script/share/level_creation.lua's addFishAnim() flips isLeft via
+  // model:change_turnSide() when a level requests LOOK_RIGHT - the Lua-side
+  // LevelModel.isLeft already reflects this, but Cube itself always
+  // defaults to true (facing left, matching Cube::Cube()'s own default)
+  // and nothing was applying the parsed value on top of it - see docs/023.
+  cube.isLeft = modelData.isLeft;
   return cube;
 }
 
@@ -143,8 +183,9 @@ function buildUnit(cube: Cube, kind: string): Unit | undefined {
   if (!isFishKind(kind)) return undefined;
   const isSmall = kind === "fish_small";
   const keys = isSmall ? SMALL_FISH_KEYS : BIG_FISH_KEYS;
+  const symbols = isSmall ? SMALL_FISH_SYMBOLS : BIG_FISH_SYMBOLS;
   // legacy/src/level/ModelFactory.cpp's createUnit(): only fish_small starts active.
-  return new Unit(cube, keys, isSmall);
+  return new Unit(cube, keys, symbols, isSmall);
 }
 
 export type { InputProvider };
