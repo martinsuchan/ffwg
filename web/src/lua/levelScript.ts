@@ -10,6 +10,11 @@ import { fetchText, fetchLegacyFile, extractFileIncludes, getAudioManifest } fro
  *  far the most complete translation+voice-over coverage across levels). */
 const DIALOG_LANG = "cs";
 
+/** legacy/script/share/level_creation.lua's TALK_INDEX_BOTH - a real actor
+ *  value (not a wildcard) some narrator-style model_talk() calls use for
+ *  lines not tied to one specific fish - see isModelTalking(). */
+const TALK_INDEX_BOTH = -1;
+
 /** Own glue, not legacy content - wraps legacy/script/share/Pickle.lua's
  *  pickle()/loadstring() and prog_save.lua's script_loadState() (both
  *  loaded verbatim below) into two single-call primitives, so LevelScript
@@ -63,17 +68,21 @@ async function fetchSoundDurations(spriteDirs: string[]): Promise<Map<string, nu
   const durations = new Map<string, number>();
   await Promise.all(
     spriteDirs.map(async (spriteDir) => {
-      let json: string;
       try {
-        json = await fetchText(`/assets/sound/${spriteDir}/sprite.json`);
+        const json = await fetchText(`/assets/sound/${spriteDir}/sprite.json`);
+        // Vite's dev server SPA-fallback-serves index.html (200 OK, not a
+        // real 404) for any unconverted spriteDir's missing sprite.json,
+        // so a failed fetch doesn't necessarily throw here - JSON.parse on
+        // that HTML is what actually fails, and needs the same tolerant
+        // treatment as a real fetch error (docs/018's "tolerant of 404s").
+        const { spritemap } = JSON.parse(json) as {
+          spritemap: Record<string, { start: number; end: number }>;
+        };
+        for (const [region, { start, end }] of Object.entries(spritemap)) {
+          durations.set(`sound/${spriteDir}/${region}.ogg`, end - start);
+        }
       } catch {
-        return;
-      }
-      const { spritemap } = JSON.parse(json) as {
-        spritemap: Record<string, { start: number; end: number }>;
-      };
-      for (const [region, { start, end }] of Object.entries(spritemap)) {
-        durations.set(`sound/${spriteDir}/${region}.ogg`, end - start);
+        // Not converted yet - callers fall back to the text-length formula.
       }
     }),
   );
@@ -212,6 +221,23 @@ export class LevelScript {
    *  though those calls still land in this same map. */
   getScriptAnim(index: number): ScriptAnim | null {
     return this.state.scriptAnims.get(index) ?? null;
+  }
+
+  /** Whether model `index` should show its talking-mouth head overlay -
+   *  legacy's animateHead(): `"talking" == state or model_isTalking(
+   *  TALK_INDEX_BOTH)`. Cube::isTalking() (the "talking"-state half) just
+   *  checks the model's own dialog slot by its own index; TALK_INDEX_BOTH
+   *  (-1, level_creation.lua) is a real, separate actor value some
+   *  narrator-style model_talk() calls use for lines not tied to one
+   *  specific fish - when active, *every* fish shows the talking mouth
+   *  simultaneously. Unlike getScriptAnim(), fish DO consult this - mouth
+   *  animation was never ported when dialogs landed (docs/015) even
+   *  though this class already tracked everything needed for it (see
+   *  docs/029). */
+  isModelTalking(index: number): boolean {
+    if (!isDialogActive(this.state)) return false;
+    const actorIndex = (this.state.activeDialog as ActiveDialog).actorIndex;
+    return actorIndex === index || actorIndex === TALK_INDEX_BOTH;
   }
 
   /** The currently-showing subtitle, if any and not yet expired - see
@@ -519,6 +545,41 @@ export async function createLevelScript(
       "model_isLeft",
       (index: number) => state.renderModels[index].isLeft,
     );
+    // Rules::isAtBorder() - already ported (docs/007), just not previously
+    // exposed to Lua. Real gameplay state (escape/goal-adjacent checks in
+    // e.g. atlantis/gods/map/propulsion/turtle/barrel/floppy's code.lua),
+    // not cosmetic - see docs/028.
+    lua.global.set("model_isAtBorder", (index: number) => state.renderModels[index].isAtBorder);
+    // game-script.cpp's model_equals(index, x, y): does *this* model occupy
+    // field cell (x,y)? Backs isWater()/isFreePlace()-style pathfinding
+    // helpers a handful of "programmed"/scripted-unit levels use (prog_
+    // compatible.lua, prog_finder.lua). Approximated from the same
+    // RenderModel[] snapshot every other binding here already uses (this
+    // engine deliberately has no access to the real Field/Room, see this
+    // file's own doc comment) - matches a model's single anchor position,
+    // not its full multi-cell shape mask, and doesn't distinguish "empty
+    // water" from "room border" the way the original's Field sentinel does.
+    // A documented simplification, not a crash fix pretending to be exact -
+    // affects only a few non-final levels' scripted-unit pathfinding.
+    lua.global.set("model_equals", (index: number, x: number, y: number) => {
+      const occupant = state.renderModels.find((m) => !m.isLost && m.x === x && m.y === y);
+      return occupant ? occupant.index === index : index === -1;
+    });
+    // Per-model/per-screen view-shift (model_setViewShift/game_setScreenShift)
+    // are purely cosmetic camera/render-offset effects (View::getScreenPos()
+    // only) with no gameplay/goal state - safe no-ops, matching this file's
+    // existing model_setBusy/model_setEffect precedent. game_setFastFalling
+    // is a real physics-pacing effect, but its only caller (windoze/code.lua)
+    // is already unsupported for an unrelated reason (fish_extra, docs/022) -
+    // stubbed anyway so the live script itself doesn't also fail to load.
+    // See docs/028.
+    lua.global.set("model_setViewShift", () => {});
+    lua.global.set("game_setScreenShift", () => {});
+    lua.global.set("game_setFastFalling", () => {});
+    // Level::isShowing() - true while a level_planShow() action is queued.
+    // level_planShow is already a no-op here (below) and never queues
+    // anything, so "never showing" is the exactly-consistent answer.
+    lua.global.set("level_isShowing", () => false);
 
     // Dynamically changing goal/turn-side/busy/effect during play isn't a
     // scenario any level's per-round update closure exercises today
@@ -528,6 +589,16 @@ export async function createLevelScript(
     lua.global.set("model_change_turnSide", () => {});
     lua.global.set("model_setBusy", () => {});
     lua.global.set("model_setEffect", () => {});
+    // game_addDecor (purely visual) / level_planShow (triggers a "show"
+    // sequence this port doesn't render) - real no-op stubs already
+    // proven safe in levelLoader.ts's static pass (docs/024), just never
+    // carried over to this live engine. Levels beyond airplane/viking1
+    // call these from real per-round update closures (unlike the mostly-
+    // init-time calls the docs/014 spike checked against), so missing
+    // them here threw "attempt to call a nil value" and silently broke
+    // dialogs/item-animation/music for every other level - see docs/028.
+    lua.global.set("game_addDecor", () => {});
+    lua.global.set("level_planShow", () => {});
 
     // Dialog text+sound (docs/015, docs/018). dialog_addDialog registers
     // name -> {font, subtitle, soundPath} the moment a dialog file runs
@@ -623,6 +694,11 @@ export async function createLevelScript(
 
     lua.global.set("file_include", () => {});
     lua.global.set("codename", levelName);
+    // OptionAgent config lookup (language/subtitle settings etc.) - this
+    // port has no options UI yet (docs/027's "Follow-up"). Returning ""
+    // (not null/undefined - both crash/misbehave in wasmoon, docs/024)
+    // matches levelLoader.ts's existing static-pass stub exactly.
+    lua.global.set("options_getParam", () => "");
 
     await lua.doString(compatSource);
     await lua.doString("text = {}");

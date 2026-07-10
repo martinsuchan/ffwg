@@ -302,6 +302,95 @@ reasoning; check for later numbered entries too — decisions here can change):
   fetched as function references exactly like `scriptUpdate` - avoids the async-`doString()`
   reentrancy risk docs/008 already hit once). See
   `docs/026-2026-07-10-solution-and-save-persistence.md`.
+- World Map: the game now boots into a real level-select hub (`web/src/scenes/
+  WorldMapScene.ts`) instead of one hardcoded level, in **sandbox mode** (every node,
+  including normally-hidden secret branches, is unlocked - `SANDBOX_MODE` in
+  `web/src/game/worldMapState.ts`, a single flag away from real progression-gating). New
+  `web/src/lua/worldMapLoader.ts` parses the real `legacy/script/worldmap.lua`/
+  `worlddesc.lua`/`worldfame.lua` (80 nodes, Czech names for whole-game language
+  consistency) via a one-shot wasmoon engine, same pattern as `levelLoader.ts`.
+  Solved/unsolved node coloring is derived fresh from `localStorage` every time the map is
+  shown (`computeNodeStates()`, a pure function - not the original's in-place tree mutation)
+  rather than replicating the original's push/pop-with-paused-state-underneath stack model;
+  this port keeps using its own already-proven `scene.start()` full-teardown pattern
+  (docs/025) both ways. `LevelScene`/`ReplayScene` are now launched dynamically
+  (`init(data)`, mirroring `ReplayScene`'s existing pattern) instead of `LevelScene` taking
+  fixed data in its constructor; the canvas resizes per scene now too
+  (`this.scale.setGameSize(...)`) since the map (640x480) and each level's own room size
+  differ. Clicking a solved node shows the original's real **Pedometer** screen (new
+  `web/src/scenes/PedometerUI.ts`, an in-scene overlay, not a separate scene) - Run/Replay/
+  Cancel at the original's exact panel/button positions, move count via a simple count-up
+  tween (not the original's per-digit slot-machine animation). `ReplayScene` gained a
+  `returnTo: "level" | "worldmap"` distinction, since Escape's destination now genuinely
+  depends on whether replay was launched via P from a live level or via the map's Pedometer.
+  The map's 4 large corner buttons (Intro/Exit/Credits/Options) are analyzed in depth but
+  deliberately left inert this pass (real destinations - attract-mode movie, a from-scratch
+  settings screen, a poster scroller, and Exit's browser-tab reinterpretation - don't exist
+  in this port yet) - an explicit follow-up. Also ran the **first full, unfiltered asset
+  conversion batch** (previously only `airplane`/`viking1`/shared pool were converted) since
+  the map makes every level genuinely reachable now. See
+  `docs/027-2026-07-10-world-map.md`, which also documents 3 real bugs found/fixed during
+  verification (a Phaser hit-area coordinate-space bug that silently broke all node hover/
+  click, a pulse-timer-outliving-its-scene crash, and an uncaught-JSON-parse crash for any
+  level beyond the two previously exercised).
+- World Map smoke-test fixes (`docs/028-2026-07-10-world-map-smoke-test-fixes.md`): user
+  smoke-testing docs/027 found 3 more real bugs, all "invisible until every level became
+  reachable." (1) **Level-loading texture collision** (the serious one): every Phaser
+  texture key (`ModelAnimator.textureKey()`, `LevelScene`/`ReplayScene`'s `"bg"`) was
+  level-*agnostic* - fine when one hardcoded level lived for the whole session, but once
+  the map made `LevelScene` dynamically relaunchable (docs/027), two different levels'
+  model 0/background collided on the same key, and Phaser's loader silently keeps
+  whichever image loaded first - closing level A and opening level B showed A's stale
+  textures with B's correctly-loaded position data. Fixed by prefixing every texture key
+  with `levelName` throughout `ModelAnimator.ts`/`sceneUtils.ts`/`LevelScene.ts`/
+  `ReplayScene.ts`. (2) **No dialog audio beyond `airplane`/`viking1`**: two compounding
+  causes - `web/public/lua/audio-manifest.json` was never regenerated after docs/027's
+  broader asset conversion (dialog sound-path resolution is gated by it; music never was,
+  which is why music alone kept working), and that conversion had itself silently
+  *stopped partway through* (~30 of 82 levels) because two genuinely-real, essentially-
+  zero-length placeholder `.ogg` clips make `ffprobe` report `"N/A"` for duration,
+  crashing `scripts/build-audio-sprite.ps1`'s unguarded `[double]` cast with no per-file
+  recovery. Fixed the script to treat an unparseable duration as 0-length instead of
+  aborting, reran the full batch to actual completion, rebuilt the manifest (82 levels,
+  3702 sound paths). (3) **World map had no music at all** (not reported broken, just
+  missing) - `WorldMapScene` never got an `AudioManager`; added one `applyMusicCommand`
+  call in `create()`, mirroring the original's `WorldMap::own_resumeState()`. Also found
+  (not user-reported, surfaced while fixing #2): 7 more Lua host bindings missing from
+  `web/src/lua/levelScript.ts` (the *live* per-round engine) that only ever mattered for
+  levels beyond the two this port had ever exercised - `options_getParam`/`game_addDecor`/
+  `level_planShow` were copy-pasted from `levelLoader.ts`'s already-safe stubs;
+  `level_isShowing`/`model_setViewShift`/`game_setScreenShift`/`game_setFastFalling` are
+  new no-op stubs (each confirmed cosmetic-only, or - for `game_setFastFalling` -
+  windoze-only and already out of scope, before stubbing); `model_isAtBorder` got a *real*
+  implementation (the computation already existed internally, `Rules.isAtBorder()` since
+  docs/007, just was never exposed to Lua - added to the `RenderModel` interface);
+  `model_equals` got a documented approximation (single-anchor-position match, since this
+  engine deliberately has no access to the real multi-cell `Field` grid). Found all 7 via
+  a from-scratch sweep script (`createLevelScript()` + a few ticks, all 80 levels, no
+  Phaser/UI at all) rather than fixing them reactively one at a time - went from 62/80 to
+  79/80 levels loading cleanly (only `windoze`'s already-known-unsupported `fish_extra`
+  remains).
+- Fish talking animation & canvas stretching (`docs/029-2026-07-10-fish-talking-animation-
+  and-canvas-stretching.md`): two more user-found bugs. **Canvas stretching**: `LevelScene`/
+  `WorldMapScene`/`ReplayScene` all resized the game canvas via `this.scale.setGameSize()`
+  (docs/027) - wrong call for this port's Scale Manager mode. Phaser's own docs say
+  `setGameSize()` is for `FIT`-style modes (updates only the internal backing resolution);
+  `.resize()` is the one for `NONE` mode (this port's actual, implicit mode - no `mode` is
+  ever set, only `zoom`), and it's the one that also updates the canvas's real CSS display
+  box. Confirmed directly: `library` (21x37 cells) had its internal resolution correctly
+  become 315x555, but the CSS box stayed frozen at the map's 960x720 from boot - a
+  0.568-ratio image stretched into a 1.333-ratio box. Switched all three call sites to
+  `.resize()`. **Fish talking animation**: `UnitAnimator.computeHeadAnim()`'s own doc
+  comment had flagged this gap since docs/009, written before dialogs existed - "revisit
+  when dialogs land" never actually happened when they did (docs/015). Ported the real
+  `animateHead()` (`legacy/script/share/level_update.lua`): talking beats pushing beats
+  occasional blink, using 3 real `head_talking_00/01/02` frames every fish already has
+  (confirmed the assets exist, this was a pure logic gap). New `LevelScript.isModelTalking()`
+  wires up the `TALK_INDEX_BOTH` (-1) "narrator line, every fish talks" case alongside a
+  model's own dialog slot. `talk_phase` cycling is owned by `ModelAnimator` itself (ticked
+  on its existing ~100ms head-check timer), not read from Lua, matching this port's
+  established "fish stay entirely TS-owned" split (docs/009/013) rather than the original's
+  Lua-side bookkeeping.
 
 Commands (from repo root):
 

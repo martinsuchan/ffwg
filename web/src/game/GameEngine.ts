@@ -63,6 +63,11 @@ export interface RenderModel {
   /** Rules.getMoveStreak() this tick - consecutive-move streak driving the
    *  visual "swims faster" effect (docs/017). */
   moveStreak: number;
+  /** Rules.isAtBorder() - whether this model currently sits against the
+   *  room's outer edge with a clear path out. Already computed internally
+   *  since docs/007; exposed here for the live Lua engine's
+   *  model_isAtBorder() binding (docs/028). */
+  isAtBorder: boolean;
 }
 
 /**
@@ -166,6 +171,7 @@ export class GameEngine {
       action: cube.rules.getAction(),
       state: cube.rules.getState(),
       moveStreak: cube.rules.getMoveStreak(),
+      isAtBorder: cube.rules.isAtBorder(),
     }));
   }
 }

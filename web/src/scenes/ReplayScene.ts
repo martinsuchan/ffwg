@@ -37,6 +37,13 @@ export class ReplayScene extends Phaser.Scene {
   private levelData!: LevelData;
   private moves!: string;
   private moveIndex = 0;
+  /** Where Escape goes back to - a real distinction the original also has
+   *  (P from a live level vs. the world map's Pedometer "Replay" button
+   *  are genuinely different entry points there too, see docs/027):
+   *  "level" resumes the LevelScene replay was launched from; "worldmap"
+   *  is used when replay was launched directly from the map (a solved
+   *  level was never actually entered interactively this session). */
+  private returnTo: "level" | "worldmap" = "level";
 
   private engine!: GameEngine;
   private animators = new Map<number, ModelAnimator>();
@@ -60,20 +67,35 @@ export class ReplayScene extends Phaser.Scene {
     super("replay");
   }
 
-  init(data: { levelData: LevelData; moves: string }): void {
+  init(data: { levelData: LevelData; moves: string; returnTo?: "level" | "worldmap" }): void {
     this.levelData = data.levelData;
     this.moves = data.moves;
+    this.returnTo = data.returnTo ?? "level";
   }
 
   preload(): void {
-    this.load.image("bg", pictureToAssetUrl(this.levelData.bgPicture));
+    this.load.image(this.bgKey(), pictureToAssetUrl(this.levelData.bgPicture));
     this.levelData.models.forEach((model, index) => {
-      preloadModelFrames(this, index, model.anims, pictureToAssetUrl);
+      preloadModelFrames(this, this.levelData.levelName, index, model.anims, pictureToAssetUrl);
     });
   }
 
+  /** Level-scoped, not a bare "bg" - see LevelScene's identical helper
+   *  (docs/028) for why. */
+  private bgKey(): string {
+    return `${this.levelData.levelName}-bg`;
+  }
+
   create(): void {
-    this.add.image(0, 0, "bg").setOrigin(0, 0);
+    // Needed here too, not just LevelScene/WorldMapScene - the Pedometer's
+    // "Replay" button launches this scene directly from the (differently-
+    // sized) world map, without ever passing through LevelScene first. See
+    // docs/029 for why .resize() (not .setGameSize()) is the right call.
+    this.scale.resize(
+      this.levelData.roomWidth * GRID_SCALE,
+      this.levelData.roomHeight * GRID_SCALE,
+    );
+    this.add.image(0, 0, this.bgKey()).setOrigin(0, 0);
 
     const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
 
@@ -89,7 +111,7 @@ export class ReplayScene extends Phaser.Scene {
       .setDepth(1000);
 
     this.statusText = this.add
-      .text(8, 8, "Replay - Esc = back to level, R = restart replay", {
+      .text(8, 8, `Replay - Esc = ${this.escLabel()}, R = restart replay`, {
         fontFamily: "sans-serif",
         fontSize: "16px",
         color: "#ffffff",
@@ -99,7 +121,10 @@ export class ReplayScene extends Phaser.Scene {
       .setDepth(1000);
 
     this.input.keyboard!.on("keydown-R", () => this.startReplay());
-    this.input.keyboard!.on("keydown-ESC", () => this.scene.start("level"));
+    this.input.keyboard!.on("keydown-ESC", () => {
+      if (this.returnTo === "worldmap") this.scene.start("worldmap");
+      else this.scene.start("level", { levelData: this.levelData });
+    });
 
     this.audioManager = new AudioManager(this);
     this.createControls();
@@ -130,13 +155,13 @@ export class ReplayScene extends Phaser.Scene {
     this.engine = new GameEngine(this.levelData);
     this.moveIndex = 0;
     this.gameOver = false;
-    this.statusText.setText("Replay - Esc = back to level, R = restart replay");
+    this.statusText.setText(`Replay - Esc = ${this.escLabel()}, R = restart replay`);
 
     const initialRenderModels = this.engine.getRenderModels();
 
     for (const model of initialRenderModels) {
       const levelModel = this.levelData.models[model.index];
-      const initialKey = resolveInitialTextureKey(model.index, levelModel);
+      const initialKey = resolveInitialTextureKey(this.levelData.levelName, model.index, levelModel);
       if (!initialKey) continue;
 
       const isFish = isFishKind(model.kind);
@@ -152,6 +177,7 @@ export class ReplayScene extends Phaser.Scene {
 
       const animator = new ModelAnimator(
         this,
+        this.levelData.levelName,
         model.index,
         levelModel.anims,
         bodySprite,
@@ -279,15 +305,19 @@ export class ReplayScene extends Phaser.Scene {
     if (this.engine.isSolved()) {
       this.gameOver = true;
       this.setPlayState("paused");
-      this.statusText.setText("Solved! (R = restart replay, Esc = back to level)");
+      this.statusText.setText(`Solved! (R = restart replay, Esc = ${this.escLabel()})`);
     } else if (!this.engine.isSolvable()) {
       this.gameOver = true;
       this.setPlayState("paused");
-      this.statusText.setText("Replay ended - a fish died. (R = restart, Esc = back to level)");
+      this.statusText.setText(`Replay ended - a fish died. (R = restart, Esc = ${this.escLabel()})`);
     } else if (this.moveIndex >= this.moves.length && this.engine.room.isFresh()) {
       // Ran out of recorded moves without solving - stop instead of
       // spinning the timer forever with nothing left to consume.
       this.setPlayState("paused");
     }
+  }
+
+  private escLabel(): string {
+    return this.returnTo === "worldmap" ? "back to map" : "back to level";
   }
 }

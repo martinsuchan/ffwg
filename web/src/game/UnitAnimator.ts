@@ -60,20 +60,28 @@ export function computeBodyAnim(model: AnimatableState): BodyAnim {
 }
 
 /**
- * Port of animateHead(model) (level_update.lua) - the subset that's
- * actually reachable without dialogs. The original's "busy"/"talking"
- * branches also override the *body* anim (setAnim("talk"/"turn", ...),
- * not a head overlay) based on model_isTalking()/dialog state, which
- * doesn't exist in this port yet (see docs/007's excluded scope) - revisit
- * this function's signature when dialogs (phase 3) land rather than
- * half-porting an override path nothing can currently trigger.
+ * Port of animateHead(model) (level_update.lua). Talking now beats
+ * pushing beats the occasional blink, matching the original's exact
+ * priority order - ported once dialogs (docs/015) actually landed rather
+ * than left half-done (see docs/029; the "busy" action branch that
+ * overrides the *body* anim with a talk pose, `setAnim("talk", ...)`, is
+ * still skipped - nothing in this port ever sets the "busy" action, same
+ * as before). `talkPhase` (0-2, which of the 3 head_talking frames) is
+ * owned and cycled by the caller (ModelAnimator) - this stays a pure
+ * function, matching computeBodyAnim.
  */
 export function computeHeadAnim(
   model: AnimatableState,
+  isTalking: boolean,
+  talkPhase: number,
   rollBlinkPercent: () => number,
 ): HeadAnim | null {
   if (!model.isAlive) {
     return null;
+  }
+
+  if (isTalking) {
+    return { name: "head_talking", phase: talkPhase };
   }
 
   if (model.state === "pushing") {

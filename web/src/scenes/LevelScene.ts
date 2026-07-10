@@ -53,6 +53,7 @@ const MOVE_KEYS = new Set([
  * animation system.
  */
 export class LevelScene extends Phaser.Scene {
+  private levelData!: LevelData;
   private engine!: GameEngine;
   private animators = new Map<number, ModelAnimator>();
   private statusText!: Phaser.GameObjects.Text;
@@ -95,19 +96,51 @@ export class LevelScene extends Phaser.Scene {
   private feedbackText!: Phaser.GameObjects.Text;
   private feedbackTimer?: Phaser.Time.TimerEvent;
 
-  constructor(private readonly levelData: LevelData) {
+  constructor() {
     super("level");
   }
 
+  /** Dynamic per-launch data (docs/027) - the world map picks a level at
+   *  runtime, so `levelData` can no longer be known when this scene is
+   *  constructed (it used to be, back when `main.ts` always booted into
+   *  one hardcoded level). Same pattern `ReplayScene` already used. */
+  init(data: { levelData: LevelData }): void {
+    this.levelData = data.levelData;
+  }
+
   preload(): void {
-    this.load.image("bg", pictureToAssetUrl(this.levelData.bgPicture));
+    this.load.image(this.bgKey(), pictureToAssetUrl(this.levelData.bgPicture));
     this.levelData.models.forEach((model, index) => {
-      preloadModelFrames(this, index, model.anims, pictureToAssetUrl);
+      preloadModelFrames(this, this.levelData.levelName, index, model.anims, pictureToAssetUrl);
     });
   }
 
+  /** Level-scoped, not a bare "bg" - two different levels' textures must
+   *  never collide under one key, or switching levels (now dynamic via
+   *  the world map, docs/027) silently keeps the previous level's images
+   *  since Phaser's loader no-ops a load.image() against an already-
+   *  registered key. See docs/028. */
+  private bgKey(): string {
+    return `${this.levelData.levelName}-bg`;
+  }
+
   create(): void {
-    this.add.image(0, 0, "bg").setOrigin(0, 0);
+    // Each level has its own room size, unlike the world map's fixed
+    // 640x480 - resize the game canvas on every entry (docs/027). This
+    // port's Game config sets no explicit scale `mode`, so the Scale
+    // Manager defaults to NONE - Phaser's own docs are explicit that
+    // `.setGameSize()` is for FIT-style modes only (it updates just the
+    // internal/backing resolution) and `.resize()` is the one that
+    // actually matches for NONE (it also updates the canvas's CSS display
+    // box). Using setGameSize() here left the CSS size frozen at whatever
+    // it was on boot (960x720, the map's size at zoom 1.5), so every level
+    // with a different aspect ratio got visibly stretched into that fixed
+    // box - see docs/029.
+    this.scale.resize(
+      this.levelData.roomWidth * GRID_SCALE,
+      this.levelData.roomHeight * GRID_SCALE,
+    );
+    this.add.image(0, 0, this.bgKey()).setOrigin(0, 0);
 
     this.statusText = this.add
       .text(8, 8, "", {
@@ -174,6 +207,7 @@ export class LevelScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-P", () => void this.launchReplay());
     this.input.keyboard!.on("keydown-F2", () => this.saveGame());
     this.input.keyboard!.on("keydown-F3", () => this.loadLatestGame());
+    this.input.keyboard!.on("keydown-ESC", () => this.scene.start("worldmap"));
 
     // Right-click is a real game action (push-toward-cursor) now, so the
     // browser's context menu would otherwise get in the way.
@@ -185,20 +219,41 @@ export class LevelScene extends Phaser.Scene {
     });
 
     this.audioManager = new AudioManager(this);
-    this.startEngine();
+
+    // The Sound Manager is game-global, not scene-scoped (docs/025) - stop
+    // this scene's music explicitly when leaving (e.g. P -> replay) so it
+    // doesn't keep playing underneath whichever scene comes next. Registered
+    // before startEngine() runs (not after) so it's still in place even if
+    // that throws below.
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.audioManager.destroy();
+      this.levelScript?.destroy();
+    });
+
+    try {
+      this.startEngine();
+    } catch (error) {
+      // A level whose content this port doesn't support at all (e.g.
+      // "windoze"'s fish_extra kind, docs/022) throws synchronously while
+      // building the GameEngine - not the async loadLevelModels() step
+      // WorldMapScene already guards, but this scene's own create(). Left
+      // uncaught, this stops create() mid-way with Phaser considering the
+      // scene never properly started - stuck with neither scene active,
+      // unrecoverable without a page reload. Report it and let the
+      // already-registered Esc handler get the player back out, matching
+      // how a failed loadLevelModels() is handled one level up.
+      console.error(`Failed to start level "${this.levelData.levelName}"`, error);
+      this.statusText.setText(
+        `This level isn't supported yet (${String(error)}). Press Esc for the map.`,
+      );
+      this.gameOver = true;
+      return;
+    }
 
     this.time.addEvent({
       delay: ROUND_MS,
       loop: true,
       callback: () => this.tick(),
-    });
-
-    // The Sound Manager is game-global, not scene-scoped (docs/025) - stop
-    // this scene's music explicitly when leaving (e.g. P -> replay) so it
-    // doesn't keep playing underneath whichever scene comes next.
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.audioManager.destroy();
-      this.levelScript?.destroy();
     });
   }
 
@@ -247,14 +302,15 @@ export class LevelScene extends Phaser.Scene {
     this.statusText.setText(
       "Arrows = active fish, WASD = big fish, IJKL = small fish, Space = switch, " +
         "click = select, hold-click = swim there, hold-right-click = push there, " +
-        "R = restart, P = watch solution replay, F2 = save, F3 = load latest",
+        "R = restart, P = watch solution replay, F2 = save, F3 = load latest, " +
+        "Esc = world map",
     );
 
     const initialRenderModels = this.engine.getRenderModels();
 
     for (const model of initialRenderModels) {
       const levelModel = this.levelData.models[model.index];
-      const initialKey = resolveInitialTextureKey(model.index, levelModel);
+      const initialKey = resolveInitialTextureKey(this.levelData.levelName, model.index, levelModel);
       if (!initialKey) continue;
 
       const isFish = isFishKind(model.kind);
@@ -270,6 +326,7 @@ export class LevelScene extends Phaser.Scene {
 
       const animator = new ModelAnimator(
         this,
+        this.levelData.levelName,
         model.index,
         levelModel.anims,
         bodySprite,
@@ -446,11 +503,13 @@ export class LevelScene extends Phaser.Scene {
 
     for (const model of renderModels) {
       // Fish stay entirely TS-owned (docs/009/013) - only items consult the
-      // level's Lua-driven anim override (docs/014).
-      const scriptAnim = isFishKind(model.kind)
-        ? null
-        : (this.levelScript?.getScriptAnim(model.index) ?? null);
-      this.animators.get(model.index)?.sync(model, scriptAnim);
+      // level's Lua-driven anim override (docs/014). Talking-mouth head
+      // overlay is the one exception (docs/029) - fish DO consult live
+      // dialog state for that, same as the original's animateHead().
+      const isFish = isFishKind(model.kind);
+      const scriptAnim = isFish ? null : (this.levelScript?.getScriptAnim(model.index) ?? null);
+      const isTalking = isFish && (this.levelScript?.isModelTalking(model.index) ?? false);
+      this.animators.get(model.index)?.sync(model, scriptAnim, isTalking);
     }
 
     if (this.gameOver) return;
@@ -460,12 +519,12 @@ export class LevelScene extends Phaser.Scene {
       const isNewBest = saveSolvedMoves(this.levelData.levelName, this.engine.getMoves());
       this.statusText.setText(
         isNewBest
-          ? `Solved in ${this.engine.getStepCount()} moves - new best! (R to restart, P to watch)`
-          : "Solved! Both fish made it out. (R to restart, P to watch)",
+          ? `Solved in ${this.engine.getStepCount()} moves - new best! (R to restart, P to watch, Esc for map)`
+          : "Solved! Both fish made it out. (R to restart, P to watch, Esc for map)",
       );
     } else if (!this.engine.isSolvable()) {
       this.gameOver = true;
-      this.statusText.setText("A fish died - press R to restart.");
+      this.statusText.setText("A fish died - press R to restart, or Esc for the map.");
     }
   }
 

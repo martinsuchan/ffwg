@@ -75,13 +75,21 @@ const MOVE_OFFSETS: Record<string, { dx: number; dy: number }> = {
  *  for that per-level-shader-adjacent effect (out of scope - see docs/009). */
 const REMOVE_FADE_MS = 400;
 
+/** `levelName` prefixes every key - two different levels' model 0 (say)
+ *  are two entirely different pictures, but without this, both would
+ *  collide on the exact same texture key. Phaser's TextureManager treats
+ *  a load.image() call against an already-registered key as a no-op
+ *  (keeps whichever image loaded first), so without this prefix,
+ *  switching from level A to level B silently kept level A's textures -
+ *  see docs/028. */
 export function textureKey(
+  levelName: string,
   index: number,
   animName: string,
   side: Side,
   phase: number,
 ): string {
-  return `model-${index}-${animName}-${side}-${phase}`;
+  return `${levelName}-model-${index}-${animName}-${side}-${phase}`;
 }
 
 /**
@@ -90,6 +98,7 @@ export function textureKey(
  */
 export function preloadModelFrames(
   scene: Phaser.Scene,
+  levelName: string,
   index: number,
   anims: Record<string, AnimFrames>,
   toAssetUrl: (picture: string) => string,
@@ -98,7 +107,7 @@ export function preloadModelFrames(
     (["left", "right"] as const).forEach((side) => {
       frames[side].forEach((picture, phase) => {
         scene.load.image(
-          textureKey(index, animName, side, phase),
+          textureKey(levelName, index, animName, side, phase),
           toAssetUrl(picture),
         );
       });
@@ -120,6 +129,7 @@ function frameCount(anims: Record<string, AnimFrames>, name: string, side: Side)
  *  for the requested one (e.g. an item that never turns only has "left"
  *  populated), and wrapping phase by modulo like Anim::setAnim does. */
 export function resolveTextureKey(
+  levelName: string,
   index: number,
   anims: Record<string, AnimFrames>,
   name: string,
@@ -130,7 +140,7 @@ export function resolveTextureKey(
   if (!frames) return null;
   const usableSide = frames[side].length > 0 ? side : side === "left" ? "right" : "left";
   if (frames[usableSide].length === 0) return null;
-  return textureKey(index, name, usableSide, phase % frames[usableSide].length);
+  return textureKey(levelName, index, name, usableSide, phase % frames[usableSide].length);
 }
 
 /**
@@ -157,17 +167,25 @@ export class ModelAnimator {
 
   private headAnim: string | null = null;
   private headPhase = 0;
-  /** Latest isAlive/state from sync() - checkHead() runs on its own timer,
-   *  independent of the physics tick, so it needs a cached snapshot rather
-   *  than a fresh RenderModel each time. */
+  /** Latest isAlive/state/isTalking from sync() - checkHead() runs on its
+   *  own timer, independent of the physics tick, so it needs a cached
+   *  snapshot rather than a fresh RenderModel each time. */
   private lastIsAlive = true;
   private lastState = "normal";
+  private lastIsTalking = false;
+  /** Which of the 3 head_talking frames is showing - null when not
+   *  talking (legacy's model.talk_phase, false/nil when idle) so the next
+   *  time talking starts, it re-rolls fresh rather than resuming
+   *  mid-cycle. Owned here, not read from Lua - fish stay entirely
+   *  TS-owned (docs/009/013), same reasoning as body/blink animation. */
+  private talkPhase: number | null = null;
 
   private readonly bodyTimer: Phaser.Time.TimerEvent;
   private readonly headTimer?: Phaser.Time.TimerEvent;
 
   constructor(
     private readonly scene: Phaser.Scene,
+    private readonly levelName: string,
     private readonly index: number,
     private readonly anims: Record<string, AnimFrames>,
     private readonly bodySprite: Phaser.GameObjects.Image,
@@ -206,8 +224,11 @@ export class ModelAnimator {
   /** Called once per physics tick with the latest engine state. `scriptAnim`
    *  is the level's Lua-driven (animName, phase) override for this round
    *  (docs/014's item animation), consulted only for non-fish models - see
-   *  docs/014's "Fish vs item anim ownership" for why fish never look at it. */
-  sync(model: RenderModel, scriptAnim: ScriptAnim | null = null): void {
+   *  docs/014's "Fish vs item anim ownership" for why fish never look at it.
+   *  `isTalking` (fish only - see docs/029) drives the head_talking mouth
+   *  overlay; callers that don't track dialog state (ReplayScene, which
+   *  deliberately suppresses subtitles too, docs/025) just omit it. */
+  sync(model: RenderModel, scriptAnim: ScriptAnim | null = null, isTalking = false): void {
     if (model.isLost) {
       if (!this.removalStarted) {
         this.removalStarted = true;
@@ -284,6 +305,7 @@ export class ModelAnimator {
 
     this.lastIsAlive = model.isAlive;
     this.lastState = model.state;
+    this.lastIsTalking = isTalking;
 
     if (!model.isAlive) {
       // Dead: permanently show the skeleton pose, bypassing the trigger
@@ -348,8 +370,28 @@ export class ModelAnimator {
     // Dead fish never show a head overlay - sync() already hides it.
     if (!this.bodySprite.visible || !this.lastIsAlive) return;
 
+    // legacy's animateHead(): re-rolls a fresh starting phase the moment
+    // talking starts, then randomly steps to a different one of the 3
+    // head_talking frames on each subsequent check while it continues -
+    // resets to null (legacy's talk_phase = false) the moment talking
+    // stops, so the next time it starts it re-rolls rather than resuming
+    // mid-cycle. Ticks on this class's existing ~100ms head timer, not
+    // tied to physics rounds (docs/009's decoupled-timing design) - a
+    // deliberately simpler cadence than the original's game_getCycles()-
+    // gated one, not an attempt at exact parity.
+    if (this.lastIsTalking) {
+      this.talkPhase =
+        this.talkPhase === null
+          ? Math.floor(Math.random() * 3)
+          : (this.talkPhase + 1 + Math.floor(Math.random() * 2)) % 3;
+    } else {
+      this.talkPhase = null;
+    }
+
     const head = computeHeadAnim(
       { isAlive: this.lastIsAlive, action: this.bodyAnim, state: this.lastState },
+      this.lastIsTalking,
+      this.talkPhase ?? 0,
       () => Math.floor(Math.random() * 100),
     );
     if (!head) {
@@ -360,6 +402,7 @@ export class ModelAnimator {
     this.headAnim = head.name;
     this.headPhase = head.phase;
     const key = resolveTextureKey(
+      this.levelName,
       this.index,
       this.anims,
       this.headAnim,
@@ -391,6 +434,7 @@ export class ModelAnimator {
 
   private applyBodyTexture(): void {
     const key = resolveTextureKey(
+      this.levelName,
       this.index,
       this.anims,
       this.bodyAnim,

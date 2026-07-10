@@ -18,11 +18,13 @@ export function isFishKind(kind: string): boolean {
 }
 
 export function resolveInitialTextureKey(
+  levelName: string,
   index: number,
   levelModel: LevelModel,
 ): string | null {
   if (!levelModel.initialAnim) return null;
   return resolveTextureKey(
+    levelName,
     index,
     levelModel.anims,
     levelModel.initialAnim,

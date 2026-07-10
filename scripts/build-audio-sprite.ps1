@@ -62,7 +62,20 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed normalizing $($clip.FullName)" }
 
         $durText = & $ffprobe -v error -show_entries format=duration -of csv=p=0 $norm
-        $dur = [double]$durText
+        # A source clip that's already only a few ms long (seen in the real
+        # legacy content - e.g. elevator1/nl/zd1-m-cesta.ogg, an
+        # essentially-silent ~3.5ms placeholder) can normalize down to an
+        # empty WAV with no measurable duration - ffprobe then reports the
+        # literal string "N/A" instead of a number. Treat that as a
+        # zero-length clip (a degenerate but harmless sprite region) rather
+        # than aborting the whole batch over one near-silent placeholder.
+        if ($durText -eq "N/A" -or [string]::IsNullOrWhiteSpace($durText)) {
+            Write-Warning "Could not determine duration for $($clip.FullName) (got '$durText') - treating as 0-length"
+            $dur = 0.0
+        }
+        else {
+            $dur = [double]$durText
+        }
 
         $start = $cumulative
         $end = $start + $dur
