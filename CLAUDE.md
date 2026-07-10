@@ -281,6 +281,27 @@ reasoning; check for later numbered entries too — decisions here can change):
   verified to reach the same solved outcome the validator already confirmed. Shared scene
   helpers moved to new `web/src/scenes/sceneUtils.ts`. See
   `docs/025-2026-07-09-replay-mode.md`.
+- Solution/save persistence (steps 4+5, combined): `localStorage`-backed, new
+  `web/src/storage/levelStorage.ts`. Solved-solution persistence (step 4) - `P` now prefers
+  the player's own best (shortest) solved solution over the `legacy/solution/` reference file,
+  "keep only if shorter" ported from `LevelStatus::writeSolvedMoves()`. Mid-level save/load
+  (step 5) is **multi-slot**, modeled on *Fish Fillets 2*'s mission-screen dot row (not
+  original FF NG, which only ever had one save per level) per the user's request: new
+  `web/src/scenes/SaveSlotUI.ts` draws a row of clickable dots bottom-left - left-click loads,
+  right-click deletes, the dim trailing dot (or `F2`) saves a new slot (`F3` loads the latest
+  slot) - real key bindings, `legacy/src/level/LevelInput.cpp`'s `KEY_SAVE`/`KEY_LOAD`. A save
+  is more than a move string: reading `Level::saveGame()`/`action_load()`/
+  `LevelLoading::nextLoadAction()` confirmed the original also snapshots each level's own
+  Lua-side model state (`getModelsTable()`, pickled) - the only way per-level custom state
+  (NPC dialogue counters, decoration flags a level's `code.lua` tracks itself - e.g. `viking1`'s
+  musician-band gag) survives a load, since physics position is *never* cached on the model
+  table (always fetched live). Ported faithfully: physics still replays via the existing
+  `loadMove()`/`settleAll()` (docs/022); `web/src/lua/levelScript.ts` now also loads
+  `Pickle.lua`/`prog_save.lua` verbatim and exposes `LevelScript.captureModelState()`/
+  `restoreModelState()` as plain **synchronous** calls (two tiny glue functions loaded once,
+  fetched as function references exactly like `scriptUpdate` - avoids the async-`doString()`
+  reentrancy risk docs/008 already hit once). See
+  `docs/026-2026-07-10-solution-and-save-persistence.md`.
 
 Commands (from repo root):
 

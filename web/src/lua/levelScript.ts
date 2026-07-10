@@ -10,6 +10,24 @@ import { fetchText, fetchLegacyFile, extractFileIncludes, getAudioManifest } fro
  *  far the most complete translation+voice-over coverage across levels). */
 const DIALOG_LANG = "cs";
 
+/** Own glue, not legacy content - wraps legacy/script/share/Pickle.lua's
+ *  pickle()/loadstring() and prog_save.lua's script_loadState() (both
+ *  loaded verbatim below) into two single-call primitives, so LevelScript
+ *  can capture/restore Lua-side model state via a plain synchronous
+ *  function reference - exactly like the existing scriptUpdate call
+ *  (proven-safe, docs/014) - instead of an async lua.doString() per call,
+ *  which could race a same-tick tick() into the same live engine (the
+ *  class of corruption docs/008 already hit once). See docs/026. */
+const SAVE_STATE_GLUE_SOURCE = `
+function ffwg_captureModelState()
+    return pickle(getModelsTable())
+end
+function ffwg_restoreModelState(serialized)
+    saved_models = loadstring("return " .. serialized)()
+    script_loadState()
+end
+`;
+
 /** A resolved playable sound: which built sprite file, and which region
  *  inside it. Works uniformly for built-in sounds (impact/death), Lua-
  *  driven one-shots (sound_playSound), and dialog/NPC voice (model_talk) -
@@ -174,6 +192,8 @@ export class LevelScript {
     private readonly lua: LuaEngine,
     private readonly scriptUpdate: () => unknown,
     private readonly state: LevelScriptState,
+    private readonly captureModelStateFn: () => string,
+    private readonly restoreModelStateFn: (serialized: string) => void,
   ) {}
 
   /** Called once per physics round with the latest render state. */
@@ -259,6 +279,27 @@ export class LevelScript {
     return resolveSoundName(this.state, name);
   }
 
+  /** Every plain-data field a level's own code.lua has stashed onto a
+   *  model (dialogue-progress counters, "have I shown this yet" flags,
+   *  decoration/texture state it tracks itself) - legacy's saved_models,
+   *  `pickle(getModelsTable())`. Never includes physics position, which
+   *  model tables never cache (always fetched live via getLoc()) - see
+   *  docs/026. Used by LevelScene's mid-level save (F2/dot-click). */
+  captureModelState(): string {
+    return this.captureModelStateFn();
+  }
+
+  /** Restores a captureModelState() snapshot onto the current (freshly
+   *  bootstrapped) models - legacy's script_loadState()/
+   *  assignModelAttributes(). Call once, after this LevelScript's own
+   *  bootstrap has finished and physics has already been fast-forwarded
+   *  to the matching position, before any tick(). Throws if `serialized`
+   *  doesn't parse as a valid pickled table (e.g. saved by an older,
+   *  incompatible version of this level's code.lua). */
+  restoreModelState(serialized: string): void {
+    this.restoreModelStateFn(serialized);
+  }
+
   /** Planner::executeFirst() (docs/015): only the queue's front command
    *  runs each round: matches the original's serialized, single-command
    *  planning queue rather than resolving every pending action in parallel. */
@@ -307,6 +348,16 @@ export async function createLevelScript(
   const goanimSource = await fetchLegacyFile("script/share/prog_goanim.lua");
   const finderSource = await fetchLegacyFile("script/share/prog_finder.lua");
   const compatibleSource = await fetchLegacyFile("script/share/prog_compatible.lua");
+  // pickle()/unpickle_string()/script_loadState() (docs/026) - loaded
+  // verbatim, not reimplemented, so mid-level save/load reuses the
+  // original's exact serialization. prog_save.lua also defines undo/redo,
+  // out of scope here - confirmed safe to load anyway, since those are
+  // only ever *called* by a separate C++ path (Level::saveUndo()) this
+  // port has no equivalent of; its one top-level side effect (seeding an
+  // unused `undo` table) needs getRestartCount() (prog_compatible.lua,
+  // just fetched above) to already exist by the time it runs below.
+  const pickleSource = await fetchLegacyFile("script/share/Pickle.lua");
+  const progSaveSource = await fetchLegacyFile("script/share/prog_save.lua");
   const borejokesSource = await fetchLegacyFile("script/share/borejokes.lua");
   const blackjokesSource = await fetchLegacyFile("script/share/blackjokes.lua");
   const bublesSource = await fetchLegacyFile("script/share/bubles.lua");
@@ -583,6 +634,9 @@ export async function createLevelScript(
     await lua.doString(goanimSource);
     await lua.doString(finderSource);
     await lua.doString(compatibleSource);
+    await lua.doString(pickleSource);
+    await lua.doString(progSaveSource);
+    await lua.doString(SAVE_STATE_GLUE_SOURCE);
     await lua.doString(borejokesSource);
     await lua.doString(blackjokesSource);
     await lua.doString(bublesSource);
@@ -612,7 +666,17 @@ export async function createLevelScript(
     await lua.doString(codeSource);
 
     const scriptUpdate = lua.global.get("script_update") as () => unknown;
-    return new LevelScript(lua, scriptUpdate, state);
+    const captureModelStateFn = lua.global.get("ffwg_captureModelState") as () => string;
+    const restoreModelStateFn = lua.global.get("ffwg_restoreModelState") as (
+      serialized: string,
+    ) => void;
+    return new LevelScript(
+      lua,
+      scriptUpdate,
+      state,
+      captureModelStateFn,
+      restoreModelStateFn,
+    );
   } catch (error) {
     lua.global.close();
     throw error;

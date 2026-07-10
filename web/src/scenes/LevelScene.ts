@@ -9,6 +9,14 @@ import { ROUND_MS } from "../game/timing";
 import { ModelAnimator, preloadModelFrames } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
 import { pictureToAssetUrl, isFishKind, resolveInitialTextureKey } from "./sceneUtils";
+import { SaveSlotUI } from "./SaveSlotUI";
+import {
+  loadSavedGames,
+  addSavedGame,
+  deleteSavedGame,
+  loadSolvedMoves,
+  saveSolvedMoves,
+} from "../storage/levelStorage";
 
 /** Keys that can drive a fish - the only ones worth buffering as a queued
  *  edge (see LevelScene.queuedKey). Space/R are already handled as
@@ -80,6 +88,12 @@ export class LevelScene extends Phaser.Scene {
   /** Guards keydown-P against double-firing while the reference-solution
    *  fetch for launchReplay() is still in flight - see docs/025. */
   private launchingReplay = false;
+  /** Mid-level save slots, shown as a row of clickable dots - see docs/026. */
+  private saveSlotUI!: SaveSlotUI;
+  /** Transient save/load confirmation text (top-right) - mirrors the
+   *  original's displaySaveStatus() on-screen flash. See docs/026. */
+  private feedbackText!: Phaser.GameObjects.Text;
+  private feedbackTimer?: Phaser.Time.TimerEvent;
 
   constructor(private readonly levelData: LevelData) {
     super("level");
@@ -121,8 +135,31 @@ export class LevelScene extends Phaser.Scene {
       .setDepth(1000)
       .setVisible(false);
 
-    // Capture arrows/space so the browser doesn't scroll the page while playing.
-    this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE");
+    this.feedbackText = this.add
+      .text(roomWidthPx - 8, 8, "", {
+        fontFamily: "sans-serif",
+        fontSize: "16px",
+        color: "#ffffff",
+        backgroundColor: "#000000a0",
+        padding: { x: 6, y: 4 },
+      })
+      .setOrigin(1, 0)
+      .setDepth(1000)
+      .setVisible(false);
+
+    this.saveSlotUI = new SaveSlotUI(
+      this,
+      16,
+      roomHeightPx - 16,
+      (id) => this.loadGame(id),
+      () => this.saveGame(),
+      (id) => this.deleteGame(id),
+    );
+    this.saveSlotUI.refresh(loadSavedGames(this.levelData.levelName));
+
+    // Capture arrows/space/F2/F3 so the browser doesn't scroll the page or
+    // (Firefox's F3) pop up quick-find while playing.
+    this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE,F2,F3");
     this.input.keyboard!.on("keydown", (e: KeyboardEvent) => {
       this.heldKeys.add(e.code);
       if (this.queuedKey === null && MOVE_KEYS.has(e.code)) {
@@ -135,6 +172,8 @@ export class LevelScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-R", () => this.restart());
     this.input.keyboard!.on("keydown-SPACE", () => this.engine.switchFish());
     this.input.keyboard!.on("keydown-P", () => void this.launchReplay());
+    this.input.keyboard!.on("keydown-F2", () => this.saveGame());
+    this.input.keyboard!.on("keydown-F3", () => this.loadLatestGame());
 
     // Right-click is a real game action (push-toward-cursor) now, so the
     // browser's context menu would otherwise get in the way.
@@ -163,7 +202,16 @@ export class LevelScene extends Phaser.Scene {
     });
   }
 
-  private startEngine(): void {
+  /** (Re)starts the room. With no arguments, matches R/a plain restart -
+   *  exactly like the original, which never touches save data on restart.
+   *  Passing `resumeMoves` (a saved slot's move string) fast-forwards
+   *  physics to that position before anything is rendered (docs/022's
+   *  headless mechanism, reused); `resumeModelState` (that slot's captured
+   *  Lua state, docs/026) is applied once the fresh Lua bootstrap below
+   *  resolves. A resume that fails (saved data no longer valid, e.g. level
+   *  content changed since it was saved) warns and falls back to a fresh
+   *  start rather than crashing. */
+  private startEngine(resumeMoves?: string, resumeModelState?: string): void {
     for (const animator of this.animators.values()) {
       animator.destroy();
     }
@@ -180,11 +228,26 @@ export class LevelScene extends Phaser.Scene {
     this.lastDialogId = null;
 
     this.engine = new GameEngine(this.levelData);
+    if (resumeMoves) {
+      try {
+        for (const symbol of resumeMoves) {
+          this.engine.loadMove(symbol);
+        }
+        this.engine.settleAll();
+      } catch (error) {
+        console.warn(
+          `Saved position for "${this.levelData.levelName}" is no longer valid, starting fresh`,
+          error,
+        );
+        this.engine = new GameEngine(this.levelData);
+        resumeModelState = undefined;
+      }
+    }
     this.gameOver = false;
     this.statusText.setText(
       "Arrows = active fish, WASD = big fish, IJKL = small fish, Space = switch, " +
         "click = select, hold-click = swim there, hold-right-click = push there, " +
-        "R = restart, P = watch reference solution replay",
+        "R = restart, P = watch solution replay, F2 = save, F3 = load latest",
     );
 
     const initialRenderModels = this.engine.getRenderModels();
@@ -231,6 +294,19 @@ export class LevelScene extends Phaser.Scene {
           script.destroy();
           return;
         }
+        if (resumeModelState) {
+          try {
+            script.restoreModelState(resumeModelState);
+          } catch (error) {
+            // The physics restore above already succeeded independently -
+            // a corrupted/incompatible decorative-state overlay is only a
+            // cosmetic loss, not worth discarding the whole resume for.
+            console.warn(
+              `Failed to restore saved decorative state for "${this.levelData.levelName}"`,
+              error,
+            );
+          }
+        }
         this.levelScript = script;
       })
       .catch((error: unknown) => {
@@ -245,29 +321,85 @@ export class LevelScene extends Phaser.Scene {
     this.startEngine();
   }
 
-  /** P: launch a watchable replay of this level's reference solution -
-   *  see docs/025. Reads the same legacy/solution/<level>.lua files the
-   *  headless validator (docs/022-024) already checks, since there's no
-   *  player-solved-level persistence yet (step 4 of the roadmap) to
-   *  replay from instead. */
+  /** F2 or the save row's dim "add" dot: captures the current position
+   *  into a new save slot - legacy's Level::action_save(). */
+  private saveGame(): void {
+    if (!this.engine.isSolvable()) {
+      this.showFeedback("Can't save - no longer solvable");
+      return;
+    }
+    if (!this.levelScript) {
+      this.showFeedback("Still loading, try again in a moment");
+      return;
+    }
+    const modelState = this.levelScript.captureModelState();
+    const saved = addSavedGame(this.levelData.levelName, this.engine.getMoves(), modelState);
+    if (!saved) {
+      this.showFeedback("All save slots full - right-click a dot to delete one");
+      return;
+    }
+    this.saveSlotUI.refresh(loadSavedGames(this.levelData.levelName));
+    this.showFeedback(`Saved (${this.engine.getStepCount()} moves)`);
+  }
+
+  /** Left-click on a filled save dot: jumps straight to that slot's
+   *  position - legacy's Level::action_load(). */
+  private loadGame(id: string): void {
+    const save = loadSavedGames(this.levelData.levelName).find((s) => s.id === id);
+    if (!save) return;
+    this.startEngine(save.moves, save.modelState);
+    this.showFeedback(`Loaded (${save.moves.length} moves)`);
+  }
+
+  /** F3: loads the most recently created slot - a "quick load" stand-in
+   *  for the original's "load whatever's currently selected," since this
+   *  port has no selection concept (see docs/026). */
+  private loadLatestGame(): void {
+    const saves = loadSavedGames(this.levelData.levelName);
+    if (saves.length === 0) {
+      this.showFeedback("No saved position");
+      return;
+    }
+    this.loadGame(saves[saves.length - 1].id);
+  }
+
+  /** Right-click on a save dot. */
+  private deleteGame(id: string): void {
+    deleteSavedGame(this.levelData.levelName, id);
+    this.saveSlotUI.refresh(loadSavedGames(this.levelData.levelName));
+  }
+
+  /** Transient top-right confirmation - mirrors the original's
+   *  displaySaveStatus() on-screen flash. */
+  private showFeedback(message: string): void {
+    this.feedbackTimer?.remove();
+    this.feedbackText.setText(message).setVisible(true);
+    this.feedbackTimer = this.time.delayedCall(1500, () => this.feedbackText.setVisible(false));
+  }
+
+  /** P: launch a watchable replay - see docs/025. Prefers the player's own
+   *  solved solution (docs/026) if this level has been solved here before;
+   *  otherwise falls back to legacy/solution/<level>.lua, the same
+   *  reference solution the headless validator (docs/022-024) checks. */
   private async launchReplay(): Promise<void> {
     if (this.launchingReplay) return;
     this.launchingReplay = true;
     try {
-      const solutionSource = await fetchLegacyFile(
-        `solution/${this.levelData.levelName}.lua`,
-      );
-      const moves = extractSavedMoves(solutionSource);
+      const levelName = this.levelData.levelName;
+      let moves = loadSolvedMoves(levelName);
       if (!moves) {
-        console.warn(
-          `No reference solution found for "${this.levelData.levelName}"`,
-        );
+        const solutionSource = await fetchLegacyFile(`solution/${levelName}.lua`);
+        moves = extractSavedMoves(solutionSource);
+      }
+      if (!moves) {
+        console.warn(`No solution found for "${levelName}"`);
+        this.showFeedback("No solution to replay");
         return;
       }
       this.scene.start("replay", { levelData: this.levelData, moves });
     } catch (error) {
       console.error(
-        `Failed to load reference solution for "${this.levelData.levelName}"`,
+        `Failed to load a solution to replay for "${this.levelData.levelName}"`,
         error,
       );
     } finally {
@@ -325,7 +457,12 @@ export class LevelScene extends Phaser.Scene {
 
     if (this.engine.isSolved()) {
       this.gameOver = true;
-      this.statusText.setText("Solved! Both fish made it out. (R to replay)");
+      const isNewBest = saveSolvedMoves(this.levelData.levelName, this.engine.getMoves());
+      this.statusText.setText(
+        isNewBest
+          ? `Solved in ${this.engine.getStepCount()} moves - new best! (R to restart, P to watch)`
+          : "Solved! Both fish made it out. (R to restart, P to watch)",
+      );
     } else if (!this.engine.isSolvable()) {
       this.gameOver = true;
       this.statusText.setText("A fish died - press R to restart.");
