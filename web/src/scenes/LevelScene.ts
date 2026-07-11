@@ -1,13 +1,20 @@
 import Phaser from "phaser";
 
 import { GRID_SCALE, fetchLegacyFile, extractSavedMoves, type LevelData } from "../lua/levelLoader";
-import { createLevelScript, type LevelScript, type ResolvedSound } from "../lua/levelScript";
-import { GameEngine } from "../game/GameEngine";
+import {
+  createLevelScript,
+  levelSoundSpriteDirs,
+  levelDialogVoiceDir,
+  type LevelScript,
+  type ResolvedSound,
+  type HostActions,
+} from "../lua/levelScript";
+import { GameEngine, type RenderModel } from "../game/GameEngine";
 import { V2 } from "../game/V2";
 import { Weight } from "../game/Cube";
 import { ROUND_MS } from "../game/timing";
 import { ModelAnimator, preloadModelFrames } from "./ModelAnimator";
-import { AudioManager } from "./AudioManager";
+import { AudioManager, type MusicCommand } from "./AudioManager";
 import { pictureToAssetUrl, isFishKind, resolveInitialTextureKey } from "./sceneUtils";
 import { SaveSlotUI } from "./SaveSlotUI";
 import { HelpOverlay } from "./HelpOverlay";
@@ -15,6 +22,8 @@ import {
   loadSavedGames,
   addSavedGame,
   deleteSavedGame,
+  saveTutorialGame,
+  loadTutorialGame,
   loadSolvedMoves,
   saveSolvedMoves,
 } from "../storage/levelStorage";
@@ -102,6 +111,25 @@ export class LevelScene extends Phaser.Scene {
   /** Identity of the dialog last seen active, so a new dialog's voice clip
    *  plays exactly once (docs/018) rather than every round it's showing. */
   private lastDialogId: string | null = null;
+  /** Last background-music "play" command this level issued, so it can be
+   *  re-applied when resuming from the briefcase movie (which stops it and
+   *  plays its own) - null if the level has no music. See docs/031. */
+  private lastMusicCommand: MusicCommand | null = null;
+  /** Set by the level_newDemo host action (briefcase pushes the briefcase
+   *  down); read after levelScript.tick() to launch the movie - see docs/031. */
+  private pendingDemo: string | null = null;
+  /** Callbacks the live Lua engine invokes for the briefcase level's special
+   *  host functions - close over `this` so a restart swapping `this.engine`
+   *  stays consistent. See docs/031. */
+  private readonly hostActions: HostActions = {
+    newDemo: (demoFile) => {
+      this.pendingDemo = demoFile;
+    },
+    move: (symbol) => this.engine.showMove(symbol),
+    save: () => this.demoSave(),
+    load: () => this.demoLoad(),
+    restart: () => this.demoRestart(),
+  };
   /** Guards keydown-P against double-firing while the reference-solution
    *  fetch for launchReplay() is still in flight - see docs/025. */
   private launchingReplay = false;
@@ -243,13 +271,30 @@ export class LevelScene extends Phaser.Scene {
     // browser's context menu would otherwise get in the way.
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (this.helpOverlay.isShowing) return;
+      if (this.helpOverlay.isShowing || (this.levelScript?.isShowing() ?? false)) return;
       if (pointer.leftButtonDown()) {
         this.engine.selectAt(this.toFieldPos(pointer));
       }
     });
 
+    // Returning from the briefcase movie (DemoScene resumes this scene): the
+    // movie resized the canvas to 720x555 and we disabled input to lock out
+    // controls - restore both, and re-apply the level's music if it had any.
+    // See docs/031, Phase 1.
+    this.events.on(Phaser.Scenes.Events.RESUME, () => {
+      this.input.enabled = true;
+      this.scale.resize(
+        this.levelData.roomWidth * GRID_SCALE,
+        this.levelData.roomHeight * GRID_SCALE,
+      );
+      if (this.lastMusicCommand) void this.audioManager.applyMusicCommand(this.lastMusicCommand);
+    });
+
     this.audioManager = new AudioManager(this);
+    // Warm the loader cache for this level's dialog/effect sprites now, so the
+    // first line of dialog plays on time instead of after a network fetch
+    // (docs/031). Non-blocking - play starts as soon as it's ready.
+    this.audioManager.preload(levelSoundSpriteDirs(this.levelData.levelName));
 
     // The Sound Manager is game-global, not scene-scoped (docs/025) - stop
     // this scene's music explicitly when leaving (e.g. P -> replay) so it
@@ -298,11 +343,6 @@ export class LevelScene extends Phaser.Scene {
    *  content changed since it was saved) warns and falls back to a fresh
    *  start rather than crashing. */
   private startEngine(resumeMoves?: string, resumeModelState?: string): void {
-    for (const animator of this.animators.values()) {
-      animator.destroy();
-    }
-    this.animators.clear();
-
     this.levelScript?.destroy();
     this.levelScript = null;
     this.scriptGeneration += 1;
@@ -337,46 +377,29 @@ export class LevelScene extends Phaser.Scene {
     this.statusText.setText("").setVisible(false);
 
     const initialRenderModels = this.engine.getRenderModels();
-
-    for (const model of initialRenderModels) {
-      const levelModel = this.levelData.models[model.index];
-      const initialKey = resolveInitialTextureKey(this.levelData.levelName, model.index, levelModel);
-      if (!initialKey) continue;
-
-      const isFish = isFishKind(model.kind);
-      const bodySprite = this.add
-        .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
-        .setOrigin(0, 0);
-      const headSprite = isFish
-        ? this.add
-            .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
-            .setOrigin(0, 0)
-            .setVisible(false)
-        : undefined;
-
-      const animator = new ModelAnimator(
-        this,
-        this.levelData.levelName,
-        model.index,
-        levelModel.anims,
-        bodySprite,
-        isFish,
-        headSprite,
-        model.x,
-        model.y,
-        model.isLeft,
-      );
-      animator.sync(model);
-      this.animators.set(model.index, animator);
-    }
+    this.buildAnimators(initialRenderModels);
 
     // Fire-and-forget: physics/animators above already reset synchronously
     // (no visible restart delay), and levelScript swaps in whenever the
     // Lua bootstrap resolves - tick() just skips item-anim overrides until
     // then. The generation check discards a superseded restart's result
     // instead of resurrecting a stale engine (see docs/014).
-    createLevelScript(this.levelData.levelName, initialRenderModels, generation)
-      .then((script) => {
+    createLevelScript(this.levelData.levelName, initialRenderModels, generation, this.hostActions)
+      .then(async (script) => {
+        if (generation !== this.scriptGeneration) {
+          script.destroy();
+          return;
+        }
+        // Hold the script from going live until this level's dialog voice
+        // sprite has finished decoding (it loaded in parallel with the Lua
+        // bootstrap above), so the first line's audio plays in sync with its
+        // subtitle instead of ~2s late while a big sprite is still decoding
+        // (docs/031 follow-up). Time-boxed so a stuck/failed load can never
+        // brick the level - worst case the first line is a touch late.
+        await Promise.race([
+          this.audioManager.whenLoaded(levelDialogVoiceDir(this.levelData.levelName)),
+          new Promise<void>((resolve) => this.time.delayedCall(4000, resolve)),
+        ]);
         if (generation !== this.scriptGeneration) {
           script.destroy();
           return;
@@ -408,10 +431,111 @@ export class LevelScene extends Phaser.Scene {
     this.startEngine();
   }
 
-  /** Runs a gameplay action only when the help modal isn't up - keeps the
-   *  popup a true modal (reading the controls can't restart/switch/save). */
+  /** Destroys any existing model animators and (re)builds them from the given
+   *  render state - shared by startEngine() and the demo's physics-only
+   *  restart/load (docs/031), which reset the engine *without* rebuilding the
+   *  Lua script (so the show queue survives). */
+  private buildAnimators(renderModels: RenderModel[]): void {
+    for (const animator of this.animators.values()) animator.destroy();
+    this.animators.clear();
+
+    for (const model of renderModels) {
+      const levelModel = this.levelData.models[model.index];
+      const initialKey = resolveInitialTextureKey(this.levelData.levelName, model.index, levelModel);
+      if (!initialKey) continue;
+
+      const isFish = isFishKind(model.kind);
+      const bodySprite = this.add
+        .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
+        .setOrigin(0, 0);
+      const headSprite = isFish
+        ? this.add
+            .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
+            .setOrigin(0, 0)
+            .setVisible(false)
+        : undefined;
+
+      const animator = new ModelAnimator(
+        this,
+        this.levelData.levelName,
+        model.index,
+        levelModel.anims,
+        bodySprite,
+        isFish,
+        headSprite,
+        model.x,
+        model.y,
+        model.isLeft,
+      );
+      animator.sync(model);
+      this.animators.set(model.index, animator);
+    }
+  }
+
+  /** level_action_save() during a "show" (docs/031, Phase 2): saves into a
+   *  real, persistent *tutorial* save slot (upserted - the walkthrough saves
+   *  repeatedly onto the one slot), shown as a distinct amber dot and loadable
+   *  by the player once the tutorial is over. It never overwrites the player's
+   *  own save slots. */
+  private demoSave(): void {
+    if (!this.levelScript) return;
+    saveTutorialGame(
+      this.levelData.levelName,
+      this.engine.getMoves(),
+      this.levelScript.captureModelState(),
+    );
+    this.saveSlotUI.refresh(loadSavedGames(this.levelData.levelName));
+  }
+
+  /** level_action_load(): restore the tutorial save slot - resets *physics
+   *  only* (new GameEngine + replay moves), keeping the live Lua engine and its
+   *  show queue alive, then re-applies the slot's Lua-side model state. */
+  private demoLoad(): void {
+    const save = loadTutorialGame(this.levelData.levelName);
+    if (!save) return;
+    this.resetPhysicsOnly(save.moves, save.modelState);
+  }
+
+  /** level_action_restart(): restart the room during a show - physics only
+   *  (fresh GameEngine), Lua engine + show queue preserved. Safe without
+   *  re-running code.lua because a level's own per-round logic is suppressed
+   *  while level_isShowing() (see docs/031). */
+  private demoRestart(): void {
+    this.resetPhysicsOnly();
+  }
+
+  /** Swaps in a fresh GameEngine (optionally fast-forwarded to `moves` and
+   *  with `modelState` re-applied to the surviving Lua engine) and rebuilds
+   *  the sprite animators - the physics/visual half of startEngine() without
+   *  the levelScript teardown. Used only by the demo's show restart/load. */
+  private resetPhysicsOnly(moves?: string, modelState?: string): void {
+    this.engine = new GameEngine(this.levelData);
+    if (moves) {
+      try {
+        for (const symbol of moves) this.engine.loadMove(symbol);
+        this.engine.settleAll();
+      } catch (error) {
+        console.warn(`Demo load position no longer valid for "${this.levelData.levelName}"`, error);
+        this.engine = new GameEngine(this.levelData);
+      }
+    }
+    this.gameOver = false;
+    this.buildAnimators(this.engine.getRenderModels());
+    if (modelState && this.levelScript) {
+      try {
+        this.levelScript.restoreModelState(modelState);
+      } catch (error) {
+        console.warn(`Demo load: failed to restore decorative state`, error);
+      }
+    }
+  }
+
+  /** Runs a gameplay action only when the help modal isn't up and no
+   *  auto-play "show" is running - keeps the help popup a true modal and makes
+   *  the briefcase demo/show non-interruptible (docs/031: only Esc leaves). */
   private whenPlaying(action: () => void): void {
     if (this.helpOverlay.isShowing) return;
+    if (this.levelScript?.isShowing()) return;
     action();
   }
 
@@ -516,23 +640,55 @@ export class LevelScene extends Phaser.Scene {
     // While the help modal is open the fish shouldn't move - feed the engine
     // a no-op input (and drain any queued key) so held arrows/mouse can't
     // drive it, without freezing the round loop (item anims/audio keep going).
+    // During the briefcase auto-play "show" (demo_help) the demo drives the
+    // fish and the player has no control; the help modal also freezes input.
+    const showing = this.levelScript?.isShowing() ?? false;
     const helpOpen = this.helpOverlay.isShowing;
+    const blockInput = showing || helpOpen;
     const pointer = this.input.activePointer;
     const input = {
-      isPressed: (code: string) => !helpOpen && this.heldKeys.has(code),
-      isLeftPressed: () => !helpOpen && pointer.leftButtonDown(),
-      isRightPressed: () => !helpOpen && pointer.rightButtonDown(),
+      isPressed: (code: string) => !blockInput && this.heldKeys.has(code),
+      isLeftPressed: () => !blockInput && pointer.leftButtonDown(),
+      isRightPressed: () => !blockInput && pointer.rightButtonDown(),
       getMouseField: () => this.toFieldPos(pointer),
       takeQueuedKey: () => {
         const key = this.queuedKey;
         this.queuedKey = null;
-        return helpOpen ? null : key;
+        return blockInput ? null : key;
       },
     };
-    this.engine.tick(input);
+    if (showing) {
+      // Settle pending falls, then let the show command drive the move (run
+      // inside levelScript.tick() -> runShowStep -> level_action_move ->
+      // engine.showMove). A show command that hits an impossible move throws;
+      // catch it and gracefully end the show rather than crashing the loop.
+      try {
+        this.engine.beginShowRound();
+      } catch (error) {
+        this.abortShow(error);
+      }
+    } else {
+      this.engine.tick(input);
+    }
 
     const renderModels = this.engine.getRenderModels();
-    this.levelScript?.tick(renderModels);
+    try {
+      this.levelScript?.tick(renderModels);
+    } catch (error) {
+      // A show command (or item-anim script) threw - if a show was running,
+      // end it and hand control back; otherwise re-surface the error.
+      if (showing) this.abortShow(error);
+      else throw error;
+    }
+
+    // level_newDemo (briefcase pushed down) requested a fullscreen movie
+    // during script_update - launch it now (pauses this scene). See docs/031.
+    if (this.pendingDemo) {
+      const demoFile = this.pendingDemo;
+      this.pendingDemo = null;
+      this.launchDemo(demoFile);
+      return;
+    }
 
     const subtitle = this.levelScript?.getActiveSubtitle() ?? null;
     if (subtitle) {
@@ -552,6 +708,11 @@ export class LevelScene extends Phaser.Scene {
       const isTalking = isFish && (this.levelScript?.isModelTalking(model.index) ?? false);
       this.animators.get(model.index)?.sync(model, scriptAnim, isTalking);
     }
+
+    // No win/lose evaluation during the auto-play show - the demo deliberately
+    // dies and restarts to demonstrate mechanics, and "solving" mid-show must
+    // not trigger the return-to-map countdown.
+    if (showing) return;
 
     if (this.engine.isSolved()) {
       if (!this.gameOver) {
@@ -583,10 +744,36 @@ export class LevelScene extends Phaser.Scene {
     }
   }
 
+  /** Ends a running "show" after a command threw (e.g. an impossible move
+   *  from a physics divergence) - drops the queued commands so control returns
+   *  to the player rather than crashing the round loop. See docs/031. */
+  private abortShow(error: unknown): void {
+    console.error(`Auto-play show aborted for "${this.levelData.levelName}"`, error);
+    this.levelScript?.abortShow();
+  }
+
+  /** Pauses the level and launches the fullscreen movie overlay (DemoScene),
+   *  locking out all level controls while it plays - see docs/031, Phase 1.
+   *  The DemoScene resumes this scene (RESUME handler in create()) on Esc or
+   *  when the movie ends. */
+  private launchDemo(demoFile: string): void {
+    // Stop ALL level audio (music + any dialog voice mid-line) - the movie
+    // plays its own, and Phaser's Sound Manager is game-global so it would
+    // otherwise keep playing under the movie (docs/025/031).
+    this.audioManager.stopAll();
+    // A paused scene can still receive input in Phaser, so disable it
+    // explicitly - no save/load/help/replay/restart during the movie.
+    this.input.enabled = false;
+    this.scene.launch("demo", { demoFile, levelName: this.levelData.levelName });
+    this.scene.pause();
+  }
+
   /** Music, one-shot sound effects, built-in impact/death sounds, and
    *  dialog/NPC voice playback for this round - see docs/018. */
   private tickAudio(subtitle: { sound: ResolvedSound | null; volume: number } | null): void {
-    void this.audioManager.applyMusicCommand(this.levelScript?.getMusicCommand() ?? null);
+    const music = this.levelScript?.getMusicCommand() ?? null;
+    if (music) this.lastMusicCommand = music.type === "play" ? music : null;
+    void this.audioManager.applyMusicCommand(music);
 
     for (const effect of this.levelScript?.getPendingSoundEffects() ?? []) {
       void this.audioManager.playSoundEffect(effect.sound, effect.volume);
@@ -601,17 +788,20 @@ export class LevelScene extends Phaser.Scene {
 
     for (const dead of this.engine.lastDead) {
       this.levelScript?.killSound(dead.index);
+      // Cut the dying fish's own voice line too (legacy Dialogs::killSound).
+      this.audioManager.stopDialogVoice();
       if (dead.power === Weight.LIGHT) this.playNamedSound("dead_small", 100);
       else if (dead.power === Weight.HEAVY) this.playNamedSound("dead_big", 100);
     }
 
     // Dialog/NPC voice: play once when a *new* dialog starts, not every
-    // round it's still showing.
+    // round it's still showing - via playDialogVoice so a new line cuts the
+    // previous one (no overlap) and leaving the level stops it (docs/031).
     const dialogId = this.levelScript?.getActiveDialogId() ?? null;
     if (dialogId !== this.lastDialogId) {
       this.lastDialogId = dialogId;
       if (dialogId && subtitle?.sound) {
-        void this.audioManager.playSoundEffect(subtitle.sound, subtitle.volume);
+        void this.audioManager.playDialogVoice(subtitle.sound, subtitle.volume);
       }
     }
   }

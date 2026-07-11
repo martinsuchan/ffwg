@@ -23,6 +23,10 @@ export interface SavedGame {
   id: string;
   moves: string;
   modelState: string;
+  /** Created by the briefcase Phase-2 auto-play tutorial (`level_action_save`),
+   *  not the player - shown as a distinctly-coloured dot and loadable after
+   *  the tutorial like any other save. See docs/031. */
+  tutorial?: boolean;
 }
 
 function savesKey(levelName: string): string {
@@ -77,6 +81,36 @@ export function addSavedGame(
   const save: SavedGame = { id: crypto.randomUUID(), moves, modelState };
   writeSavedGames(levelName, [...saves, save]);
   return save;
+}
+
+/** Upserts the single tutorial save slot for a level - the briefcase auto-play
+ *  tutorial (docs/031) saves/loads repeatedly during its walkthrough, all onto
+ *  one dedicated slot (overwriting), so it never spawns many slots or clobbers
+ *  the player's saves. Unlike addSavedGame it bypasses the MAX_SAVES cap when
+ *  creating the one tutorial slot (the tutorial must be able to save), and it
+ *  persists so the player can load it once the tutorial is over.
+ *  @return the tutorial save. */
+export function saveTutorialGame(
+  levelName: string,
+  moves: string,
+  modelState: string,
+): SavedGame {
+  const saves = loadSavedGames(levelName);
+  const existing = saves.find((s) => s.tutorial);
+  if (existing) {
+    existing.moves = moves;
+    existing.modelState = modelState;
+    writeSavedGames(levelName, saves);
+    return existing;
+  }
+  const save: SavedGame = { id: crypto.randomUUID(), moves, modelState, tutorial: true };
+  writeSavedGames(levelName, [...saves, save]);
+  return save;
+}
+
+/** The level's tutorial save slot, or null - see saveTutorialGame(). */
+export function loadTutorialGame(levelName: string): SavedGame | null {
+  return loadSavedGames(levelName).find((s) => s.tutorial) ?? null;
 }
 
 export function deleteSavedGame(levelName: string, id: string): void {

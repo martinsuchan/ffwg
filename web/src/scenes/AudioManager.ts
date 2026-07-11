@@ -21,10 +21,18 @@ type MusicCommand = { type: "play"; track: string } | { type: "stop" };
  * never throws or blocks gameplay). See docs/018.
  */
 export class AudioManager {
-  private readonly attempted = new Set<string>();
+  /** key -> promise that resolves when that key's load finishes. Doubles as the
+   *  dedup set (a key present here is already loading/loaded) and lets callers
+   *  wait on one specific sprite rather than the whole load chain - see
+   *  ensureLoaded()/whenLoaded(). */
+  private readonly loadPromises = new Map<string, Promise<void>>();
   private loadingChain: Promise<void> = Promise.resolve();
   private currentMusicTrack: string | null = null;
   private currentMusic: Phaser.Sound.BaseSound | null = null;
+  /** The dialog/NPC voice currently playing, tracked so a new dialog line
+   *  cuts the previous one (legacy Dialogs::killSound - avoids two voices
+   *  overlapping) and so leaving the level stops it (docs/031). */
+  private currentDialogVoice: Phaser.Sound.BaseSound | null = null;
   /** Bumped by reset() so an in-flight load/play from a superseded session
    *  (pre-restart) can't resurrect stale audio after resolving late - same
    *  guard shape as LevelScene's own scriptGeneration. */
@@ -32,12 +40,27 @@ export class AudioManager {
 
   constructor(private readonly scene: Phaser.Scene) {}
 
-  /** Restart: stop current music and invalidate in-flight commands from the
-   *  previous session. Already-loaded sprites/tracks stay cached - a level
+  /** Restart: stop everything playing and invalidate in-flight commands from
+   *  the previous session. Already-loaded sprites/tracks stay cached - a level
    *  restart doesn't invalidate audio assets, only "what's playing now". */
   reset(): void {
     this.generation += 1;
-    this.stopMusic();
+    this.stopAll();
+  }
+
+  /** Warm the loader cache for sprite dirs this level will need, so the first
+   *  dialog/effect plays immediately instead of after a ~0.5-1s network fetch
+   *  (docs/031). Fire-and-forget and tolerant of un-converted dirs. */
+  preload(spriteDirs: string[]): void {
+    for (const dir of spriteDirs) {
+      void this.ensureLoaded(dir, () =>
+        this.scene.load.audioSprite(
+          dir,
+          `/assets/sound/${dir}/sprite.json`,
+          `/assets/sound/${dir}/sprite.mp3`,
+        ),
+      );
+    }
   }
 
   stopMusic(): void {
@@ -45,6 +68,54 @@ export class AudioManager {
     this.currentMusic?.destroy();
     this.currentMusic = null;
     this.currentMusicTrack = null;
+  }
+
+  /** Stops the currently-playing dialog/NPC voice, if any - legacy's
+   *  Dialogs::killSound(). */
+  stopDialogVoice(): void {
+    this.currentDialogVoice?.stop();
+    this.currentDialogVoice?.destroy();
+    this.currentDialogVoice = null;
+  }
+
+  /** Stops music, the dialog voice, and every one-shot effect still playing -
+   *  used when leaving a level (Esc -> world map) or restarting, so no level
+   *  audio bleeds into the next scene (docs/031). The Sound Manager is
+   *  game-global (docs/025), so stopAll() reaches sounds this scene started
+   *  even as it tears down. */
+  stopAll(): void {
+    this.stopMusic();
+    this.stopDialogVoice();
+    this.scene.sound.stopAll();
+  }
+
+  /** Dialog/NPC voice (model_talk) - like playSoundEffect, but the instance
+   *  is tracked so the next dialog line cuts this one (no overlap) and leaving
+   *  the level stops it. See docs/031. */
+  async playDialogVoice(sound: ResolvedSound, volumePercent: number): Promise<void> {
+    const generation = this.generation;
+    await this.ensureLoaded(sound.spriteDir, () =>
+      this.scene.load.audioSprite(
+        sound.spriteDir,
+        `/assets/sound/${sound.spriteDir}/sprite.json`,
+        `/assets/sound/${sound.spriteDir}/sprite.mp3`,
+      ),
+    );
+    if (generation !== this.generation) return;
+    this.stopDialogVoice();
+    try {
+      const voice = this.scene.sound.addAudioSprite(sound.spriteDir, {
+        volume: GLOBAL_SOUND_VOLUME * (volumePercent / 100),
+      });
+      voice.play(sound.region);
+      this.currentDialogVoice = voice;
+      voice.once(Phaser.Sound.Events.COMPLETE, () => {
+        if (this.currentDialogVoice === voice) this.currentDialogVoice = null;
+        voice.destroy();
+      });
+    } catch {
+      // Sprite failed to load (un-converted content) - silent, no voice.
+    }
   }
 
   /** One sound_playSound()/built-in (impact/death) effect - fire and forget. */
@@ -95,15 +166,18 @@ export class AudioManager {
     }
   }
 
-  /** Queues `enqueue()` on the shared loader and resolves once that load
-   *  pass completes - serialized (one load at a time via loadingChain) so
-   *  the loader's single 'complete' event unambiguously belongs to this
-   *  request, and deduped by key so the same asset is never queued twice
-   *  regardless of load success/failure (avoids repeat-404 spam). */
+  /** Queues `enqueue()` on the shared loader and returns a promise that
+   *  resolves once *this key's* load pass completes. Loads are serialized (one
+   *  at a time via loadingChain) so the loader's single 'complete' event
+   *  unambiguously belongs to one request, but each key gets its *own* promise
+   *  (not the whole chain) so a caller waiting on an already-loaded sprite
+   *  resolves immediately instead of blocking on unrelated in-flight loads
+   *  (docs/031 follow-up - that whole-chain wait was adding seconds to the
+   *  first dialog). Deduped by key, so the same asset is never queued twice. */
   private ensureLoaded(key: string, enqueue: () => void): Promise<void> {
-    if (this.attempted.has(key)) return this.loadingChain;
-    this.attempted.add(key);
-    this.loadingChain = this.loadingChain.then(
+    const existing = this.loadPromises.get(key);
+    if (existing) return existing;
+    const p = this.loadingChain.then(
       () =>
         new Promise<void>((resolve) => {
           enqueue();
@@ -111,11 +185,22 @@ export class AudioManager {
           this.scene.load.start();
         }),
     );
-    return this.loadingChain;
+    this.loadPromises.set(key, p);
+    this.loadingChain = p;
+    return p;
+  }
+
+  /** Resolves once `spriteDir`'s sprite is fully loaded+decoded (or immediately
+   *  if it already is / was never queued). Lets a caller gate on the audio
+   *  being ready - e.g. hold a level's dialog logic until its voice sprite has
+   *  decoded, so the first line plays in sync with its subtitle instead of ~2s
+   *  late while a big sprite (briefcase's 2.8MB) is still decoding (docs/031). */
+  whenLoaded(spriteDir: string): Promise<void> {
+    return this.loadPromises.get(spriteDir) ?? Promise.resolve();
   }
 
   destroy(): void {
-    this.stopMusic();
+    this.stopAll();
   }
 }
 

@@ -5,6 +5,9 @@ import { MAX_SAVES, type SavedGame } from "../storage/levelStorage";
 const DOT_RADIUS = 8;
 const DOT_SPACING = 22;
 const FILLED_COLOR = 0x3388ff;
+/** Tutorial-created save (briefcase Phase-2 auto-play, docs/031) - a distinct
+ *  amber so the player can tell it apart from their own blue saves. */
+const TUTORIAL_COLOR = 0xffb020;
 const EMPTY_COLOR = 0x333333;
 
 /**
@@ -35,7 +38,7 @@ export class SaveSlotUI {
     this.destroy();
 
     saves.forEach((save, i) => {
-      const dot = this.makeDot(i, FILLED_COLOR, 0xffffff);
+      const dot = this.makeDot(i, save.tutorial ? TUTORIAL_COLOR : FILLED_COLOR, 0xffffff);
       dot.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
         if (pointer.rightButtonDown()) this.onDelete(save.id);
         else this.onLoad(save.id);

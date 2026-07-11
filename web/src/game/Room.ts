@@ -198,6 +198,28 @@ export class Room {
     return consumed;
   }
 
+  /** Start a show-driven round - legacy's Level::nextShowAction()'s
+   *  room->beginFall(): settle pending falls before the show command runs.
+   *  Public entry for the briefcase auto-play "show" (docs/031, Phase 2),
+   *  which drives the round itself (input disabled) instead of nextRound(). */
+  beginShowRound(): void {
+    this.beginFall();
+  }
+
+  /** Apply one scripted "show" move - legacy's Room::makeMove(): only lands
+   *  when the room is fresh (else the show command retries next round), throws
+   *  on a fresh-but-impossible move (caught by the show driver as a graceful
+   *  end). Assumes beginShowRound() already ran this round. See docs/031. */
+  showMove(symbol: string): boolean {
+    if (!this.isFresh()) return false;
+    if (!this.controls.makeMove(symbol)) {
+      throw new Error(`show move not possible: "${symbol}"`);
+    }
+    this.lastAction = Action.MOVE;
+    this.updateMoveStreaks();
+    return true;
+  }
+
   /** Repeatedly resolves falls/fallout until nothing is left pending
    *  (isFresh()) - legacy's loadMove()'s "let object to fall fast" loop.
    *  Bounded defensively: a real level can never fall forever, so hitting

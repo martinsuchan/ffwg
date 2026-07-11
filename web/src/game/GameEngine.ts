@@ -158,6 +158,18 @@ export class GameEngine {
     return this.room.replayRound(symbol);
   }
 
+  /** Settle pending falls at the start of a briefcase auto-play "show" round -
+   *  see docs/031. The show drives the round itself (player input disabled). */
+  beginShowRound(): void {
+    this.room.beginShowRound();
+  }
+
+  /** Apply one scripted show move (legacy Room::makeMove semantics) - throws
+   *  on a fresh-but-impossible move (the show driver catches it). See docs/031. */
+  showMove(symbol: string): boolean {
+    return this.room.showMove(symbol);
+  }
+
   getRenderModels(): RenderModel[] {
     return this.room.models.map((cube, index) => ({
       index,

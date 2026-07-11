@@ -416,6 +416,58 @@ reasoning; check for later numbered entries too — decisions here can change):
   original's "Next Generation"; per-level section/level names are unchanged). Favicon: the
   game's own 32×32 `legacy/images/icon.png` copied to `web/public/favicon.png`, linked from
   `index.html`.
+- Briefcase level: fullscreen movie + auto-play tutorial
+  (`docs/031-2026-07-11-briefcase-movie-and-auto-play-tutorial.md`): the `briefcase` tutorial
+  level was unplayable — pushing the briefcase down (`kufr.faze==8`) called the unbound
+  `level_newDemo`, crashing the live Lua engine. Fixed both of the level's special scripted
+  sequences. **Phase 1 (movie):** new `web/src/lua/demoScript.ts` (a persistent-wasmoon runner
+  for `demo_briefcase.lua` — the port's `DemoMode` equivalent: `game_planAction` slideshow of
+  `demo_display` frames + `model_talk` voice + `kufrik` music) and `web/src/scenes/DemoScene.ts`
+  (fullscreen 720×555 movie player, **Esc-only** skip, level input fully locked out). `level_newDemo`
+  now delegates to a new `HostActions` callback that pauses `LevelScene` and `scene.launch`es the
+  demo overlay; a `RESUME` handler restores canvas/input/music. Shared sound helpers extracted to
+  `web/src/lua/dialogSound.ts`. **Phase 2 (auto-show):** `level_planShow`/`level_isShowing` are
+  real now (a separate `showActions` FIFO = legacy `CommandQueue m_show`), and
+  `level_action_move/save/load/restart` drive the engine unattended while `isShowing()` (player
+  input + R/Space/P/F1/F2/F3 all locked, only Esc leaves). Save/load use an **in-memory demo
+  snapshot**, never a player save slot (docs/026); restart/load reset physics only
+  (`resetPhysicsOnly`/`buildAnimators`), keeping the one persistent wasmoon engine + show queue
+  alive across show-restarts — the key trick avoiding the docs/008 async-reentrancy hazard, valid
+  because a level's own per-round logic is suppressed while showing. `demo_help.lua` is a *runtime*
+  `file_include` (the only one in the game — `extractRuntimeIncludes` classifies by indentation):
+  wrapped as a callable at bootstrap and run deferred on the trigger (`runPendingIncludes`, outside
+  the host callback), so it doesn't queue its whole show at load. A show command that hits an
+  impossible move (physics divergence) is caught and gracefully ends the show. The full
+  ~200-command walkthrough is only reachable from a mid-solve position (its trigger cell is
+  item-occupied at start), so the graceful-abort path is the safety net for the acknowledged
+  fragility. Verified: movie E2E (push briefcase → 720×555 movie → Esc → resume), show mechanism
+  (trigger/queue/drive/abort/save-load-restart), all-levels sweep 79/80 with no level pre-running
+  its show, docs/026 save/load green. **Follow-up fixes (same-day play-testing):** (1) dialog
+  audio played ~0.5-1s late (lazy sprite load) and could overlap — added `AudioManager.preload()`
+  (+ `levelSoundSpriteDirs`) called from `LevelScene`/`DemoScene` to warm the cache non-blocking,
+  and `playDialogVoice()` (via `addAudioSprite`) so a new line cuts the previous; (2) level audio
+  kept playing on the world map after Esc — `AudioManager.destroy()`/`reset()` now `stopAll()`
+  (music + voice + `scene.sound.stopAll()`); (3) movie frames replaced instead of layering —
+  `demo_display` is now an append-only draw log rendered as stacked Image GameObjects (opaque
+  covers, transparent layers; Phaser 4 `RenderTexture.draw` rendered black); (4) the Phase-2
+  tutorial save is now a **real persistent slot** (`saveTutorialGame`/`loadTutorialGame`,
+  `SavedGame.tutorial`) loadable after the tutorial and shown as a distinct amber dot, upserted
+  onto one slot, never touching the player's own saves. **Follow-up 2 — dialog audio still lagged
+  its subtitle:** instrumented timing found it's Web Audio (steady-state plays in 2-10ms, not
+  network — one concatenated `sprite.mp3` per dir), but the first line on a big-sprite level waited
+  ~2s while Web Audio decoded the whole sprite (briefcase's is 2.78MB). Fixed by (a) making
+  `AudioManager.ensureLoaded` track a **per-key** promise (+ `whenLoaded()`) so a loaded sprite
+  plays instantly and a loading one waits only for itself, and (b) **gating the level's dialog
+  logic** — `LevelScene` awaits `whenLoaded(levelDialogVoiceDir(level))` (loaded in parallel with
+  the Lua bootstrap, `Promise.race`-capped at 4s) before `this.levelScript` goes live, so no dialog
+  fires until its audio is decoded (first line in sync with its subtitle; level stays interactive
+  during the ~2s warm-up). **Follow-up 3 — the briefcase MOVIE still cropped each voice line's
+  tail** (levels were fine): the movie waits per line via `waitForTalker()`/`model_isTalking`, but
+  `demoScript`'s `model_talk` sized the line duration in cycles using `ROUND_MS` (130ms, the level
+  rate) while `DemoScene` ticks the movie at `DEMO_CYCLE_MS` (100ms) — so it went "done" at ~77% of
+  the clip and the next line cut the tail. Fixed by making `DEMO_CYCLE_MS` (in `demoScript.ts`, now
+  exported) the single source of truth for both the tick and the duration math. Lesson: a
+  real-time→cycles conversion must use *its own* tick interval.
 
 Commands (from repo root):
 

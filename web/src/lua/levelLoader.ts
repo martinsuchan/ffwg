@@ -106,6 +106,29 @@ export function extractFileIncludes(source: string, levelName: string): string[]
 }
 
 /**
+ * The subset of a code.lua's file_include() targets that are called at
+ * *runtime* (inside a function/closure body, so indented) rather than at the
+ * file's top level - only `briefcase`'s `demo_help.lua` (its auto-play
+ * tutorial) is one across the whole game (every other code.lua include is a
+ * top-level `prog_border`/`prog_ships`/etc. helper that must load at bootstrap).
+ * These must be wrapped and run only when the trigger fires, not pre-run at
+ * bootstrap (which would queue the whole show immediately). Classified by
+ * leading indentation - a top-level include sits at column 0. See docs/031.
+ */
+export function extractRuntimeIncludes(source: string, levelName: string): Set<string> {
+  const runtime = new Set<string>();
+  for (const line of source.split("\n")) {
+    if (!/^\s+\S/.test(line)) continue; // not indented -> top-level, runs at bootstrap
+    const literalRe = /file_include\(\s*['"]([^'"]+)['"]\s*\)/g;
+    for (const m of line.matchAll(literalRe)) runtime.add(m[1]);
+    const codenameRe =
+      /file_include\(\s*["']([^"']*)["']\s*\.\.\s*codename\s*\.\.\s*["']([^"']*)["']\s*\)/g;
+    for (const m of line.matchAll(codenameRe)) runtime.add(m[1] + levelName + m[2]);
+  }
+  return runtime;
+}
+
+/**
  * Extracts the `saved_moves = '...'` string from a `legacy/solution/
  * <level>.lua` file (docs/021's move-symbol format, docs/022-024's
  * validator) - used by ReplayScene (docs/025) to source a watchable

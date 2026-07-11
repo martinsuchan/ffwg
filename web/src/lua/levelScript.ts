@@ -3,7 +3,14 @@ import { LuaFactory, LuaMultiReturn, type LuaEngine } from "wasmoon";
 import { Shape } from "../game/Shape";
 import type { RenderModel } from "../game/GameEngine";
 import { ROUND_MS } from "../game/timing";
-import { fetchText, fetchLegacyFile, extractFileIncludes, getAudioManifest } from "./levelLoader";
+import {
+  fetchText,
+  fetchLegacyFile,
+  extractFileIncludes,
+  extractRuntimeIncludes,
+  getAudioManifest,
+} from "./levelLoader";
+import { resolveSoundPath, fetchSoundDurations, type ResolvedSound } from "./dialogSound";
 
 /** Dialog language for both text and voice audio - see docs/018 (switched
  *  from English per docs/015 to Czech, the original's home language with by
@@ -14,6 +21,26 @@ const DIALOG_LANG = "cs";
  *  value (not a wildcard) some narrator-style model_talk() calls use for
  *  lines not tied to one specific fish - see isModelTalking(). */
 const TALK_INDEX_BOTH = -1;
+
+/** The sound-sprite dirs a level draws voice/effect audio from - its own
+ *  dialog voice, the built-in impact/death pool (`share`, sp-* files), and the
+ *  shared joke/border dialog pools. LevelScene preloads these so the first
+ *  line plays without a network-fetch delay (docs/031). */
+export function levelSoundSpriteDirs(levelName: string): string[] {
+  return [
+    levelDialogVoiceDir(levelName),
+    "share",
+    `share/border/${DIALOG_LANG}`,
+    `share/borejokes/${DIALOG_LANG}`,
+    `share/blackjokes/${DIALOG_LANG}`,
+  ];
+}
+
+/** The sprite dir holding a level's own dialog voice (`<level>/<lang>`) - the
+ *  urgent one to have decoded before the first line fires. See docs/031. */
+export function levelDialogVoiceDir(levelName: string): string {
+  return `${levelName}/${DIALOG_LANG}`;
+}
 
 /** Own glue, not legacy content - wraps legacy/script/share/Pickle.lua's
  *  pickle()/loadstring() and prog_save.lua's script_loadState() (both
@@ -33,60 +60,29 @@ function ffwg_restoreModelState(serialized)
 end
 `;
 
-/** A resolved playable sound: which built sprite file, and which region
- *  inside it. Works uniformly for built-in sounds (impact/death), Lua-
- *  driven one-shots (sound_playSound), and dialog/NPC voice (model_talk) -
- *  see docs/018. */
-export interface ResolvedSound {
-  spriteDir: string;
-  region: string;
-}
+// Sound-path resolution + clip-duration fetching now live in ./dialogSound
+// (shared with the demo movie engine, demoScript.ts). Re-exported so existing
+// importers (LevelScene) keep resolving ResolvedSound from here.
+export type { ResolvedSound };
 
-/** "sound/<dir>/<name>.ogg" -> {spriteDir: dir, region: name} - the same
- *  transform for every sound category, since sound_addSound()'s registered
- *  file paths and dataPathSound()'s derived dialog paths are both already
- *  in this exact form (see legacy/script/share/level_creation.lua and
- *  level_dialog.lua). Returns null for anything not shaped like that
- *  (empty string - no sound available). */
-function resolveSoundPath(soundPath: string): ResolvedSound | null {
-  if (!soundPath) return null;
-  const withoutPrefix = soundPath.replace(/^sound\//, "");
-  const lastSlash = withoutPrefix.lastIndexOf("/");
-  if (lastSlash === -1) return null;
-  return {
-    spriteDir: withoutPrefix.slice(0, lastSlash),
-    region: withoutPrefix.slice(lastSlash + 1).replace(/\.ogg$/, ""),
-  };
-}
-
-/** Fetches each sprite's spritemap (JSON only, not the audio itself) and
- *  flattens every region's clip length into one "sound/<dir>/<name>.ogg" ->
- *  seconds map - tolerant of 404s (spriteDir not in our converted set),
- *  since callers already have a text-length fallback for missing durations
- *  (docs/018). */
-async function fetchSoundDurations(spriteDirs: string[]): Promise<Map<string, number>> {
-  const durations = new Map<string, number>();
-  await Promise.all(
-    spriteDirs.map(async (spriteDir) => {
-      try {
-        const json = await fetchText(`/assets/sound/${spriteDir}/sprite.json`);
-        // Vite's dev server SPA-fallback-serves index.html (200 OK, not a
-        // real 404) for any unconverted spriteDir's missing sprite.json,
-        // so a failed fetch doesn't necessarily throw here - JSON.parse on
-        // that HTML is what actually fails, and needs the same tolerant
-        // treatment as a real fetch error (docs/018's "tolerant of 404s").
-        const { spritemap } = JSON.parse(json) as {
-          spritemap: Record<string, { start: number; end: number }>;
-        };
-        for (const [region, { start, end }] of Object.entries(spritemap)) {
-          durations.set(`sound/${spriteDir}/${region}.ogg`, end - start);
-        }
-      } catch {
-        // Not converted yet - callers fall back to the text-length formula.
-      }
-    }),
-  );
-  return durations;
+/** Callbacks the live Lua engine invokes back into LevelScene for the special
+ *  scripted-sequence host functions - the port's stand-in for the C++ Level's
+ *  own methods these Lua bindings call (Level::newDemo / action_move / save /
+ *  load / restart). Only `briefcase` uses any of these today. All default to
+ *  no-ops when unset, so headless callers and ordinary levels are unaffected.
+ *  See docs/031. */
+export interface HostActions {
+  /** level_newDemo(demoFile): launch a fullscreen movie (Phase 1). */
+  newDemo(demoFile: string): void;
+  /** level_action_move(sym): apply one show-driven move, legacy Room::makeMove
+   *  semantics (true once consumed) - Phase 2. */
+  move(symbol: string): boolean;
+  /** level_action_save/load/restart(): unattended save/load/restart during a
+   *  "show" (demo_help), using an in-memory demo snapshot, never a player save
+   *  slot - Phase 2. */
+  save(): void;
+  load(): void;
+  restart(): void;
 }
 
 /** One level's Lua-driven animation override for a single model this round. */
@@ -162,6 +158,19 @@ interface LevelScriptState {
    *  sprite JSON spritemaps (docs/018) - backs model_talk()'s real-duration
    *  subtitle timing when a voice clip exists. */
   soundDurations: Map<string, number>;
+  /** legacy's CommandQueue m_show (Level::planShow): a *separate* FIFO from
+   *  pendingActions, drained by the caller (LevelScene) one command/round
+   *  while it's non-empty, with player input disabled - the briefcase
+   *  auto-play tutorial (demo_help.lua). See docs/031, Phase 2. */
+  showActions: Array<(count: number) => boolean>;
+  showCount: number;
+  /** path -> pre-wrapped callable, for runtime file_include() (demo_help.lua)
+   *  - run on the trigger, not at bootstrap. See docs/031, Phase 2e. */
+  runtimeIncludes: Map<string, () => void>;
+  /** Runtime file_include() calls made during this round's script_update,
+   *  deferred to run *after* it returns - calling into Lua from inside the
+   *  file_include host callback would be the docs/008 reentrancy hazard. */
+  pendingIncludes: Array<() => void>;
 }
 
 function isDialogActive(state: LevelScriptState): boolean {
@@ -205,12 +214,29 @@ export class LevelScript {
     private readonly restoreModelStateFn: (serialized: string) => void,
   ) {}
 
-  /** Called once per physics round with the latest render state. */
+  /** Called once per physics round with the latest render state. The show
+   *  step runs before script_update(), matching the original's per-cycle order
+   *  (Level::own_updateState -> nextShowAction, then updateLevel). Both are
+   *  no-ops outside the briefcase auto-play tutorial. */
   tick(renderModels: RenderModel[]): void {
     this.state.renderModels = renderModels;
     this.state.cycles += 1;
+    this.runShowStep();
     this.scriptUpdate();
     this.processPlan();
+    this.runPendingIncludes();
+  }
+
+  /** Runs any runtime file_include()s requested during this round's
+   *  script_update() - deferred to here (outside the file_include host
+   *  callback) so invoking the pre-wrapped Lua chunk is a plain TS->Lua call,
+   *  not a reentrant call from inside a running host callback (docs/008). Only
+   *  briefcase's demo_help.lua ever uses this. See docs/031. */
+  private runPendingIncludes(): void {
+    if (this.state.pendingIncludes.length === 0) return;
+    const includes = this.state.pendingIncludes;
+    this.state.pendingIncludes = [];
+    for (const run of includes) run();
   }
 
   /** The latest Lua-driven (animName, phase) override for a model this
@@ -341,6 +367,39 @@ export class LevelScript {
     }
   }
 
+  /** legacy's Level::isShowing() - true while a level_planShow() "show"
+   *  sequence is queued (the briefcase auto-play tutorial). While true,
+   *  LevelScene disables player input and drives the round via runShowStep()
+   *  instead of normal play. See docs/031, Phase 2. */
+  isShowing(): boolean {
+    return this.state.showActions.length > 0;
+  }
+
+  /** Runs the front show command (legacy's CommandQueue::executeFirst, via
+   *  Level::nextShowAction) - same one-command-per-round shape as
+   *  processPlan(). The command may call level_action_move/save/load/restart
+   *  as side effects; it's popped once it returns truthy. See docs/031. */
+  runShowStep(): void {
+    const { showActions } = this.state;
+    if (showActions.length === 0) return;
+    const done = showActions[0](this.state.showCount);
+    if (done) {
+      showActions.shift();
+      this.state.showCount = 0;
+    } else {
+      this.state.showCount += 1;
+    }
+  }
+
+  /** Drops all queued show commands - called when a show command throws (a
+   *  physics divergence made a scripted move impossible), so control returns
+   *  to the player instead of crashing. See docs/031. */
+  abortShow(): void {
+    this.state.showActions.length = 0;
+    this.state.showCount = 0;
+    this.state.pendingIncludes.length = 0;
+  }
+
   destroy(): void {
     this.lua.global.close();
   }
@@ -364,6 +423,7 @@ export async function createLevelScript(
   levelName: string,
   initialRenderModels: RenderModel[],
   restartCount: number,
+  hostActions?: HostActions,
 ): Promise<LevelScript> {
   const compatSource = await fetchText("/lua/lua50-compat.lua");
   const levelCreationSource = await fetchLegacyFile("script/share/level_creation.lua");
@@ -409,8 +469,14 @@ export async function createLevelScript(
   );
   const modelsSource = await fetchLegacyFile(`script/${levelName}/models.lua`);
   const codeSource = await fetchLegacyFile(`script/${levelName}/code.lua`);
+  // code.lua's file_include() targets: top-level ones (prog_border etc.) run at
+  // bootstrap as before; runtime ones (only briefcase's demo_help.lua, called
+  // from inside a closure) are wrapped as callables and run on the trigger
+  // instead, so they don't queue their whole "show" at load - see docs/031.
+  const includePaths = extractFileIncludes(codeSource, levelName);
+  const runtimeIncludePaths = extractRuntimeIncludes(codeSource, levelName);
   const includedSources = await Promise.all(
-    extractFileIncludes(codeSource, levelName).map((path) => fetchLegacyFile(path)),
+    includePaths.map(async (path) => ({ path, source: await fetchLegacyFile(path) })),
   );
   const audioManifest = await getAudioManifest();
   // Real clip lengths for the dialog sound pools this level actually loads
@@ -442,6 +508,10 @@ export async function createLevelScript(
     pendingSoundEffects: [],
     pendingMusicCommand: null,
     soundDurations,
+    showActions: [],
+    showCount: 0,
+    runtimeIncludes: new Map<string, () => void>(),
+    pendingIncludes: [],
   };
   const modelShapes: ScriptModel[] = [];
   // level_dialog.lua's own DialogState.lang is never actually set to
@@ -576,10 +646,30 @@ export async function createLevelScript(
     lua.global.set("model_setViewShift", () => {});
     lua.global.set("game_setScreenShift", () => {});
     lua.global.set("game_setFastFalling", () => {});
-    // Level::isShowing() - true while a level_planShow() action is queued.
-    // level_planShow is already a no-op here (below) and never queues
-    // anything, so "never showing" is the exactly-consistent answer.
-    lua.global.set("level_isShowing", () => false);
+    // Level::isShowing() - true while a level_planShow() "show" is queued
+    // (only the briefcase auto-play tutorial). LevelScene disables player
+    // input and drives the round via runShowStep() while true. See docs/031.
+    lua.global.set("level_isShowing", () => state.showActions.length > 0);
+    // Level::newDemo(): launch a fullscreen movie (briefcase pushes the
+    // briefcase down -> demo_briefcase.lua). Delegated to LevelScene via
+    // hostActions - see docs/031, Phase 1.
+    lua.global.set("level_newDemo", (demoFile: string) => hostActions?.newDemo(demoFile));
+    // Level::action_move/save/load/restart() - the auto-play tutorial's
+    // unattended actions, delegated to LevelScene (docs/031, Phase 2). Save/
+    // load use an in-memory demo snapshot there, never a player save slot.
+    lua.global.set("level_action_move", (symbol: string) => hostActions?.move(symbol) ?? false);
+    lua.global.set("level_action_save", () => {
+      hostActions?.save();
+      return true;
+    });
+    lua.global.set("level_action_load", () => {
+      hostActions?.load();
+      return true;
+    });
+    lua.global.set("level_action_restart", () => {
+      hostActions?.restart();
+      return true;
+    });
 
     // Dynamically changing goal/turn-side/busy/effect during play isn't a
     // scenario any level's per-round update closure exercises today
@@ -589,16 +679,17 @@ export async function createLevelScript(
     lua.global.set("model_change_turnSide", () => {});
     lua.global.set("model_setBusy", () => {});
     lua.global.set("model_setEffect", () => {});
-    // game_addDecor (purely visual) / level_planShow (triggers a "show"
-    // sequence this port doesn't render) - real no-op stubs already
-    // proven safe in levelLoader.ts's static pass (docs/024), just never
-    // carried over to this live engine. Levels beyond airplane/viking1
-    // call these from real per-round update closures (unlike the mostly-
-    // init-time calls the docs/014 spike checked against), so missing
-    // them here threw "attempt to call a nil value" and silently broke
-    // dialogs/item-animation/music for every other level - see docs/028.
+    // game_addDecor (purely visual) - real no-op stub, proven safe in
+    // levelLoader.ts's static pass (docs/024). See docs/028.
     lua.global.set("game_addDecor", () => {});
-    lua.global.set("level_planShow", () => {});
+    // Level::planShow(func): queue one show command (CommandQueue m_show).
+    // Real now (docs/031, Phase 2) - only briefcase's demo_help.lua queues
+    // any, and only at its runtime trigger (never at bootstrap, since
+    // demo_help is a runtime file_include - see runtimeIncludes), so this
+    // stays empty for every other level and level_isShowing() stays false.
+    lua.global.set("level_planShow", (callback: (count: number) => unknown) => {
+      state.showActions.push((count) => Boolean(callback(count)));
+    });
 
     // Dialog text+sound (docs/015, docs/018). dialog_addDialog registers
     // name -> {font, subtitle, soundPath} the moment a dialog file runs
@@ -692,7 +783,15 @@ export async function createLevelScript(
     // LevelScene's own matching counter, passed straight through.
     lua.global.set("level_getRestartCounter", () => restartCount);
 
-    lua.global.set("file_include", () => {});
+    // Top-level code.lua includes are pre-run at bootstrap (below), so a
+    // file_include() call for one is a no-op here. A *runtime* include
+    // (only briefcase's demo_help.lua) was wrapped as a callable instead -
+    // defer running it until after script_update() returns (runPendingIncludes),
+    // never from inside this host callback (docs/008 reentrancy). See docs/031.
+    lua.global.set("file_include", (path: string) => {
+      const run = state.runtimeIncludes.get(path);
+      if (run) state.pendingIncludes.push(run);
+    });
     lua.global.set("codename", levelName);
     // OptionAgent config lookup (language/subtitle settings etc.) - this
     // port has no options UI yet (docs/027's "Follow-up"). Returning ""
@@ -731,8 +830,17 @@ export async function createLevelScript(
     currentSoundPrefix = `sound/${levelName}/${DIALOG_LANG}/`;
     await lua.doString(levelDialogsSource);
     await lua.doString(modelsSource);
-    for (const includedSource of includedSources) {
-      await lua.doString(includedSource);
+    let includeIndex = 0;
+    for (const { path, source } of includedSources) {
+      if (runtimeIncludePaths.has(path)) {
+        // Wrap (don't run) - invoked later via file_include() on the trigger.
+        const fnName = `ffwg_include_${includeIndex++}`;
+        await lua.doString(`function ${fnName}()\n${source}\nend`);
+        const fn = lua.global.get(fnName) as () => void;
+        state.runtimeIncludes.set(path, fn);
+      } else {
+        await lua.doString(source);
+      }
     }
     // codeSource's own top-level prog_init() already calls initModels()
     // itself (confirmed for airplane; level_start.lua's own comment says

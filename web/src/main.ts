@@ -4,6 +4,7 @@ import { loadWorldMap } from "./lua/worldMapLoader";
 import { WorldMapScene } from "./scenes/WorldMapScene";
 import { LevelScene } from "./scenes/LevelScene";
 import { ReplayScene } from "./scenes/ReplayScene";
+import { DemoScene } from "./scenes/DemoScene";
 
 const ZOOM = 1.5;
 
@@ -19,10 +20,10 @@ async function boot(): Promise<void> {
     backgroundColor: "#0a1a2a",
     // WorldMapScene needs its graph data up front (known at boot, unlike
     // per-level data - see docs/027), so it's a ready instance; LevelScene/
-    // ReplayScene are both launched dynamically via scene.start(key, data)
-    // with a level picked at runtime, so they're registered by class for
-    // Phaser to instantiate fresh each time.
-    scene: [new WorldMapScene(worldMapData), LevelScene, ReplayScene],
+    // ReplayScene/DemoScene are all launched dynamically via scene.start/
+    // launch(key, data) with a level/demo picked at runtime, so they're
+    // registered by class for Phaser to instantiate fresh each time.
+    scene: [new WorldMapScene(worldMapData), LevelScene, ReplayScene, DemoScene],
   });
 }
 
