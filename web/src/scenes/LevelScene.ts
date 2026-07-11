@@ -10,6 +10,7 @@ import { ModelAnimator, preloadModelFrames } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
 import { pictureToAssetUrl, isFishKind, resolveInitialTextureKey } from "./sceneUtils";
 import { SaveSlotUI } from "./SaveSlotUI";
+import { HelpOverlay } from "./HelpOverlay";
 import {
   loadSavedGames,
   addSavedGame,
@@ -35,6 +36,16 @@ const MOVE_KEYS = new Set([
   "KeyK",
   "KeyL",
 ]);
+
+/** Rounds to linger on a solved room before returning to the world map -
+ *  legacy's LevelCountDown::getCountForSolved(): the original counts down
+ *  ~10 game cycles (own_updateState, ~timeinterval=100ms/cycle) once the
+ *  room is solved, then quitState()s back to the map - or 30 cycles if a
+ *  dialog is still running, so the player can finish reading/hearing it.
+ *  Counted here in physics rounds (tick(), ROUND_MS), this port's per-cycle
+ *  proxy. */
+const SOLVED_RETURN_ROUNDS = 10;
+const SOLVED_RETURN_ROUNDS_DIALOG = 30;
 
 /**
  * Renders and plays a level's puzzle: background + every model, driven by
@@ -74,6 +85,11 @@ export class LevelScene extends Phaser.Scene {
    *  that design instead of only polling held state. */
   private queuedKey: string | null = null;
   private gameOver = false;
+  /** Countdown (in rounds) from a solved room to the auto-return to the
+   *  world map - see SOLVED_RETURN_ROUNDS and tick(). -1 = not counting. */
+  private solvedCountdown = -1;
+  /** F1 controls popup (replaces the old always-on top-of-screen help). */
+  private helpOverlay!: HelpOverlay;
   /** Item animation (docs/014) - null until the async Lua bootstrap for
    *  this play session resolves; tick()/ModelAnimator handle that gap by
    *  just not applying any override yet, not by waiting for it. */
@@ -142,6 +158,9 @@ export class LevelScene extends Phaser.Scene {
     );
     this.add.image(0, 0, this.bgKey()).setOrigin(0, 0);
 
+    // Hidden while empty - an empty Text with a background + padding still
+    // renders its little padding box (the stray top-left smudge), so it's
+    // only made visible when there's an actual solved/died message.
     this.statusText = this.add
       .text(8, 8, "", {
         fontFamily: "sans-serif",
@@ -150,7 +169,8 @@ export class LevelScene extends Phaser.Scene {
         backgroundColor: "#000000a0",
         padding: { x: 6, y: 4 },
       })
-      .setDepth(1000);
+      .setDepth(1000)
+      .setVisible(false);
 
     const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
     const roomHeightPx = this.levelData.roomHeight * GRID_SCALE;
@@ -190,9 +210,11 @@ export class LevelScene extends Phaser.Scene {
     );
     this.saveSlotUI.refresh(loadSavedGames(this.levelData.levelName));
 
-    // Capture arrows/space/F2/F3 so the browser doesn't scroll the page or
-    // (Firefox's F3) pop up quick-find while playing.
-    this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE,F2,F3");
+    this.helpOverlay = new HelpOverlay(this, roomWidthPx, roomHeightPx);
+
+    // Capture arrows/space/F1/F2/F3 so the browser doesn't scroll the page,
+    // open its own help (F1), or (Firefox's F3) pop up quick-find while playing.
+    this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE,F1,F2,F3");
     this.input.keyboard!.on("keydown", (e: KeyboardEvent) => {
       this.heldKeys.add(e.code);
       if (this.queuedKey === null && MOVE_KEYS.has(e.code)) {
@@ -202,17 +224,26 @@ export class LevelScene extends Phaser.Scene {
     this.input.keyboard!.on("keyup", (e: KeyboardEvent) =>
       this.heldKeys.delete(e.code),
     );
-    this.input.keyboard!.on("keydown-R", () => this.restart());
-    this.input.keyboard!.on("keydown-SPACE", () => this.engine.switchFish());
-    this.input.keyboard!.on("keydown-P", () => void this.launchReplay());
-    this.input.keyboard!.on("keydown-F2", () => this.saveGame());
-    this.input.keyboard!.on("keydown-F3", () => this.loadLatestGame());
-    this.input.keyboard!.on("keydown-ESC", () => this.scene.start("worldmap"));
+    this.input.keyboard!.on("keydown-F1", () => this.helpOverlay.toggle());
+    // The gameplay keys below are inert while the help modal is open, so
+    // reading it can't accidentally restart/switch/save. Movement keys are
+    // gated separately (via a no-op input in tick()).
+    this.input.keyboard!.on("keydown-R", () => this.whenPlaying(() => this.restart()));
+    this.input.keyboard!.on("keydown-SPACE", () => this.whenPlaying(() => this.engine.switchFish()));
+    this.input.keyboard!.on("keydown-P", () => this.whenPlaying(() => void this.launchReplay()));
+    this.input.keyboard!.on("keydown-F2", () => this.whenPlaying(() => this.saveGame()));
+    this.input.keyboard!.on("keydown-F3", () => this.whenPlaying(() => this.loadLatestGame()));
+    this.input.keyboard!.on("keydown-ESC", () => {
+      // Esc closes the help popup if it's open, otherwise leaves for the map.
+      if (this.helpOverlay.isShowing) this.helpOverlay.hide();
+      else this.scene.start("worldmap");
+    });
 
     // Right-click is a real game action (push-toward-cursor) now, so the
     // browser's context menu would otherwise get in the way.
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (this.helpOverlay.isShowing) return;
       if (pointer.leftButtonDown()) {
         this.engine.selectAt(this.toFieldPos(pointer));
       }
@@ -243,9 +274,9 @@ export class LevelScene extends Phaser.Scene {
       // already-registered Esc handler get the player back out, matching
       // how a failed loadLevelModels() is handled one level up.
       console.error(`Failed to start level "${this.levelData.levelName}"`, error);
-      this.statusText.setText(
-        `This level isn't supported yet (${String(error)}). Press Esc for the map.`,
-      );
+      this.statusText
+        .setText(`This level isn't supported yet (${String(error)}). Press Esc for the map.`)
+        .setVisible(true);
       this.gameOver = true;
       return;
     }
@@ -299,12 +330,11 @@ export class LevelScene extends Phaser.Scene {
       }
     }
     this.gameOver = false;
-    this.statusText.setText(
-      "Arrows = active fish, WASD = big fish, IJKL = small fish, Space = switch, " +
-        "click = select, hold-click = swim there, hold-right-click = push there, " +
-        "R = restart, P = watch solution replay, F2 = save, F3 = load latest, " +
-        "Esc = world map",
-    );
+    this.solvedCountdown = -1;
+    // No permanent on-screen controls text anymore - it's in the F1 popup
+    // (HelpOverlay). statusText stays hidden during play, shown only for the
+    // solved/died result below.
+    this.statusText.setText("").setVisible(false);
 
     const initialRenderModels = this.engine.getRenderModels();
 
@@ -376,6 +406,13 @@ export class LevelScene extends Phaser.Scene {
 
   private restart(): void {
     this.startEngine();
+  }
+
+  /** Runs a gameplay action only when the help modal isn't up - keeps the
+   *  popup a true modal (reading the controls can't restart/switch/save). */
+  private whenPlaying(action: () => void): void {
+    if (this.helpOverlay.isShowing) return;
+    action();
   }
 
   /** F2 or the save row's dim "add" dot: captures the current position
@@ -476,16 +513,20 @@ export class LevelScene extends Phaser.Scene {
     // The round loop keeps running even after the level is unwinnable, so
     // e.g. a dead fish's corpse still disintegrates and drops whatever was
     // resting on it (see docs/011) - only the status text/flag latch once.
+    // While the help modal is open the fish shouldn't move - feed the engine
+    // a no-op input (and drain any queued key) so held arrows/mouse can't
+    // drive it, without freezing the round loop (item anims/audio keep going).
+    const helpOpen = this.helpOverlay.isShowing;
     const pointer = this.input.activePointer;
     const input = {
-      isPressed: (code: string) => this.heldKeys.has(code),
-      isLeftPressed: () => pointer.leftButtonDown(),
-      isRightPressed: () => pointer.rightButtonDown(),
+      isPressed: (code: string) => !helpOpen && this.heldKeys.has(code),
+      isLeftPressed: () => !helpOpen && pointer.leftButtonDown(),
+      isRightPressed: () => !helpOpen && pointer.rightButtonDown(),
       getMouseField: () => this.toFieldPos(pointer),
       takeQueuedKey: () => {
         const key = this.queuedKey;
         this.queuedKey = null;
-        return key;
+        return helpOpen ? null : key;
       },
     };
     this.engine.tick(input);
@@ -512,19 +553,33 @@ export class LevelScene extends Phaser.Scene {
       this.animators.get(model.index)?.sync(model, scriptAnim, isTalking);
     }
 
-    if (this.gameOver) return;
-
     if (this.engine.isSolved()) {
+      if (!this.gameOver) {
+        // First round solved: latch the result and start the return
+        // countdown (legacy LevelCountDown - longer if a dialog is still
+        // running so the player can finish it).
+        this.gameOver = true;
+        const isNewBest = saveSolvedMoves(this.levelData.levelName, this.engine.getMoves());
+        this.statusText
+          .setText(
+            isNewBest
+              ? `Solved in ${this.engine.getStepCount()} moves - new best!`
+              : "Solved! Both fish made it out.",
+          )
+          .setVisible(true);
+        this.solvedCountdown = this.levelScript?.getActiveSubtitle()
+          ? SOLVED_RETURN_ROUNDS_DIALOG
+          : SOLVED_RETURN_ROUNDS;
+      } else if (this.solvedCountdown > 0) {
+        this.solvedCountdown -= 1;
+      } else if (this.solvedCountdown === 0) {
+        this.solvedCountdown = -1; // one-shot: don't re-trigger after start()
+        this.scene.start("worldmap");
+        return;
+      }
+    } else if (!this.engine.isSolvable() && !this.gameOver) {
       this.gameOver = true;
-      const isNewBest = saveSolvedMoves(this.levelData.levelName, this.engine.getMoves());
-      this.statusText.setText(
-        isNewBest
-          ? `Solved in ${this.engine.getStepCount()} moves - new best! (R to restart, P to watch, Esc for map)`
-          : "Solved! Both fish made it out. (R to restart, P to watch, Esc for map)",
-      );
-    } else if (!this.engine.isSolvable()) {
-      this.gameOver = true;
-      this.statusText.setText("A fish died - press R to restart, or Esc for the map.");
+      this.statusText.setText("A fish died - press R to restart, or Esc for the map.").setVisible(true);
     }
   }
 

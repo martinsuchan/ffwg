@@ -28,8 +28,16 @@ export interface WorldMapData {
    *  excluded (see loadWorldMap doc comment). */
   nodes: WorldMapNode[];
   rootCodename: string;
-  /** codename -> display name, MAP_LANG only. */
+  /** codename -> display name (worldmap_addDesc's `levelname`), MAP_LANG
+   *  only - e.g. "start" -> "Jak to všechno začalo". */
   names: Map<string, string>;
+  /** codename -> section/house name (worldmap_addDesc's `desc`), MAP_LANG
+   *  only - e.g. "start" -> "Rybí domeček". The original composes a level's
+   *  window caption as `<section>: <name>` (Level::initScreen) and the map's
+   *  own caption from the special "menu" entry's section text
+   *  (WorldMap.cpp -> findDesc("menu") = "Fish Fillets - Next Generation").
+   *  See LevelScene / WorldMapScene document.title handling. */
+  sections: Map<string, string>;
   bestSolutions: Map<string, BestSolution>;
 }
 
@@ -62,6 +70,7 @@ export async function loadWorldMap(): Promise<WorldMapData> {
   const nodes: WorldMapNode[] = [];
   let rootCodename = "";
   const names = new Map<string, string>();
+  const sections = new Map<string, string>();
   const bestSolutions = new Map<string, BestSolution>();
 
   try {
@@ -84,8 +93,11 @@ export async function loadWorldMap(): Promise<WorldMapData> {
     lua.global.set("branch_setEnding", () => {});
     lua.global.set(
       "worldmap_addDesc",
-      (codename: string, lang: string, name: string, _desc: string) => {
-        if (lang === MAP_LANG) names.set(codename, name);
+      (codename: string, lang: string, name: string, desc: string) => {
+        if (lang === MAP_LANG) {
+          names.set(codename, name);
+          sections.set(codename, desc);
+        }
       },
     );
     lua.global.set("node_bestSolution", (codename: string, moves: number, author: string) => {
@@ -100,5 +112,5 @@ export async function loadWorldMap(): Promise<WorldMapData> {
     lua.global.close();
   }
 
-  return { nodes, rootCodename, names, bestSolutions };
+  return { nodes, rootCodename, names, sections, bestSolutions };
 }

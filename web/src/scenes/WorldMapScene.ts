@@ -29,6 +29,12 @@ const PULSE_FRAME_MS = 150;
  *  derivation either way. */
 const SANDBOX_MODE = true;
 
+/** This port's own name, shown as the tab/window title on the world map
+ *  (the original used the "menu" desc's "Fish Fillets - Next Generation";
+ *  this browser port is "Web Generation"). Per-level titles still use the
+ *  real section/level names from worlddesc.lua. */
+const GAME_TITLE = "Fish Fillets - Web Generation";
+
 interface NodeSprites {
   far: Phaser.GameObjects.Image;
   overlay?: Phaser.GameObjects.Image;
@@ -87,6 +93,14 @@ export class WorldMapScene extends Phaser.Scene {
     // actual CSS display box to match, not just its internal resolution.
     this.scale.resize(MAP_WIDTH, MAP_HEIGHT);
     this.add.image(0, 0, "map-bg").setOrigin(0, 0);
+
+    // Window/tab title - legacy's WorldMap.cpp sets the SDL window caption to
+    // findDesc("menu"); this port uses its own GAME_TITLE instead. Every
+    // launchLevel()/launchReplay() overwrites this with the per-level
+    // caption; returning here (Esc or the solved auto-return) always re-runs
+    // create() and restores the map title. All document.title changes live
+    // in this scene, the only one holding the names/sections data.
+    document.title = GAME_TITLE;
 
     const solved = new Set<string>();
     for (const node of this.mapData.nodes) {
@@ -250,6 +264,7 @@ export class WorldMapScene extends Phaser.Scene {
     this.showFeedback(`Loading "${codename}"...`);
     try {
       const levelData = await loadLevelModels(codename);
+      document.title = this.titleFor(codename);
       this.scene.start("level", { levelData });
     } catch (error) {
       console.error(`Failed to load level "${codename}"`, error);
@@ -273,6 +288,7 @@ export class WorldMapScene extends Phaser.Scene {
     this.showFeedback(`Loading "${codename}"...`);
     loadLevelModels(codename)
       .then((levelData) => {
+        document.title = this.titleFor(codename);
         this.scene.start("replay", { levelData, moves, returnTo: "worldmap" });
       })
       .catch((error: unknown) => {
@@ -282,6 +298,15 @@ export class WorldMapScene extends Phaser.Scene {
       .finally(() => {
         this.loadingCodename = null;
       });
+  }
+
+  /** The window/tab caption for a level - legacy's Level::initScreen()
+   *  composes it as `<section>: <levelname>`, e.g. "Rybí domeček: Jak to
+   *  všechno začalo". Falls back gracefully if a codename has no desc row. */
+  private titleFor(codename: string): string {
+    const section = this.mapData.sections.get(codename);
+    const name = this.mapData.names.get(codename) ?? codename;
+    return section ? `${section}: ${name}` : name;
   }
 
   private showFeedback(message: string): void {

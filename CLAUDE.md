@@ -391,6 +391,31 @@ reasoning; check for later numbered entries too — decisions here can change):
   on its existing ~100ms head-check timer), not read from Lua, matching this port's
   established "fish stay entirely TS-owned" split (docs/009/013) rather than the original's
   Lua-side bookkeeping.
+- Post-solve auto-return, F1 help popup, window title + favicon
+  (`docs/030-2026-07-11-post-solve-return-help-popup-and-window-title.md`): three
+  quality-of-life items, each cross-checked against the original. (1) **Auto-return to the
+  world map after solving** — ports legacy's `LevelCountDown` (`Level::own_updateState`
+  counts down `getCountForSolved()` cycles once `isSolved()` — 10 normally, 30 if a dialog
+  is still running — then `quitState()`s back to the still-alive `WorldMap`). Implemented as
+  a round-counted countdown in `LevelScene.tick()` (`SOLVED_RETURN_ROUNDS`/`_DIALOG`, in
+  `ROUND_MS` rounds, the per-cycle proxy), reusing `getActiveSubtitle()` for the dialog case;
+  the win/lose tail no longer early-returns on `gameOver` so it can drive the countdown to
+  `scene.start("worldmap")` (~1.4s no-dialog, identical in effect to Esc). (2) **F1 help
+  popup** — `statusText` no longer holds a permanent controls wall; new
+  `web/src/scenes/HelpOverlay.ts` (owned-UI overlay like `PedometerUI`, content-measured
+  layout) toggles on F1, closes on Esc/OK, and is a true modal (movement gated via a no-op
+  `engine.tick()` input, discrete keys via a new `whenPlaying()` guard); `statusText` is kept
+  `setVisible(false)` while empty (an empty Text still renders its background box otherwise).
+  (3) **Window title + favicon** — the original's per-level caption is `Level::initScreen()`'s
+  `findDesc + ": " + findLevelName` = `<section>: <name>` (e.g. "Vrakoviště: Výška: -9000
+  stop"); `worldMapLoader.ts` now also captures the 4th `desc` arg into `WorldMapData.sections`,
+  and *all* `document.title` writes live in `WorldMapScene` (`create()` = the map title,
+  `launchLevel`/`launchReplay` = `titleFor(codename)`), so every return path restores the map
+  title with zero plumbing through `LevelScene`/`ReplayScene`. The whole-game name is a
+  `GAME_TITLE` constant = "Fish Fillets - **Web** Generation" (this port's own name, not the
+  original's "Next Generation"; per-level section/level names are unchanged). Favicon: the
+  game's own 32×32 `legacy/images/icon.png` copied to `web/public/favicon.png`, linked from
+  `index.html`.
 
 Commands (from repo root):
 
