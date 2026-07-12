@@ -19,6 +19,7 @@ import { AudioManager, type MusicCommand } from "./AudioManager";
 import { pictureToAssetUrl, isFishKind, resolveInitialTextureKey } from "./sceneUtils";
 import { SaveSlotUI } from "./SaveSlotUI";
 import { HelpOverlay } from "./HelpOverlay";
+import { SubtitleStack } from "./SubtitleStack";
 import {
   loadSavedGames,
   addSavedGame,
@@ -87,11 +88,10 @@ export class LevelScene extends Phaser.Scene {
    *  (corridor/rotate/steel), see applyBgChange() and docs/033. */
   private bgImage!: Phaser.GameObjects.Image;
   private statusText!: Phaser.GameObjects.Text;
-  /** Dialog text (docs/015) - fixed screen position, matching the
-   *  original's own fixed on-screen subtitle region rather than per-fish
-   *  floating speech bubbles (SubTitleAgent's TITLE_BASE, confirmed from
-   *  source). English only, no audio. */
-  private subtitleText!: Phaser.GameObjects.Text;
+  /** Stacking, colored, self-dismissing subtitles at the bottom of the screen -
+   *  a port of the original's SubTitleAgent, replacing docs/015's single white
+   *  line. Each speaker's color comes from dialog_addFont. See docs/037. */
+  private subtitleStack!: SubtitleStack;
   private heldKeys = new Set<string>();
   /** One-shot queued keydown edge, drained by Controls.driving() at most
    *  once per round - see MOVE_KEYS and docs/019 "input reliability". Fixes
@@ -224,19 +224,7 @@ export class LevelScene extends Phaser.Scene {
 
     const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
     const roomHeightPx = this.levelData.roomHeight * GRID_SCALE;
-    this.subtitleText = this.add
-      .text(roomWidthPx / 2, roomHeightPx - 8, "", {
-        fontFamily: "sans-serif",
-        fontSize: "13px",
-        color: "#ffffff",
-        backgroundColor: "#000000c0",
-        padding: { x: 8, y: 4 },
-        align: "center",
-        wordWrap: { width: roomWidthPx - 40 },
-      })
-      .setOrigin(0.5, 1)
-      .setDepth(1000)
-      .setVisible(false);
+    this.subtitleStack = new SubtitleStack(this, roomWidthPx, roomHeightPx);
 
     this.feedbackText = this.add
       .text(roomWidthPx - 8, 8, "", {
@@ -326,6 +314,7 @@ export class LevelScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.audioManager.destroy();
       this.levelScript?.destroy();
+      this.subtitleStack.destroy();
     });
 
     try {
@@ -374,6 +363,8 @@ export class LevelScene extends Phaser.Scene {
     // port has no undo to exempt) - docs/018.
     this.audioManager.reset();
     this.lastDialogId = null;
+    // Clear any lingering subtitles from the previous attempt (docs/037).
+    this.subtitleStack?.clear();
 
     this.engine = new GameEngine(this.levelData);
     if (resumeMoves) {
@@ -762,12 +753,16 @@ export class LevelScene extends Phaser.Scene {
     // identical to preStepModels.
     const renderModels = this.engine.getRenderModels();
 
-    const subtitle = this.levelScript?.getActiveSubtitle() ?? null;
-    if (subtitle) {
-      this.subtitleText.setText(subtitle.text).setVisible(true);
-    } else {
-      this.subtitleText.setVisible(false);
+    // Visual subtitles: drain the colored lines model_talk() spawned this round
+    // into the scrolling, stacking, self-dismissing SubtitleStack (docs/037).
+    // Independent of activeDialog's talking-state below (which still drives the
+    // voice audio and model_isTalking).
+    for (const sub of this.levelScript?.takePendingSubtitles() ?? []) {
+      this.subtitleStack.add(sub.text, sub.color);
     }
+    // activeDialog (single slot) still drives the voice clip + subtitle-duration
+    // for the audio path - see tickAudio()/docs/018.
+    const subtitle = this.levelScript?.getActiveSubtitle() ?? null;
     this.tickAudio(subtitle);
 
     // game_changeBg() (corridor/rotate/steel) swaps the room background as the
@@ -809,7 +804,8 @@ export class LevelScene extends Phaser.Scene {
               : "Solved! Both fish made it out.",
           )
           .setVisible(true);
-        this.solvedCountdown = this.levelScript?.getActiveSubtitle()
+        // Give the player longer to read if a subtitle is still on screen.
+        this.solvedCountdown = this.subtitleStack.hasVisible()
           ? SOLVED_RETURN_ROUNDS_DIALOG
           : SOLVED_RETURN_ROUNDS;
       } else if (this.solvedCountdown > 0) {

@@ -158,6 +158,16 @@ interface LevelScriptState {
   cycles: number;
   dialogRegistry: Map<string, DialogEntry>;
   activeDialog: ActiveDialog | null;
+  /** dialog_addFont(name, r,g,b) -> CSS "#rrggbb". Each dialog names a font
+   *  (dialogId's 2nd arg) whose color the subtitle is drawn in - one color per
+   *  speaker, matching the original's SubTitleAgent/ResColorPack. Populated by
+   *  loadFonts() (level_fonts.lua). See docs/037. */
+  fontColors: Map<string, string>;
+  /** New colored subtitles spawned by model_talk() this round, drained by
+   *  LevelScene into its SubtitleStack (same pull pattern as
+   *  pendingSoundEffects). One per non-empty model_talk() line - the visual
+   *  stack is decoupled from activeDialog's talking-state. See docs/037. */
+  pendingSubtitles: Array<{ text: string; color: string }>;
   /** Planner::m_plan (docs/015): a single FIFO, one command's worth of work
    *  processed per round - not one independent timer per queued action. */
   pendingActions: Array<(count: number) => boolean>;
@@ -197,6 +207,18 @@ interface LevelScriptState {
 
 function isDialogActive(state: LevelScriptState): boolean {
   return state.activeDialog !== null && state.cycles < state.activeDialog.endCycle;
+}
+
+/** dialog_addFont's (r,g,b) -> CSS "#rrggbb" (each 0-255, clamped). */
+function rgbToHex(r: number, g: number, b: number): string {
+  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+/** The subtitle color for a dialog's font (dialog_addFont), defaulting to white
+ *  for an empty/unregistered font - matches level_fonts.lua's font_white. */
+function colorForFont(state: LevelScriptState, font: string): string {
+  return state.fontColors.get(font) ?? "#ffffff";
 }
 
 /** Picks a random registered variant for `name` and resolves it - shared by
@@ -331,6 +353,14 @@ export class LevelScript {
     const effects = this.state.pendingSoundEffects;
     this.state.pendingSoundEffects = [];
     return effects;
+  }
+
+  /** Colored subtitles spawned by model_talk() since the last read, drained on
+   *  read - LevelScene adds each to its scrolling SubtitleStack. See docs/037. */
+  takePendingSubtitles(): Array<{ text: string; color: string }> {
+    const subs = this.state.pendingSubtitles;
+    this.state.pendingSubtitles = [];
+    return subs;
   }
 
   /** The latest sound_playMusic()/sound_stopMusic() call since the last
@@ -499,6 +529,16 @@ export async function createLevelScript(
   const levelDialogsSource = await fetchLegacyFile(
     `script/${levelName}/dialogs_${DIALOG_LANG}.lua`,
   );
+  // English fallback for dialogs the localized file omits. Some levels define
+  // language-agnostic *sound-only* dialogs (empty subtitle) only under English,
+  // with their .ogg clips stored only in sound/<level>/en/ - e.g. viking1's
+  // musician-band "song" clips d1-z-* (whistle/bass/melody). The original's
+  // dialogLoad() registers every dialog under its DEFAULT_LANG (first-seen)
+  // definition, so these always come from en; loading en after the localized
+  // file reproduces that without disturbing the localized dialogs. See docs/036.
+  const levelDialogsFallbackSource = await fetchLegacyFile(
+    `script/${levelName}/dialogs_en.lua`,
+  );
   const modelsSource = await fetchLegacyFile(`script/${levelName}/models.lua`);
   const codeSource = await fetchLegacyFile(`script/${levelName}/code.lua`);
   // code.lua's file_include() targets: top-level ones (prog_border etc.) run at
@@ -516,6 +556,11 @@ export async function createLevelScript(
   // since model_talk() falls back to the text-length formula either way.
   const soundDurations = await fetchSoundDurations([
     `${levelName}/${DIALOG_LANG}`,
+    // English fallback clips (see levelDialogsFallbackSource) - needed so an
+    // en-only sound-dialog like viking1's d1-z-* gets a real clip duration, and
+    // model_talk()'s minTime is > 0 (with an empty subtitle the text-length
+    // fallback would be 0 and the "note" would never actually play). docs/036.
+    `${levelName}/en`,
     `share/border/${DIALOG_LANG}`,
     `share/borejokes/${DIALOG_LANG}`,
     `share/blackjokes/${DIALOG_LANG}`,
@@ -534,6 +579,8 @@ export async function createLevelScript(
     cycles: 0,
     dialogRegistry: new Map<string, DialogEntry>(),
     activeDialog: null,
+    fontColors: new Map<string, string>(),
+    pendingSubtitles: [],
     pendingActions: [],
     frontCount: 0,
     soundRegistry: new Map<string, string[]>(),
@@ -570,7 +617,13 @@ export async function createLevelScript(
     // render the room and resolve anim frame paths.
     lua.global.set("level_createRoom", () => {});
     lua.global.set("game_setRoomWaves", () => {});
-    lua.global.set("dialog_addFont", () => {});
+    // dialog_addFont(name, r, g, b): register a font's subtitle color (legacy
+    // SubTitleAgent::addFont). loadFonts() (level_fonts.lua, run via initModels)
+    // registers one per speaker - small fish, big fish, each NPC/viking. Stored
+    // as CSS hex for LevelScene's SubtitleStack. See docs/037.
+    lua.global.set("dialog_addFont", (name: string, r: number, g: number, b: number) => {
+      state.fontColors.set(name, rgbToHex(r, g, b));
+    });
     // Real for "sound/..." (docs/018 - unlocks dataPathSound()'s dialog
     // voice resolution and level_creation.lua's sound_addSound() calls).
     // Still always "not found" for "images/..." - frame discovery doesn't
@@ -804,6 +857,16 @@ export async function createLevelScript(
           sound,
           volume: volume ?? 75,
         };
+        // Spawn a colored subtitle into the visual stack (decoupled from the
+        // talking-state above), matching the original's SubTitleAgent. Empty-
+        // subtitle "sound only" dialogs (viking d1-z-*) add nothing. See
+        // docs/037.
+        if (entry.subtitle) {
+          state.pendingSubtitles.push({
+            text: entry.subtitle,
+            color: colorForFont(state, entry.font),
+          });
+        }
       },
     );
     // Cuts a model's current sound/subtitle short - legacy's Dialogs::
@@ -892,6 +955,15 @@ export async function createLevelScript(
     await lua.doString(blackDialogsSource);
     currentSoundPrefix = `sound/${levelName}/${DIALOG_LANG}/`;
     await lua.doString(levelDialogsSource);
+    // English fallback (docs/036): registers only dialogs the localized file
+    // didn't (level_dialog.lua's dialogId no-ops for already-primed ones - and
+    // the localized file uses the same English default subtitle, so no
+    // mismatch warnings), with sounds resolved from sound/<level>/en/. This is
+    // where viking1's instrument "song" clips (d1-z-*) get registered.
+    if (levelDialogsFallbackSource) {
+      currentSoundPrefix = `sound/${levelName}/en/`;
+      await lua.doString(levelDialogsFallbackSource);
+    }
     await lua.doString(modelsSource);
     let includeIndex = 0;
     for (const { path, source } of includedSources) {

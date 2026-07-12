@@ -547,6 +547,39 @@ reasoning; check for later numbered entries too — decisions here can change):
   solutions now **80 SOLVED** (was 79; only `redhat` fails, having no level content); interactive
   control-swap + drive-extra-fish + save/load (F2/F3) + full replay to Solved, all in a real
   browser.
+- viking1 musician band silent (`docs/036-2026-07-12-viking1-musician-songs.md`): when the music
+  stops and the vikings should sing/whistle, no sound played. The band's notes come from
+  `model_talk(actor, "d1-z-p1"/"d1-z-b1"/"d1-z-v1"...)` (empty-subtitle *sound-only* dialogs), but
+  those are defined **only in `dialogs_en.lua`** (not `dialogs_cs.lua`) and their `.ogg`s live only
+  in `sound/viking1/en/`. The original registers every dialog under its first-seen (DEFAULT_LANG)
+  definition, so these language-agnostic instrument clips always come from English - but this port
+  bypasses `dialogLoad()` and loaded only the `cs` file (docs/015/018), so `d1-z-*` were never
+  registered and `model_talk` no-op'd. Fixed by reproducing the DEFAULT_LANG fallback: after the
+  localized dialog file, also run the level's `dialogs_en.lua` with `currentSoundPrefix =
+  sound/<level>/en/` - `level_dialog.lua`'s `dialogId` no-ops for already-primed dialogs (and the
+  localized file's `dialogId` uses the same English default subtitle, so no override/warnings), so
+  only the en-only clips get added, with en sounds; plus added `<level>/en` to `fetchSoundDurations`
+  so the empty-subtitle clips get a real duration (else `minTime` would be 0 → never play).
+  General (all 81 levels), faithful, non-regressing (verified: normal cs dialogs unchanged, 81/81
+  `createLevelScript` clean, `viking1/en` sprite actually plays). **Known limitation**: single
+  `activeDialog` slot + `playDialogVoice` cuts the previous, so only one instrument is audible at a
+  time (whistle dominates) - a true simultaneous trio needs multi-channel dialog audio (deferred).
+- Full-featured subtitle system (`docs/037-2026-07-12-subtitle-system.md`): replaced docs/015's
+  placeholder (one white line at a time) with the original's real behavior - each speaker's own
+  **color**, **stacking** subtitles (scroll up), each **self-dismissed** on its own timer. The
+  original decouples `SubTitleAgent` (visual subtitles) from `DialogStack` (running dialogs/sound);
+  colors are per-font via `dialog_addFont(name,r,g,b)` (`level_fonts.lua`'s `loadFonts()`), each
+  `dialogId` names a font. Ported: `dialog_addFont` (was a no-op) now stores `state.fontColors`;
+  `model_talk` still sets the single `activeDialog` (talking-state/sound/plan-gating, unchanged)
+  but ALSO pushes `{text,color}` to `state.pendingSubtitles` (new `takePendingSubtitles()` drain,
+  empty "sound-only" dialogs add nothing); new `web/src/scenes/SubtitleStack.ts` (port of
+  `SubTitleAgent`/`Title`) holds colored outlined `Phaser.Text` lines, newest at the bottom,
+  gliding up, each living `utf8len*TIME_PER_CHAR + TIME_MIN` ticks on its own ~100ms timer (not the
+  round loop). `LevelScene` drains into it, clears on restart, destroys on shutdown; the post-solve
+  countdown uses `subtitleStack.hasVisible()`. Verified: 27 colors registered, viking1 intro shows
+  orange small-fish + cyan big-fish stacked lines (screenshot), self-dismissal, no Text leak across
+  restarts, 81/81 `createLevelScript` clean. **Deferred**: concurrent dialog *sound* (multi-actor
+  `DialogStack`, docs/036) and the original's wavy-text TODO.
 
 Commands (from repo root):
 
