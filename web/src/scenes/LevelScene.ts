@@ -29,6 +29,7 @@ import {
   loadSolvedMoves,
   saveSolvedMoves,
 } from "../storage/levelStorage";
+import { loadSettings } from "../storage/settingsStorage";
 
 /** Keys that can drive a fish - the only ones worth buffering as a queued
  *  edge (see LevelScene.queuedKey). Space/R are already handled as
@@ -756,9 +757,11 @@ export class LevelScene extends Phaser.Scene {
     // Visual subtitles: drain the colored lines model_talk() spawned this round
     // into the scrolling, stacking, self-dismissing SubtitleStack (docs/037).
     // Independent of activeDialog's talking-state below (which still drives the
-    // voice audio and model_isTalking).
+    // voice audio and model_isTalking). Gated on the Options "subtitles" setting
+    // (docs/038) - voice still plays when off; still drained so nothing queues up.
+    const showSubtitles = loadSettings().subtitles;
     for (const sub of this.levelScript?.takePendingSubtitles() ?? []) {
-      this.subtitleStack.add(sub.text, sub.color);
+      if (showSubtitles) this.subtitleStack.add(sub.text, sub.color);
     }
     // activeDialog (single slot) still drives the voice clip + subtitle-duration
     // for the audio path - see tickAudio()/docs/018.

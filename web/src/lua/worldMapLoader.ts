@@ -39,7 +39,15 @@ export interface WorldMapData {
    *  See LevelScene / WorldMapScene document.title handling. */
   sections: Map<string, string>;
   bestSolutions: Map<string, BestSolution>;
+  /** legacy Pedometer's SolverDrawer strings from script/labels.lua, keyed
+   *  `<name>:<lang>` (name = solver_better/solver_equals/solver_worse). Only
+   *  these 3 labels are captured. `%1`/`%2` placeholders are filled at render
+   *  time with the best move count + author (Dialog::getFormatedSubtitle). */
+  solverLabels: Map<string, string>;
 }
+
+/** The three SolverDrawer labels captured from labels.lua. */
+const SOLVER_LABELS = new Set(["solver_better", "solver_equals", "solver_worse"]);
 
 /**
  * One-shot (non-persistent) wasmoon parse of legacy/script/worldmap.lua -
@@ -63,6 +71,7 @@ export async function loadWorldMap(): Promise<WorldMapData> {
   const mapSource = await fetchLegacyFile("script/worldmap.lua");
   const descSource = await fetchLegacyFile("script/worlddesc.lua");
   const fameSource = await fetchLegacyFile("script/worldfame.lua");
+  const labelsSource = await fetchLegacyFile("script/labels.lua");
 
   const factory = new LuaFactory();
   const lua = await factory.createEngine();
@@ -72,6 +81,7 @@ export async function loadWorldMap(): Promise<WorldMapData> {
   const names = new Map<string, string>();
   const sections = new Map<string, string>();
   const bestSolutions = new Map<string, BestSolution>();
+  const solverLabels = new Map<string, string>();
 
   try {
     lua.global.set(
@@ -104,13 +114,19 @@ export async function loadWorldMap(): Promise<WorldMapData> {
       bestSolutions.set(codename, { moves, author });
     });
     lua.global.set("file_include", () => {});
+    // labels.lua only calls label_text(name, lang, text) - capture the 3
+    // pedometer solver labels for every language (picked by setting at render).
+    lua.global.set("label_text", (name: string, lang: string, text: string) => {
+      if (SOLVER_LABELS.has(name)) solverLabels.set(`${name}:${lang}`, text);
+    });
 
     await lua.doString(mapSource);
     await lua.doString(descSource);
     await lua.doString(fameSource);
+    await lua.doString(labelsSource);
   } finally {
     lua.global.close();
   }
 
-  return { nodes, rootCodename, names, sections, bestSolutions };
+  return { nodes, rootCodename, names, sections, bestSolutions, solverLabels };
 }

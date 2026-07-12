@@ -580,6 +580,68 @@ reasoning; check for later numbered entries too — decisions here can change):
   orange small-fish + cyan big-fish stacked lines (screenshot), self-dismissal, no Text leak across
   restarts, 81/81 `createLevelScript` clean. **Deferred**: concurrent dialog *sound* (multi-actor
   `DialogStack`, docs/036) and the original's wavy-text TODO.
+- World-map corner buttons (`docs/038-2026-07-12-world-map-corner-buttons.md`): the 4 inert map
+  corners (docs/027) now work - TL **Intro**, TR **Exit**, BL **Credits**, BR **Options** (legacy
+  `WorldMap.cpp`), each with a hover highlight. Hover uses the original's mask system: `map_mask.png`
+  is read once via an offscreen canvas (`getImageData`); the 4 image-corner colors define the
+  buttons, and hovering reveals the prelit `map_lower.png` masked to the hovered button's *exact
+  mask shape* (a per-corner canvas texture, so e.g. only the "OPTIONS" glyphs light, not a
+  rectangle - see docs/039). **Intro** (new
+  `IntroScene`) plays the real intro movie - `intro.mpg` transcoded once to `assets/video/intro.mp4`
+  (browsers can't play MPEG-1) via a Phaser `Video`; **Credits** (new `CreditsScene`) scrolls the
+  game's own `credits.png`; **Exit** = `window.close()` (does nothing if the browser blocks it);
+  **Options** (new
+  `OptionsOverlay`, HelpOverlay shape) has language (cs/nl), music+sound volume sliders, and a
+  subtitles toggle (no speech selector per the user). New `web/src/storage/settingsStorage.ts`
+  (`ffwg:settings`: lang/musicVolume/soundVolume/subtitles) is wired live: `AudioManager` volume
+  reads the setting (+ `refreshMusicVolume` for the playing track); `LevelScene` gates the docs/037
+  subtitle stack on `settings.subtitles`; `levelScript.ts`'s `DIALOG_LANG` const became
+  `getDialogLang()` (setting-driven, cs/nl for both text+voice, snapshotted per level load;
+  `demoScript.ts` reads it too). Verified in a real browser (all 4 corners hover+dispatch, intro
+  video plays, options persist, language switches voice dir, subtitles toggle gates the stack,
+  81/81 sweep clean).
+- World-map mask fidelity, edges/hover, real pedometer
+  (`docs/039-2026-07-12-world-map-mask-fidelity-and-pedometer.md`): follow-up polish, all
+  cross-checked against `legacy/src/menu/`. (1) **Lossless masks** - `map_mask.webp`/
+  `pedometer_mask.webp` are read pixel-by-pixel for button hit-testing + prelit-shape building;
+  lossy WebP (the bulk `convert-images.ps1` default) smears the flat fills and breaks exact-color
+  matching, so both were reconverted `ffmpeg -c:v libwebp -lossless 1` (map mask now decodes to
+  exactly 5 unique colors). (2) **Shared masked-texture helpers** (`readTexturePixels`/`packRgb`/
+  `buildMaskedTexture` in `sceneUtils.ts`) - docs/038's corner-reveal logic extracted so the
+  pedometer reuses it; `WorldMapScene` refactored onto them. (3) **Thicker edges** - legacy
+  `NodeDrawer::drawEdge` is solid yellow `0xdea500` ≈ 3px (5 overlaid aalines); port now
+  `lineStyle(3, 0xdea500, 1)` (was a 1px dim gold line). (4) **Dot-sized hover highlight** -
+  `NodeDrawer::drawSelect` tints the hovered dot with a translucent yellow disc *the dot's size*
+  (`radius = max(dotW,dotH)/2 + 1`) drawn *over* it; port drew a 15px halo *behind* it - now
+  radius from the `node-solved` texture (=11) at depth 4. (5) **Real Pedometer** (`PedometerUI.ts`
+  rewrite) - `pedometer.png` rack art with `pedometer_mask.png` button regions (sampled at the
+  original's panel-relative Run 86,100 / Replay 128,100 / Cancel 170,100) and `pedometer_lower.png`
+  prelit-on-hover (per-button `buildMaskedTexture`), replacing text buttons; the step count is
+  drawn from `numbers.png` (spritesheet of digits 9..0, each 19x24, at absolute 275,177, digit `d`
+  -> frame `9-d`) replacing the text counter. Scene-level corner handlers now guard on
+  `isModalOpen()` (pedometer/options showing). Verified in a real browser (mask 5 colors, ring
+  radius 11 depth 4, pedometer 3 masked buttons + 5 digits reading `00012` for 12 moves + Run
+  hover lights `pedo-run`; screenshot).
+- Pedometer clean-map presentation + browser Back
+  (`docs/040-2026-07-12-pedometer-clean-map-and-browser-back.md`): three main-screen fixes. (1)
+  **Pedometer hides the node graph, no dark overlay** - the original Pedometer is a separate
+  state whose `prepareBg()` draws only `map.png` + level name + solver text (no `NodeDrawer::
+  drawPath`, so no dots/edges, no tint). This port renders it as a world-map overlay, so it now
+  reproduces that: backdrop rectangle is `alpha 0` (still interactive for click-absorb + button
+  hit-testing), and `WorldMapScene.setNodesVisible(false)` hides all dot images + the edges
+  `Graphics` while shown (restored on close). Cancel routes through a new `onCancel` callback (to
+  restore the dots); **Esc** also closes it. (2) **Real localized best-solution text** - the info
+  line is now the original `SolverDrawer`'s `solver_better`/`solver_equals`/`solver_worse` label
+  from `script/labels.lua` (chosen by `LevelStatus::compareToBest()` logic, `%1`/`%2` = best move
+  count + author), no background box, centered at screen `h-150`. `worldMapLoader.ts` now also
+  runs `labels.lua` (captures those 3 labels per language) -> `WorldMapData.solverLabels`;
+  `PedometerUI` picks the `settings.lang` row (cs/nl, en fallback). (3) **Browser Back returns to
+  the world map** - new `web/src/navigation.ts`: `pushSubView()` pushes a history entry on each
+  world-map sub-view launch (level/replay/intro/credits) and a `popstate` listener
+  (`initHistoryNav` in `main.ts`) routes Back to the map instead of unloading the SPA, keying off
+  active scenes (robust to history drift). Verified in a real browser (backdrop alpha 0, dots+edges
+  hidden, real cs solver text no-bg, Cancel restores; Back from a level returns to the map, page
+  still loaded; screenshot).
 
 Commands (from repo root):
 

@@ -2,10 +2,7 @@ import { LuaFactory, type LuaEngine } from "wasmoon";
 
 import { fetchText, fetchLegacyFile, getAudioManifest } from "./levelLoader";
 import { resolveSoundPath, fetchSoundDurations, type ResolvedSound } from "./dialogSound";
-
-/** Dialog language for the movie's voice/subtitles - matches levelScript.ts's
- *  DIALOG_LANG (docs/018, Czech). */
-const DIALOG_LANG = "cs";
+import { loadSettings } from "../storage/settingsStorage";
 
 /** One movie cycle - the rate DemoScene ticks demoScript at, matching the
  *  original's ~100ms TimerAgent cadence the movie's planDelay() counts were
@@ -136,6 +133,9 @@ export class DemoScript {
  * ("briefcase") locates its brief_ dialog file and voice pool.
  */
 export async function createDemoScript(demoFile: string, levelName: string): Promise<DemoScript> {
+  // The demo movie's voice/subtitle language follows the player's setting
+  // (cs/nl), same as levelScript.ts (docs/038).
+  const DIALOG_LANG = loadSettings().lang;
   const compatSource = await fetchText("/lua/lua50-compat.lua");
   const levelDialogSource = await fetchLegacyFile("script/share/level_dialog.lua");
   // dialogLoad() is bypassed (would enumerate ~15 languages via select_lang and

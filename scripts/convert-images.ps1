@@ -67,7 +67,13 @@ foreach ($file in $files) {
         continue
     }
 
-    $qualityArgs = if ($Lossless) { @("-lossless", "1") } else { @("-quality", "$Quality") }
+    # Mask images (the flat-color button-region maps read pixel-by-pixel for
+    # hit-testing - map_mask, pedometer_mask) MUST be lossless: lossy WebP
+    # smears the flat fills at region boundaries and breaks exact-color
+    # matching. Force lossless for any *_mask.* regardless of the -Lossless
+    # switch. See docs/039.
+    $useLossless = $Lossless -or ($file.BaseName -match '_mask$')
+    $qualityArgs = if ($useLossless) { @("-lossless", "1") } else { @("-quality", "$Quality") }
     & $ffmpeg -y -loglevel error -i $file.FullName -c:v libwebp @qualityArgs $destFile
     if ($LASTEXITCODE -ne 0) {
         throw "ffmpeg failed converting $($file.FullName)"

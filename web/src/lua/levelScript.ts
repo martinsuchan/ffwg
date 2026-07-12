@@ -11,11 +11,16 @@ import {
   getAudioManifest,
 } from "./levelLoader";
 import { resolveSoundPath, fetchSoundDurations, type ResolvedSound } from "./dialogSound";
+import { loadSettings } from "../storage/settingsStorage";
 
-/** Dialog language for both text and voice audio - see docs/018 (switched
- *  from English per docs/015 to Czech, the original's home language with by
- *  far the most complete translation+voice-over coverage across levels). */
-const DIALOG_LANG = "cs";
+/** Dialog language for both text and voice audio - Czech by default (docs/018:
+ *  the original's home language with by far the most complete translation +
+ *  voice-over coverage), now the player's Options setting (cs or nl, both fully
+ *  converted). Read at level-load time, so the next level opened picks up a
+ *  change; the en fallback (docs/036) is unaffected. See docs/038. */
+function getDialogLang(): string {
+  return loadSettings().lang;
+}
 
 /** legacy/script/share/level_creation.lua's TALK_INDEX_BOTH - a real actor
  *  value (not a wildcard) some narrator-style model_talk() calls use for
@@ -27,19 +32,20 @@ const TALK_INDEX_BOTH = -1;
  *  shared joke/border dialog pools. LevelScene preloads these so the first
  *  line plays without a network-fetch delay (docs/031). */
 export function levelSoundSpriteDirs(levelName: string): string[] {
+  const lang = getDialogLang();
   return [
     levelDialogVoiceDir(levelName),
     "share",
-    `share/border/${DIALOG_LANG}`,
-    `share/borejokes/${DIALOG_LANG}`,
-    `share/blackjokes/${DIALOG_LANG}`,
+    `share/border/${lang}`,
+    `share/borejokes/${lang}`,
+    `share/blackjokes/${lang}`,
   ];
 }
 
 /** The sprite dir holding a level's own dialog voice (`<level>/<lang>`) - the
  *  urgent one to have decoded before the first line fires. See docs/031. */
 export function levelDialogVoiceDir(levelName: string): string {
-  return `${levelName}/${DIALOG_LANG}`;
+  return `${levelName}/${getDialogLang()}`;
 }
 
 /** Own glue, not legacy content - wraps legacy/script/share/Pickle.lua's
@@ -487,6 +493,10 @@ export async function createLevelScript(
   hostActions?: HostActions,
   engineControl?: EngineControl,
 ): Promise<LevelScript> {
+  // Snapshot the language for the whole load (fetch paths, sound prefixes, etc.
+  // below all use it) - the Options setting, read once here so this level loads
+  // consistently in cs or nl. See docs/038.
+  const DIALOG_LANG = getDialogLang();
   const compatSource = await fetchText("/lua/lua50-compat.lua");
   const levelCreationSource = await fetchLegacyFile("script/share/level_creation.lua");
   const levelPlanSource = await fetchLegacyFile("script/share/level_plan.lua");

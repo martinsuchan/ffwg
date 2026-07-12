@@ -1,14 +1,20 @@
 import Phaser from "phaser";
 
 import type { ResolvedSound } from "../lua/levelScript";
+import { loadSettings } from "../storage/settingsStorage";
 
-/** legacy/src/gengine/SoundAgent.cpp's default OptionAgent values
- *  (volume_sound=90, volume_music=50, both 0-100%) - applied as a flat
- *  multiplier on top of each call's own volume, matching
- *  Mix_Volume(channel, m_soundVolume * volume / 100). No options UI yet to
- *  make these adjustable (docs/018). */
-const GLOBAL_SOUND_VOLUME = 0.9;
-const GLOBAL_MUSIC_VOLUME = 0.5;
+/** legacy/src/gengine/SoundAgent.cpp applies the global volume as a flat
+ *  multiplier on top of each call's own volume (Mix_Volume(channel,
+ *  m_soundVolume * volume / 100)). The global volumes are the player's
+ *  Options settings now (0-100 -> 0-1, docs/038), read live on each play so a
+ *  change takes effect on the next sound; the currently-playing music is also
+ *  updated in place via setMusicVolume(). */
+function globalSoundVolume(): number {
+  return loadSettings().soundVolume / 100;
+}
+function globalMusicVolume(): number {
+  return loadSettings().musicVolume / 100;
+}
 
 type MusicCommand = { type: "play"; track: string } | { type: "stop" };
 
@@ -105,7 +111,7 @@ export class AudioManager {
     this.stopDialogVoice();
     try {
       const voice = this.scene.sound.addAudioSprite(sound.spriteDir, {
-        volume: GLOBAL_SOUND_VOLUME * (volumePercent / 100),
+        volume: globalSoundVolume() * (volumePercent / 100),
       });
       voice.play(sound.region);
       this.currentDialogVoice = voice;
@@ -131,7 +137,7 @@ export class AudioManager {
     if (generation !== this.generation) return;
     try {
       this.scene.sound.playAudioSprite(sound.spriteDir, sound.region, {
-        volume: GLOBAL_SOUND_VOLUME * (volumePercent / 100),
+        volume: globalSoundVolume() * (volumePercent / 100),
       });
     } catch {
       // Sprite failed to load (un-converted content) - silent, no sound.
@@ -157,13 +163,22 @@ export class AudioManager {
     );
     if (generation !== this.generation) return;
     try {
-      const music = this.scene.sound.add(key, { loop: true, volume: GLOBAL_MUSIC_VOLUME });
+      const music = this.scene.sound.add(key, { loop: true, volume: globalMusicVolume() });
       music.play();
       this.currentMusic = music;
       this.currentMusicTrack = command.track;
     } catch {
       // Track failed to load (un-converted content) - silent, no music.
     }
+  }
+
+  /** Apply the current musicVolume setting to the track playing right now, so
+   *  an Options change is heard immediately (not only on the next track) -
+   *  docs/038. New sounds already read the setting live via globalMusicVolume(). */
+  refreshMusicVolume(): void {
+    (this.currentMusic as Phaser.Sound.BaseSound & { setVolume?: (v: number) => void })?.setVolume?.(
+      globalMusicVolume(),
+    );
   }
 
   /** Queues `enqueue()` on the shared loader and returns a promise that

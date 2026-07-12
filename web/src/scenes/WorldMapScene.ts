@@ -4,9 +4,17 @@ import { loadLevelModels } from "../lua/levelLoader";
 import type { WorldMapData, WorldMapNode } from "../lua/worldMapLoader";
 import { computeNodeStates, type NodeState } from "../game/worldMapState";
 import { loadSolvedMoves } from "../storage/levelStorage";
-import { pictureToAssetUrl } from "./sceneUtils";
+import {
+  pictureToAssetUrl,
+  readTexturePixels,
+  buildMaskedTexture,
+  packRgb,
+  type TexturePixels,
+} from "./sceneUtils";
 import { PedometerUI } from "./PedometerUI";
 import { AudioManager } from "./AudioManager";
+import { OptionsOverlay } from "./OptionsOverlay";
+import { markWorldMap, pushSubView } from "../navigation";
 
 /** legacy/images/menu/map.png's real, fixed dimensions - the world map
  *  never scrolls/pans/zooms (docs/027). */
@@ -40,6 +48,20 @@ interface NodeSprites {
   overlay?: Phaser.GameObjects.Image;
 }
 
+type CornerAction = "intro" | "exit" | "credits" | "options";
+
+/** One of the map's 4 corner buttons, defined by a region of map_mask.png -
+ *  legacy WorldMap::prepareBg()'s getMaskAt() of the image corners. `color` is
+ *  the mask's flat fill for this button; `textureKey` is a canvas texture
+ *  holding only the prelit map_lower.png pixels that fall inside this button's
+ *  exact mask shape (transparent everywhere else), so hovering reveals the
+ *  pixel-perfect button outline, not its bounding rectangle. */
+interface CornerButton {
+  action: CornerAction;
+  color: number;
+  textureKey: string;
+}
+
 /**
  * The level-select hub, shown at boot and returned to after every level -
  * legacy's WorldMap.cpp/LevelNode.cpp/NodeDrawer.cpp. Unlike the
@@ -56,6 +78,7 @@ export class WorldMapScene extends Phaser.Scene {
   private nodeStates!: Map<string, NodeState>;
   private nodeSprites = new Map<string, NodeSprites>();
   private openOverlays: Phaser.GameObjects.Image[] = [];
+  private edges?: Phaser.GameObjects.Graphics;
   private pulsePhase = 0;
   private pulseTimer?: Phaser.Time.TimerEvent;
 
@@ -65,6 +88,14 @@ export class WorldMapScene extends Phaser.Scene {
   private feedbackTimer?: Phaser.Time.TimerEvent;
   private pedometerUI!: PedometerUI;
   private audioManager!: AudioManager;
+
+  /** The 4 corner buttons (Intro/Exit/Credits/Options) and their prelight. */
+  private cornerButtons: CornerButton[] = [];
+  private lowerOverlay?: Phaser.GameObjects.Image;
+  private activeCorner: CornerButton | null = null;
+  private optionsOverlay!: OptionsOverlay;
+  /** map_mask.png's pixels, read once for hover hit-testing. */
+  private maskPixels?: TexturePixels;
 
   /** Guards against double-launching while a click's loadLevelModels()
    *  fetch is still in flight - same pattern as LevelScene.launchingReplay. */
@@ -78,12 +109,22 @@ export class WorldMapScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image("map-bg", pictureToAssetUrl("images/menu/map.png"));
+    // Prelit map + button-region mask, for the corner-button hover (docs/038).
+    this.load.image("map-lower", pictureToAssetUrl("images/menu/map_lower.png"));
+    this.load.image("map-mask", pictureToAssetUrl("images/menu/map_mask.png"));
     this.load.image("node-far", pictureToAssetUrl("images/menu/n_far.png"));
     this.load.image("node-solved", pictureToAssetUrl("images/menu/n0.png"));
     for (let i = 1; i <= 4; i++) {
       this.load.image(`node-open-${i}`, pictureToAssetUrl(`images/menu/n${i}.png`));
     }
     this.load.image("pedometer-bg", pictureToAssetUrl("images/menu/pedometer.png"));
+    // Pedometer's prelit hover art + button-region mask + digit strip (docs/039).
+    this.load.image("pedometer-lower", pictureToAssetUrl("images/menu/pedometer_lower.png"));
+    this.load.image("pedometer-mask", pictureToAssetUrl("images/menu/pedometer_mask.png"));
+    this.load.spritesheet("pedometer-numbers", pictureToAssetUrl("images/menu/numbers.png"), {
+      frameWidth: 19,
+      frameHeight: 24,
+    });
   }
 
   create(): void {
@@ -93,6 +134,7 @@ export class WorldMapScene extends Phaser.Scene {
     // actual CSS display box to match, not just its internal resolution.
     this.scale.resize(MAP_WIDTH, MAP_HEIGHT);
     this.add.image(0, 0, "map-bg").setOrigin(0, 0);
+    this.setupCorners();
 
     // Window/tab title - legacy's WorldMap.cpp sets the SDL window caption to
     // findDesc("menu"); this port uses its own GAME_TITLE instead. Every
@@ -101,6 +143,9 @@ export class WorldMapScene extends Phaser.Scene {
     // create() and restores the map title. All document.title changes live
     // in this scene, the only one holding the names/sections data.
     document.title = GAME_TITLE;
+    // Base history entry, so browser Back from a level returns here (see
+    // navigation.ts), not to a blank tab.
+    markWorldMap();
 
     const solved = new Set<string>();
     for (const node of this.mapData.nodes) {
@@ -147,8 +192,21 @@ export class WorldMapScene extends Phaser.Scene {
       MAP_HEIGHT,
       this.mapData.names,
       this.mapData.bestSolutions,
+      this.mapData.solverLabels,
       (codename) => void this.launchLevel(codename),
       (codename) => this.launchReplay(codename),
+      () => this.closePedometer(),
+    );
+
+    // Esc closes the pedometer (restoring the hidden dots), like its Cancel
+    // button - the map's only modal keyboard shortcut.
+    this.input.keyboard?.on("keydown-ESC", () => {
+      if (this.pedometerUI.isShowing) this.closePedometer();
+    });
+
+    // Options panel (bottom-right corner button) - live-updates music volume.
+    this.optionsOverlay = new OptionsOverlay(this, MAP_WIDTH, MAP_HEIGHT, () =>
+      this.audioManager.refreshMusicVolume(),
     );
 
     // legacy's WorldMap::own_resumeState() plays menu music every time the
@@ -161,13 +219,19 @@ export class WorldMapScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.pulseTimer?.remove();
       this.audioManager.destroy();
+      // Remove the options overlay's window keydown listener if left open.
+      this.optionsOverlay.hide();
     });
   }
 
   private drawEdges(): void {
     const byCodename = new Map(this.mapData.nodes.map((n) => [n.codename, n]));
     const graphics = this.add.graphics().setDepth(1);
-    graphics.lineStyle(1, 0xd4c840, 0.8);
+    this.edges = graphics;
+    // legacy NodeDrawer::drawEdge draws solid yellow (0xdea500) as 5 overlaid
+    // aalines (centre + 4 diagonal ±1 offsets) - a ~3px stroke. Match with a
+    // single 3px-wide yellow line.
+    graphics.lineStyle(3, 0xdea500, 1);
     for (const node of this.mapData.nodes) {
       if (!node.parent) continue;
       if (this.nodeStates.get(node.codename) === "hidden") continue;
@@ -234,9 +298,15 @@ export class WorldMapScene extends Phaser.Scene {
 
   private selectNode(node: WorldMapNode): void {
     this.selectionRing?.destroy();
-    this.selectionRing = this.add
-      .circle(node.x, node.y, NODE_HIT_RADIUS + 2, 0xffc618, 0.5)
-      .setDepth(1);
+    // legacy NodeDrawer::drawSelect: a translucent yellow (0xffc618 @ 50%) disc
+    // the size of the dot itself (radius = max(dotW,dotH)/2 + 1), drawn over the
+    // dot to tint it - not a large halo behind it. The "solved" dot (n0.png) is
+    // the reference size.
+    const dot = this.textures.get("node-solved").getSourceImage() as
+      | HTMLImageElement
+      | HTMLCanvasElement;
+    const radius = Math.max(dot.width, dot.height) / 2 + 1;
+    this.selectionRing = this.add.circle(node.x, node.y, radius, 0xffc618, 0.5).setDepth(4);
     this.nameLabel.setText(this.mapData.names.get(node.codename) ?? node.codename).setVisible(true);
   }
 
@@ -248,10 +318,144 @@ export class WorldMapScene extends Phaser.Scene {
 
   private onNodeClicked(node: WorldMapNode, state: NodeState): void {
     if (state === "solved") {
-      this.pedometerUI.show(node.codename);
+      this.showPedometer(node.codename);
     } else {
       void this.launchLevel(node.codename);
     }
+  }
+
+  /** Open the pedometer for a solved node - matches the original, which shows
+   *  the rack on the plain map with every dot/edge hidden (Pedometer::prepareBg
+   *  draws only map.png + the level name + solver text, no NodeDrawer path). */
+  private showPedometer(codename: string): void {
+    this.deselectNode();
+    this.setNodesVisible(false);
+    this.pedometerUI.show(codename);
+  }
+
+  private closePedometer(): void {
+    this.pedometerUI.hide();
+    this.setNodesVisible(true);
+  }
+
+  /** Toggle the whole node graph (dots + edges) - hidden while the pedometer
+   *  is up. Hover-driven overlays (selection ring, name) stay hidden until the
+   *  next hover. */
+  private setNodesVisible(visible: boolean): void {
+    for (const sprites of this.nodeSprites.values()) {
+      sprites.far.setVisible(visible);
+      sprites.overlay?.setVisible(visible);
+    }
+    this.edges?.setVisible(visible);
+    if (!visible) {
+      this.selectionRing?.setVisible(false);
+      this.nameLabel.setVisible(false);
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Corner buttons (Intro/Exit/Credits/Options) - legacy WorldMap.cpp's
+  // mask-based corner buttons with a prelit hover. See docs/038.
+  // -----------------------------------------------------------------
+
+  /** Read map_mask.png's 4 corner button regions and wire hover + click.
+   *  Hovering a button reveals the prelit map_lower.png *masked to that
+   *  button's exact mask shape* (legacy's LayeredPicture, which blits
+   *  map_lower only through map_mask's matching pixels), not a bounding
+   *  rectangle. */
+  private setupCorners(): void {
+    this.maskPixels = readTexturePixels(this, "map-mask");
+    const lowerPixels = readTexturePixels(this, "map-lower");
+    if (!this.maskPixels || !lowerPixels) return;
+    const { w, h } = this.maskPixels;
+
+    // legacy WorldMap::prepareBg(): the button under each image corner.
+    const corners: Array<[CornerAction, number, number]> = [
+      ["intro", 0, 0],
+      ["exit", w - 1, 0],
+      ["credits", 0, h - 1],
+      ["options", w - 1, h - 1],
+    ];
+    for (const [action, cx, cy] of corners) {
+      const color = packRgb(this.maskPixels, cx, cy);
+      if (color < 0) continue;
+      const key = `corner-${action}`;
+      const count = buildMaskedTexture(this, key, lowerPixels, this.maskPixels, color);
+      // Skip a "corner" whose colour floods most of the image (i.e. it's the
+      // no-button background, not a real button region).
+      if (count === 0 || count > (w * h) / 2) {
+        if (this.textures.exists(key)) this.textures.remove(key);
+        continue;
+      }
+      this.cornerButtons.push({ action, color, textureKey: key });
+    }
+
+    // Single overlay, positioned over map.png; its texture is swapped to the
+    // hovered button's masked shape (the buttons never overlap).
+    this.lowerOverlay = this.add.image(0, 0, "map-bg").setOrigin(0, 0).setDepth(0.5).setVisible(false);
+
+    this.input.on("pointermove", (p: Phaser.Input.Pointer) => this.onCornerPointerMove(p));
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      if (this.isModalOpen()) return;
+      if (p.leftButtonDown() && this.activeCorner) this.dispatchCorner(this.activeCorner.action);
+    });
+  }
+
+  /** True while an owned-UI overlay (pedometer/options) is capturing input -
+   *  the corner buttons must ignore hover/click underneath it. */
+  private isModalOpen(): boolean {
+    return this.pedometerUI?.isShowing || this.optionsOverlay?.isShowing;
+  }
+
+  private onCornerPointerMove(pointer: Phaser.Input.Pointer): void {
+    if (this.isModalOpen()) return;
+    const x = Math.floor(pointer.worldX);
+    const y = Math.floor(pointer.worldY);
+    const color = this.maskPixels ? packRgb(this.maskPixels, x, y) : -1;
+    const corner = this.cornerButtons.find((c) => c.color === color) ?? null;
+    if (corner === this.activeCorner) return;
+    this.activeCorner = corner;
+    if (corner && this.lowerOverlay) {
+      this.lowerOverlay.setTexture(corner.textureKey).setVisible(true);
+      this.input.setDefaultCursor("pointer");
+    } else {
+      this.lowerOverlay?.setVisible(false);
+      this.input.setDefaultCursor("");
+    }
+  }
+
+  private dispatchCorner(action: CornerAction): void {
+    // Clear the hover highlight before leaving/opening anything.
+    this.activeCorner = null;
+    this.lowerOverlay?.setVisible(false);
+    this.input.setDefaultCursor("");
+    switch (action) {
+      case "exit":
+        this.runExit();
+        break;
+      case "credits":
+        pushSubView();
+        this.scene.start("credits");
+        break;
+      case "options":
+        this.optionsOverlay.show();
+        break;
+      case "intro":
+        this.runIntro();
+        break;
+    }
+  }
+
+  /** Exit closes the browser tab. window.close() only works for
+   *  script-opened windows; if the browser blocks it, do nothing. */
+  private runExit(): void {
+    window.close();
+  }
+
+  /** Intro plays the game's opening slideshow - see runIntro() below (filled in
+   *  with the DemoScene launch). */
+  private runIntro(): void {
+    this.launchIntro();
   }
 
   /** Loads the level then hands off to LevelScene - shared by a direct
@@ -265,6 +469,7 @@ export class WorldMapScene extends Phaser.Scene {
     try {
       const levelData = await loadLevelModels(codename);
       document.title = this.titleFor(codename);
+      pushSubView();
       this.scene.start("level", { levelData });
     } catch (error) {
       console.error(`Failed to load level "${codename}"`, error);
@@ -289,6 +494,7 @@ export class WorldMapScene extends Phaser.Scene {
     loadLevelModels(codename)
       .then((levelData) => {
         document.title = this.titleFor(codename);
+        pushSubView();
         this.scene.start("replay", { levelData, moves, returnTo: "worldmap" });
       })
       .catch((error: unknown) => {
@@ -298,6 +504,13 @@ export class WorldMapScene extends Phaser.Scene {
       .finally(() => {
         this.loadingCodename = null;
       });
+  }
+
+  /** Launch the opening slideshow (IntroScene / demo_intro.lua), which returns
+   *  to the map when it finishes or on Esc/click. See docs/038. */
+  private launchIntro(): void {
+    pushSubView();
+    this.scene.start("intro");
   }
 
   /** The window/tab caption for a level - legacy's Level::initScreen()
