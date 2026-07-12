@@ -150,8 +150,9 @@ export class Controls {
   }
 
   /** Switch away from the active unit if it can't currently drive
-   *  (dead/lost/busy) - legacy's checkActive(). */
-  private checkActive(): void {
+   *  (dead/lost/busy) - legacy's checkActive(). Public so the engine can
+   *  invoke it for game_checkActive() (windoze, docs/035). */
+  checkActive(): void {
     if (this.active === -1 || !this.units[this.active].canDrive()) {
       this.switchActive();
     }

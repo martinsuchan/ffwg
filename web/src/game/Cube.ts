@@ -1,4 +1,5 @@
 import { V2 } from "./V2";
+import { Dir } from "./Dir";
 import { Shape } from "./Shape";
 import { Goal } from "./Goal";
 import { Rules } from "./Rules";
@@ -34,6 +35,12 @@ export class Cube {
   power: Weight;
   isLeft = true;
   goal: Goal = Goal.noGoal();
+  /** "output_DIR" plug direction (windoze's spuntik) - a fish that pushes
+   *  into it goes out (Rules.touchSpec). Dir.NO for every normal model. */
+  outDir: Dir = Dir.NO;
+  /** How many more fish this plug can absorb before it turns into a normal
+   *  LIGHT item - legacy Cube::m_outCapacity. See setOutDir/decOutCapacity. */
+  outCapacity = 0;
   readonly shape: Shape;
   readonly rules: Rules;
   /** Lua "kind" string (e.g. "fish_small", "item_heavy") - for rendering/debugging only. */
@@ -58,6 +65,33 @@ export class Cube {
 
   get isWall(): boolean {
     return this.weight >= Weight.FIXED;
+  }
+
+  /** Configure this cube as a one-way "output_DIR" plug - legacy
+   *  Cube::setOutDir (default capacity 2, i.e. absorbs two fish). Only used by
+   *  windoze's spuntik (output_left). */
+  setOutDir(dir: Dir, capacity = 2, weight = Weight.FIXED): void {
+    this.outCapacity = capacity;
+    this.outDir = dir;
+    this.weight = weight;
+  }
+
+  isOutDir(dir: Dir): boolean {
+    return this.outDir === dir;
+  }
+
+  /** A fish just went out through this plug - legacy Cube::decOutCapacity.
+   *  Once the capacity is exhausted the plug stops being an output and turns
+   *  into a normal light item. */
+  decOutCapacity(): void {
+    if (this.outCapacity > 0) {
+      this.outCapacity--;
+      if (this.outCapacity === 0) {
+        this.outDir = Dir.NO;
+        this.weight = Weight.LIGHT;
+        this.outCapacity = -1;
+      }
+    }
   }
 
   get isBorder(): boolean {

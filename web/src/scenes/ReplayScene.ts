@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 
 import { GRID_SCALE, type LevelData } from "../lua/levelLoader";
-import { createLevelScript, type LevelScript } from "../lua/levelScript";
+import { createLevelScript, type LevelScript, type EngineControl } from "../lua/levelScript";
 import { GameEngine } from "../game/GameEngine";
 import { ROUND_MS } from "../game/timing";
 import { ModelAnimator, preloadModelFrames } from "./ModelAnimator";
@@ -49,6 +49,15 @@ export class ReplayScene extends Phaser.Scene {
   private animators = new Map<number, ModelAnimator>();
   private audioManager!: AudioManager;
   private levelScript: LevelScript | null = null;
+  /** windoze's live-Lua control-swap/fast-fall hook, so the replay's engine
+   *  tracks busy/fast-falling exactly as interactive play did (docs/035).
+   *  Closes over `this` so a replay restart swapping `this.engine` stays
+   *  consistent. No-op for every other level. */
+  private readonly engineControl: EngineControl = {
+    setBusy: (index, busy) => this.engine.setBusy(index, busy),
+    checkActive: () => this.engine.checkActive(),
+    setFastFalling: (value) => this.engine.setFastFalling(value),
+  };
   /** Guards against a superseded startReplay()'s createLevelScript() call
    *  resolving after a newer restart already happened - same pattern as
    *  LevelScene.scriptGeneration (docs/014). Also doubles as the
@@ -193,7 +202,13 @@ export class ReplayScene extends Phaser.Scene {
 
     // Fire-and-forget, same reasoning as LevelScene.startEngine(): music
     // commands need the live Lua engine, but nothing here blocks on it.
-    createLevelScript(this.levelData.levelName, initialRenderModels, generation)
+    createLevelScript(
+      this.levelData.levelName,
+      initialRenderModels,
+      generation,
+      undefined,
+      this.engineControl,
+    )
       .then((script) => {
         if (generation !== this.scriptGeneration) {
           script.destroy();

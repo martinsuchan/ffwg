@@ -85,6 +85,22 @@ export interface HostActions {
   restart(): void;
 }
 
+/**
+ * The one place the live Lua engine reaches into the physics GameEngine
+ * (kept deliberately physics-free otherwise, docs/014). Only the windoze level
+ * needs it - its code.lua swaps player control between the normal fish and the
+ * extra couple, and settles the main room fast while the bonus is solved.
+ * See docs/035. Absent (no-op) for every other level.
+ */
+export interface EngineControl {
+  /** model_setBusy(index, value): freeze/unfreeze a fish for player control. */
+  setBusy(index: number, busy: boolean): void;
+  /** game_checkActive(): switch active fish away from one that can't drive. */
+  checkActive(): void;
+  /** game_setFastFalling(value): settle all falls in one round while set. */
+  setFastFalling(value: boolean): void;
+}
+
 /** One level's Lua-driven animation override for a single model this round. */
 export interface ScriptAnim {
   name: string;
@@ -171,6 +187,12 @@ interface LevelScriptState {
    *  deferred to run *after* it returns - calling into Lua from inside the
    *  file_include host callback would be the docs/008 reentrancy hazard. */
   pendingIncludes: Array<() => void>;
+  /** Legacy image path passed to game_changeBg() this round (corridor/rotate/
+   *  steel swap the room background as the puzzle progresses), consumed by
+   *  LevelScene via takeBgChange(). null = no change pending. See docs/033. */
+  pendingBgChange: string | null;
+  /** Last background set via game_changeBg() (backs game_getBg()). */
+  currentBg: string;
 }
 
 function isDialogActive(state: LevelScriptState): boolean {
@@ -321,6 +343,15 @@ export class LevelScript {
     return command;
   }
 
+  /** The room-background picture game_changeBg() requested this round (legacy
+   *  image path, e.g. "images/corridor/dark.png"), or null. Consumed once by
+   *  LevelScene, which swaps the background texture - see docs/033. */
+  takeBgChange(): string | null {
+    const picture = this.state.pendingBgChange;
+    this.state.pendingBgChange = null;
+    return picture;
+  }
+
   /** Resolves a registered sound name to a playable clip, picking a random
    *  variant if several were registered (ResourcePack::getRandomRes) - used
    *  both by sound_playSound() internally and by TS-triggered built-in
@@ -424,6 +455,7 @@ export async function createLevelScript(
   initialRenderModels: RenderModel[],
   restartCount: number,
   hostActions?: HostActions,
+  engineControl?: EngineControl,
 ): Promise<LevelScript> {
   const compatSource = await fetchText("/lua/lua50-compat.lua");
   const levelCreationSource = await fetchLegacyFile("script/share/level_creation.lua");
@@ -512,6 +544,8 @@ export async function createLevelScript(
     showCount: 0,
     runtimeIncludes: new Map<string, () => void>(),
     pendingIncludes: [],
+    pendingBgChange: null,
+    currentBg: "",
   };
   const modelShapes: ScriptModel[] = [];
   // level_dialog.lua's own DialogState.lang is never actually set to
@@ -620,6 +654,13 @@ export async function createLevelScript(
     // e.g. atlantis/gods/map/propulsion/turtle/barrel/floppy's code.lua),
     // not cosmetic - see docs/028.
     lua.global.set("model_isAtBorder", (index: number) => state.renderModels[index].isAtBorder);
+    // Rules::getTouchDir() - the direction a model pushed against something it
+    // couldn't move this round (or dir_no). Several levels' code.lua read it
+    // every round via the getTouchDir() object method (level_creation.lua),
+    // e.g. cabin1's screen-shake gag; leaving this unbound threw "attempt to
+    // call a nil value" mid-round and froze the loop (docs/033). The Dir enum
+    // values match the Lua dir_* constants exactly (NO=0..RIGHT=4).
+    lua.global.set("model_getTouchDir", (index: number) => state.renderModels[index].touchDir);
     // game-script.cpp's model_equals(index, x, y): does *this* model occupy
     // field cell (x,y)? Backs isWater()/isFreePlace()-style pathfinding
     // helpers a handful of "programmed"/scripted-unit levels use (prog_
@@ -637,15 +678,33 @@ export async function createLevelScript(
     });
     // Per-model/per-screen view-shift (model_setViewShift/game_setScreenShift)
     // are purely cosmetic camera/render-offset effects (View::getScreenPos()
-    // only) with no gameplay/goal state - safe no-ops, matching this file's
-    // existing model_setBusy/model_setEffect precedent. game_setFastFalling
-    // is a real physics-pacing effect, but its only caller (windoze/code.lua)
-    // is already unsupported for an unrelated reason (fish_extra, docs/022) -
-    // stubbed anyway so the live script itself doesn't also fail to load.
-    // See docs/028.
+    // only) with no gameplay/goal state - safe no-ops. See docs/028.
     lua.global.set("model_setViewShift", () => {});
     lua.global.set("game_setScreenShift", () => {});
-    lua.global.set("game_setFastFalling", () => {});
+    // game_setFastFalling(value): real physics pacing, wired to the engine for
+    // windoze (settle the main room fast while the bonus is solved) - docs/035.
+    lua.global.set("game_setFastFalling", (value: boolean) =>
+      engineControl?.setFastFalling(Boolean(value)),
+    );
+    // game_checkActive(): switch player control away from a now-busy fish -
+    // windoze uses it when swapping control to the extra couple (docs/035).
+    lua.global.set("game_checkActive", () => engineControl?.checkActive());
+    // model_getViewShift(index): the getter paired with the no-op
+    // model_setViewShift. View shift is a cosmetic per-model render offset this
+    // port doesn't apply, so it's always (0,0) - but pyramid/code.lua *reads*
+    // it every round, so leaving it unbound (unlike the stubbed setter) threw
+    // "attempt to call a nil value" and froze the loop (docs/033). Returns
+    // (0,0), consistent with the setter being a no-op.
+    lua.global.set("model_getViewShift", () => LuaMultiReturn.of(0, 0));
+    // game_changeBg(picture): swaps the whole room background at runtime -
+    // corridor/rotate/steel do this as the puzzle progresses (darken, phase
+    // change). Unbound, it froze those levels' loops mid-play (docs/033, same
+    // class as cabin1). Recorded here; LevelScene applies the texture swap.
+    lua.global.set("game_changeBg", (picture: string) => {
+      state.pendingBgChange = picture;
+      state.currentBg = picture;
+    });
+    lua.global.set("game_getBg", () => state.currentBg);
     // Level::isShowing() - true while a level_planShow() "show" is queued
     // (only the briefcase auto-play tutorial). LevelScene disables player
     // input and drives the round via runShowStep() while true. See docs/031.
@@ -677,7 +736,11 @@ export async function createLevelScript(
     // levelLoader.ts's same-named stubs for the static pass.
     lua.global.set("model_setGoal", () => {});
     lua.global.set("model_change_turnSide", () => {});
-    lua.global.set("model_setBusy", () => {});
+    // model_setBusy(index, value): real for windoze - freezes/unfreezes a fish
+    // for player control (docs/035). No-op elsewhere (no engineControl).
+    lua.global.set("model_setBusy", (index: number, value: boolean) =>
+      engineControl?.setBusy(index, Boolean(value)),
+    );
     lua.global.set("model_setEffect", () => {});
     // game_addDecor (purely visual) - real no-op stub, proven safe in
     // levelLoader.ts's static pass (docs/024). See docs/028.

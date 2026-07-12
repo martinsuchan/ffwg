@@ -28,12 +28,28 @@ export class Room {
    *  play an impact sound (docs/018). Ported since docs/007 but never
    *  read until now. */
   lastImpact: Weight = Weight.NONE;
+  /** legacy Room::m_fastFalling - when set, a round settles every pending fall
+   *  at once instead of one step per round (windoze uses it while the player
+   *  solves the bonus). Outcome-identical to normal falling, just faster. */
+  private fastFalling = false;
 
   constructor(
     readonly w: number,
     readonly h: number,
   ) {
     this.field = new Field(w, h);
+  }
+
+  /** game_setFastFalling(value) via the live-Lua bridge (docs/035). */
+  setFastFalling(value: boolean): void {
+    this.fastFalling = value;
+  }
+
+  /** game_checkActive(): switch control away from an active fish that can no
+   *  longer drive (e.g. just made busy) - legacy Room::checkActive/
+   *  Controls::checkActive. See docs/035. */
+  checkActive(): void {
+    this.controls.checkActive();
   }
 
   addModel(model: Cube, unit?: Unit): number {
@@ -58,7 +74,14 @@ export class Room {
    *  accept new input - keyboard first, mouse only if keyboard produced no
    *  move this round (matches the original's real precedence). */
   nextRound(input: InputProvider): void {
-    this.beginFall();
+    // legacy Room::nextRound: fast-falling settles every pending fall in this
+    // one round before accepting input, so the player never waits on the main
+    // room settling while solving windoze's bonus (docs/035).
+    if (this.fastFalling) {
+      this.fastForwardSettle();
+    } else {
+      this.beginFall();
+    }
     if (this.isFresh()) {
       if (this.driving(input)) {
         this.lastAction = Action.MOVE;
@@ -188,7 +211,11 @@ export class Room {
    *  when isFresh()). See docs/025.
    *  @return whether `symbol` was consumed this round. */
   replayRound(symbol: string | null): boolean {
-    this.beginFall();
+    if (this.fastFalling) {
+      this.fastForwardSettle();
+    } else {
+      this.beginFall();
+    }
     let consumed = false;
     if (this.isFresh() && symbol !== null) {
       consumed = this.controls.makeMove(symbol);

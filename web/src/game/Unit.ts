@@ -118,12 +118,21 @@ export class Unit {
 
   /** Applies `symbol` if it belongs to this unit, independent of any held
    *  key - legacy's Unit::driveOrder(), used by solution replay/validation
-   *  (see SolutionValidator.ts, docs/022) to drive from a recorded move
-   *  string instead of live input.
-   *  @return the symbol on success, or null - including when `symbol`
-   *  belongs to this unit but the move it names is currently blocked. */
+   *  (see SolutionValidator.ts, docs/022) and the demo "show" to drive from a
+   *  recorded/scripted move string instead of live input.
+   *
+   *  Gated on willMove() (alive + not out), NOT canDrive(), i.e. it ignores
+   *  `busy` - unlike the interactive drive()/driveBorrowed() path. `busy` is a
+   *  live-Lua-driven *interactive control* concept (which fish the player may
+   *  steer, windoze's docs/035); a recorded symbol is an already-decided move
+   *  that provably happened, uniquely names its fish + direction, and replays
+   *  deterministically regardless of who was drivable at the time. Re-checking
+   *  `busy` here desynced windoze's replay - the live Lua toggles busy a round
+   *  off from when the string was recorded, blocking valid extra-fish moves.
+   *  @return the symbol on success, or null - including when `symbol` belongs
+   *  to this unit but the move it names is currently blocked. */
   driveOrder(symbol: string): string | null {
-    if (!this.canDrive()) return null;
+    if (!this.willMove()) return null;
     if (this.symbols.left === symbol) return this.goLeft();
     if (this.symbols.right === symbol) return this.goRight();
     if (this.symbols.up === symbol) return this.goUp();

@@ -468,6 +468,85 @@ reasoning; check for later numbered entries too — decisions here can change):
   the clip and the next line cut the tail. Fixed by making `DEMO_CYCLE_MS` (in `demoScript.ts`, now
   exported) the single source of truth for both the tick and the duration math. Lesson: a
   real-time→cycles conversion must use *its own* tick interval.
+- Death auto-restart + demo restart/load render fix
+  (`docs/032-2026-07-12-death-auto-restart-and-demo-restart-render-fix.md`): two play-test
+  bugs. (1) **All levels now auto-restart when both fish can no longer move** — the port only
+  showed "A fish died - press R" and waited forever, but the original's `LevelCountDown`
+  (`legacy/src/level/LevelCountDown.cpp`) counts `getCountForWrong()` = 75 cycles once
+  `Room::cannotMove()` (no unit `willMove()` — both dead/wedged, *not* `isSolvable()`), then
+  `Level::finishLevel()` calls `action_restart(1)`. Added `WRONG_RESTART_ROUNDS = 75` +
+  `wrongCountdown` to `LevelScene`, and a `cannotMove()` branch in `tick()`'s win/lose block
+  (after `isSolved()`, so a real win — both fish `isLost` also makes `cannotMove()` true — is
+  caught by the solved branch first); it latches a message, counts down, then calls the
+  existing `restart()`, on its own counter so it fires even when `gameOver` was already
+  latched by the single-death branch. (2) **Briefcase Phase-2 demo restart/load rendered
+  stale positions** (items sliding around, room at start "with no fish" until the load
+  settled): `tick()` captured `renderModels` *before* `levelScript.tick()`, but an auto-play
+  show's `level_action_restart/load` runs *inside* that call and swaps the `GameEngine` +
+  rebuilds animators (`resetPhysicsOnly`→`buildAnimators`) at fresh positions — so the
+  post-`tick()` sync drove the freshly-built sprites with the stale death-position snapshot.
+  Fixed by splitting: `preStepModels` (read before, for the show's `moveXY`→`getLoc()`
+  decision) vs. a re-read `renderModels` (after, for the render/sync loop); identical for the
+  normal non-show path. Both verified in a real browser.
+- Live-Lua unbound host-function freezes
+  (`docs/033-2026-07-12-live-lua-unbound-host-fn-freezes.md`): `cabin1` froze a few seconds
+  into play. Root cause is a whole class: the live per-round engine (`levelScript.ts`) runs
+  each level's real `code.lua`, and any host function it calls that isn't bound throws "nil
+  value", which propagates out of `levelScript.tick()` and kills the round-loop timer — but
+  only when a delayed/random/position-gated branch first fires (so the level plays fine
+  first, and the load-time sweeps missed it). `cabin1`: a ~1%/round gag arms `room.mov`, then
+  calls `big:getTouchDir()` every round → the unbound `model_getTouchDir`. Fixed by porting
+  legacy `Rules::setTouched`/`getTouchDir`/`m_touchDir` (reset in `occupyNewPos`, set in
+  `actionMoveDir`'s blocked branch — windoze-only `touchSpec` still skipped; write-only, so
+  physics is byte-identical), adding `RenderModel.touchDir`, and binding `model_getTouchDir`.
+  Then swept it generically: collected every host-style call in the runtime Lua (61 names) and
+  queried a **live** engine's globals — 9 nil. Two more were the same freeze class and got
+  fixed: `game_changeBg` (`corridor`/`rotate`/`steel` runtime background swap — bound for real
+  via `LevelScript.takeBgChange()` + `LevelScene.applyBgChange()`, on-demand texture load using
+  the **key-specific** `filecomplete-image-<key>` event since the scene loader is shared with
+  `AudioManager`; also fixes replay of those levels) and `model_getViewShift` (`pyramid` parallax
+  — returns `(0,0)`, consistent with the already-stubbed no-op setter). The other 6 nils are
+  confirmed dead in this port (windoze-only `game_checkActive`; `level_save`/`level_load`/
+  `model_change_set*`/`model_getExtraParams` are the C++ save/**undo** path the port never
+  drives). All verified in a real browser (cabin1 no-freeze + real non-zero `getTouchDir`,
+  corridor bg actually swaps, pyramid viewShift, 4-level smoke drive).
+- "Both fish are stuck" auto-restart misfiring on a win
+  (`docs/034-2026-07-12-stuck-restart-misfires-on-win.md`): solving `cabin1` showed docs/032's
+  death message. Cause: `cannotMove()` is true the instant both fish are `isLost` (a fish is
+  `isLost` the moment it crosses the exit), but `isSolved()` also requires `isFresh()` (room
+  settled) - and on the round the second fish walks out, `fallout()` makes the round non-fresh,
+  so there's a one-round window where `cannotMove()` is true but `isSolved()` isn't. docs/032's
+  branch fired "stuck" and latched `gameOver`; the next (solved) round was then gated out by
+  `!gameOver`, hanging the win. Fixed by gating the stuck branch on `&& this.engine.isFresh()`
+  (new `GameEngine.isFresh()`) - aligning it with `isSolved()`'s own freshness requirement, so
+  during the escape neither fires and the settled round resolves as a win; a genuine loss still
+  settles to fresh and restarts. Also made the solved branch gate on `solvedCountdown < 0` (not
+  `!gameOver`) and clear `wrongCountdown`, correcting any stray latch. Verified in a real browser
+  (transient repro shows no "stuck" then "Solved"; cabin1 reference solution reaches Solved;
+  docs/032 genuine auto-restart still fires).
+- The `windoze` level — nested "bonus" child level + extra fish
+  (`docs/035-2026-07-12-windoze-level.md`): the last skipped level. A **second pair of fish**
+  (`fish_EXTRA-WXYZ`/`fish_extra-wxyz`, "the old couple") lives in a bonus sub-window that must
+  be solved before the normal fish can finish, and it's the only level with an **extended replay
+  alphabet** (`w/x/y/z`/`W/X/Y/Z`). Ported the physics primitives faithfully: extra fish in
+  `ModelFactory` (no dedicated keys - driven only when active via arrows, symbols parsed from the
+  kind string), `output_left`/`Rules.touchSpec` + `Cube` out-plug fields (windoze's `spuntik`;
+  touchSpec fires only when blocked by a lone `output_*` cube, so no other level is affected),
+  `busy` (already existed) wired to Lua, `game_checkActive` → `Room.checkActive`, and
+  `game_setFastFalling` → a fast-settle loop reusing `fastForwardSettle`. The one new coupling:
+  a small opt-in `EngineControl` bridge (`setBusy`/`checkActive`/`setFastFalling`) passed to
+  `createLevelScript` (from `LevelScene`/`ReplayScene`, closing over `engine`), since windoze is
+  the sole level whose `code.lua` drives physics (docs/014 otherwise keeps live Lua physics-free).
+  Rendering needed no changes (extra fish use the generic fish-animator path; the anim-less
+  invisible `spuntik` is skipped by `buildAnimators`). **One real gotcha**: `Unit.driveOrder` (the
+  recorded-symbol path for replay/validation/demo) was gated on `canDrive()` (incl. `busy`), so
+  the watchable replay stalled mid-way when the live Lua toggled `busy` a round off from recording
+  - changed it to gate on `willMove()` instead (a recorded symbol is an already-decided,
+  deterministic move; `busy` only gates interactive driving, and is windoze-only so nothing else
+  changes). Verified: reference solution validates headlessly (525 moves, all 4 fish out); all 81
+  solutions now **80 SOLVED** (was 79; only `redhat` fails, having no level content); interactive
+  control-swap + drive-extra-fish + save/load (F2/F3) + full replay to Solved, all in a real
+  browser.
 
 Commands (from repo root):
 

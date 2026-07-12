@@ -1,8 +1,9 @@
 import type { LevelData, LevelModel } from "../lua/levelLoader";
 import { V2 } from "./V2";
+import { Dir } from "./Dir";
 import { Goal } from "./Goal";
 import { Cube, Weight } from "./Cube";
-import { createModel, isFishKind } from "./ModelFactory";
+import { createModel, isFishKind, parseExtraControlSym } from "./ModelFactory";
 import { Room } from "./Room";
 import { Unit, KeyControl, ControlSym, InputProvider } from "./Unit";
 
@@ -33,6 +34,10 @@ const BIG_FISH_SYMBOLS: ControlSym = {
   left: "L",
   right: "R",
 };
+/** windoze's extra fish have NO dedicated keyboard keys (legacy createUnit uses
+ *  SDLK_LAST for all four) - they're driven only while active, via arrow keys.
+ *  Empty key codes never match held/queued input. See docs/035. */
+const NO_KEYS: KeyControl = { up: "", down: "", left: "", right: "" };
 
 function goalFromName(name: string): Goal {
   switch (name) {
@@ -68,6 +73,10 @@ export interface RenderModel {
    *  since docs/007; exposed here for the live Lua engine's
    *  model_isAtBorder() binding (docs/028). */
   isAtBorder: boolean;
+  /** Rules.getTouchDir() - the Dir this model pushed against something it
+   *  couldn't move this round (Dir.NO otherwise). Backs model_getTouchDir()
+   *  for levels whose code.lua reads getTouchDir() (e.g. cabin1) - docs/033. */
+  touchDir: Dir;
 }
 
 /**
@@ -118,6 +127,36 @@ export class GameEngine {
 
   cannotMove(): boolean {
     return this.room.cannotMove();
+  }
+
+  /** Nothing is still moving/falling this round (room settled) - the same
+   *  gate isSolved() applies. Used to avoid declaring "both fish stuck"
+   *  during the not-yet-settled round a winning escape completes on. */
+  isFresh(): boolean {
+    return this.room.isFresh();
+  }
+
+  /** model_setBusy(index, value): freeze/unfreeze a fish for player control
+   *  (legacy Cube::setBusy). A busy fish can't be driven or made active, but
+   *  still participates in physics and still counts as alive. windoze toggles
+   *  this to swap control between the normal fish and the extra couple. */
+  setBusy(index: number, busy: boolean): void {
+    const cube = this.room.models[index];
+    if (cube) cube.busy = busy;
+  }
+
+  /** game_checkActive(): switch control away from an active fish that can no
+   *  longer drive (e.g. just made busy) - legacy Room::checkActive. */
+  checkActive(): void {
+    this.room.checkActive();
+  }
+
+  /** game_setFastFalling(value): when on, settle all pending falls in one round
+   *  instead of one step per round - legacy Room::setFastFalling. Outcome-
+   *  identical to normal falling, just faster (windoze uses it while the player
+   *  solves the bonus). */
+  setFastFalling(value: boolean): void {
+    this.room.setFastFalling(value);
   }
 
   /** Cubes that died during the most recently finished round. */
@@ -184,6 +223,7 @@ export class GameEngine {
       state: cube.rules.getState(),
       moveStreak: cube.rules.getMoveStreak(),
       isAtBorder: cube.rules.isAtBorder(),
+      touchDir: cube.rules.getTouchDir(),
     }));
   }
 }
@@ -206,6 +246,11 @@ function buildCube(modelData: LevelModel): Cube {
 
 function buildUnit(cube: Cube, kind: string): Unit | undefined {
   if (!isFishKind(kind)) return undefined;
+  // windoze's extra couple (fish_extra-wxyz / fish_EXTRA-WXYZ): no dedicated
+  // keys, move symbols parsed from the kind string. Never start active.
+  if (kind.startsWith("fish_extra") || kind.startsWith("fish_EXTRA")) {
+    return new Unit(cube, NO_KEYS, parseExtraControlSym(kind), false);
+  }
   const isSmall = kind === "fish_small";
   const keys = isSmall ? SMALL_FISH_KEYS : BIG_FISH_KEYS;
   const symbols = isSmall ? SMALL_FISH_SYMBOLS : BIG_FISH_SYMBOLS;

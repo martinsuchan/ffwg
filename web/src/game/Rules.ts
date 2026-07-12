@@ -23,14 +23,20 @@ const DEATH_REMOVE_ROUNDS = 14;
  * legacy/src/level/Rules.h/.cpp - see docs/007 for the plain-English
  * writeup of what each check means.
  *
- * Intentionally dropped vs. the original: save/undo (change_setLocation),
- * touchDir-triggered hint dialogs (touchSpec/setTouched - both no-ops:
- * output_* border items, the only thing touchSpec affects, don't exist in
- * airplane), and the "strict_rules" option toggle (this POC always uses
- * the strict, default branch of checkDeadMove).
+ * Intentionally dropped vs. the original: save/undo (change_setLocation) and
+ * the "strict_rules" option toggle (this POC always uses the strict, default
+ * branch of checkDeadMove). setTouched/touchDir ARE ported now - several levels'
+ * code.lua reads getTouchDir() every round (e.g. cabin1's screen-shake gag), so
+ * leaving model_getTouchDir unbound crashed the live Lua round loop (docs/033).
+ * touchSpec (the output_* "go out on touch" special case) is ported too, for the
+ * windoze level's spuntik plug (docs/035).
  */
 export class Rules {
   dir: Dir = Dir.NO;
+  /** Direction this model tried to move but was blocked (legacy Rules::
+   *  m_touchDir) - reset to NO each round in occupyNewPos(), set by
+   *  setTouched() when a move can't push. Read by Lua via getTouchDir(). */
+  private touchDir: Dir = Dir.NO;
   private readyToDie = false;
   private readyToTurn = false;
   private readyToActive = false;
@@ -65,6 +71,7 @@ export class Rules {
 
   /** Apply the move decided last round (occupyNewPos runs at the start of the *next* round - see docs/007). */
   occupyNewPos(): void {
+    this.touchDir = Dir.NO;
     if (this.dir !== Dir.NO) {
       this.pushing = false;
       const shift = dir2xy(this.dir);
@@ -328,7 +335,52 @@ export class Rules {
       this.moveDirBrute(dir);
       return true;
     }
+    // Blocked. Two special cases before recording a plain touch (matching
+    // legacy Rules::actionMoveDir's canMoveOthers -> touchSpec -> setTouched):
+    // if we're pushing straight into an output plug (windoze's spuntik), we go
+    // out through it; otherwise just record which way we pushed for getTouchDir.
+    if (this.touchSpec(dir)) {
+      return true;
+    }
+    this.setTouched(dir);
     return false;
+  }
+
+  /** Special case: a fish blocked by exactly one "output_DIR" plug that opens
+   *  in the push direction goes out through it (windoze's spuntik) - legacy
+   *  Rules::touchSpec. The plug loses one unit of capacity (and eventually
+   *  becomes a normal light item). @return whether we went out. */
+  private touchSpec(dir: Dir): boolean {
+    const resist = this.m.getResist(dir);
+    if (resist.length === 1 && resist[0].isOutDir(dir)) {
+      resist[0].decOutCapacity();
+      this.m.unmask();
+      this.model.changeGoOut();
+      return true;
+    }
+    return false;
+  }
+
+  /** Mark this model - and every dead/immovable model it's pushing against in
+   *  `dir` - as touched this round (legacy Rules::setTouched). Read via
+   *  getTouchDir(); reset in occupyNewPos(). */
+  private setTouched(dir: Dir): void {
+    this.touchDir = dir;
+    if (!this.model.isWall) {
+      this.m.unmask();
+      for (const r of this.m.getResist(dir)) {
+        if (!r.isAlive) {
+          r.rules.setTouched(dir);
+        }
+      }
+      this.m.mask();
+    }
+  }
+
+  /** legacy Rules::getTouchDir() - direction this model is pushing against
+   *  something it can't move this round, or Dir.NO. */
+  getTouchDir(): Dir {
+    return this.touchDir;
   }
 
   actionTurnSide(): void {

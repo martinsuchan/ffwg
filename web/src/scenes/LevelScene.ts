@@ -8,6 +8,7 @@ import {
   type LevelScript,
   type ResolvedSound,
   type HostActions,
+  type EngineControl,
 } from "../lua/levelScript";
 import { GameEngine, type RenderModel } from "../game/GameEngine";
 import { V2 } from "../game/V2";
@@ -56,6 +57,12 @@ const MOVE_KEYS = new Set([
 const SOLVED_RETURN_ROUNDS = 10;
 const SOLVED_RETURN_ROUNDS_DIALOG = 30;
 
+/** Rounds to wait, once both fish can no longer move (dead/wedged), before the
+ *  level auto-restarts - legacy LevelCountDown's getCountForWrong() (75 cycles)
+ *  feeding action_restart(1) from Level::finishLevel(). Counted here in physics
+ *  rounds (ROUND_MS), the same per-cycle proxy SOLVED_RETURN_ROUNDS uses. */
+const WRONG_RESTART_ROUNDS = 75;
+
 /**
  * Renders and plays a level's puzzle: background + every model, driven by
  * the real game-logic port (web/src/game/) on a fixed round tick, with
@@ -76,6 +83,9 @@ export class LevelScene extends Phaser.Scene {
   private levelData!: LevelData;
   private engine!: GameEngine;
   private animators = new Map<number, ModelAnimator>();
+  /** The room background image - swapped at runtime by game_changeBg()
+   *  (corridor/rotate/steel), see applyBgChange() and docs/033. */
+  private bgImage!: Phaser.GameObjects.Image;
   private statusText!: Phaser.GameObjects.Text;
   /** Dialog text (docs/015) - fixed screen position, matching the
    *  original's own fixed on-screen subtitle region rather than per-fish
@@ -97,6 +107,10 @@ export class LevelScene extends Phaser.Scene {
   /** Countdown (in rounds) from a solved room to the auto-return to the
    *  world map - see SOLVED_RETURN_ROUNDS and tick(). -1 = not counting. */
   private solvedCountdown = -1;
+  /** Countdown (in rounds) from "both fish can't move" (dead/wedged) to an
+   *  automatic restart - legacy LevelCountDown's getCountForWrong path. -1 =
+   *  not counting. See WRONG_RESTART_ROUNDS and tick(). */
+  private wrongCountdown = -1;
   /** F1 controls popup (replaces the old always-on top-of-screen help). */
   private helpOverlay!: HelpOverlay;
   /** Item animation (docs/014) - null until the async Lua bootstrap for
@@ -129,6 +143,14 @@ export class LevelScene extends Phaser.Scene {
     save: () => this.demoSave(),
     load: () => this.demoLoad(),
     restart: () => this.demoRestart(),
+  };
+  /** The live Lua engine's only hook into physics - windoze's control-swap /
+   *  fast-fall (docs/035). Closes over `this` so a restart swapping
+   *  `this.engine` stays consistent. No-op for every other level. */
+  private readonly engineControl: EngineControl = {
+    setBusy: (index, busy) => this.engine.setBusy(index, busy),
+    checkActive: () => this.engine.checkActive(),
+    setFastFalling: (value) => this.engine.setFastFalling(value),
   };
   /** Guards keydown-P against double-firing while the reference-solution
    *  fetch for launchReplay() is still in flight - see docs/025. */
@@ -184,7 +206,7 @@ export class LevelScene extends Phaser.Scene {
       this.levelData.roomWidth * GRID_SCALE,
       this.levelData.roomHeight * GRID_SCALE,
     );
-    this.add.image(0, 0, this.bgKey()).setOrigin(0, 0);
+    this.bgImage = this.add.image(0, 0, this.bgKey()).setOrigin(0, 0);
 
     // Hidden while empty - an empty Text with a background + padding still
     // renders its little padding box (the stray top-left smudge), so it's
@@ -371,6 +393,7 @@ export class LevelScene extends Phaser.Scene {
     }
     this.gameOver = false;
     this.solvedCountdown = -1;
+    this.wrongCountdown = -1;
     // No permanent on-screen controls text anymore - it's in the F1 popup
     // (HelpOverlay). statusText stays hidden during play, shown only for the
     // solved/died result below.
@@ -384,7 +407,13 @@ export class LevelScene extends Phaser.Scene {
     // Lua bootstrap resolves - tick() just skips item-anim overrides until
     // then. The generation check discards a superseded restart's result
     // instead of resurrecting a stale engine (see docs/014).
-    createLevelScript(this.levelData.levelName, initialRenderModels, generation, this.hostActions)
+    createLevelScript(
+      this.levelData.levelName,
+      initialRenderModels,
+      generation,
+      this.hostActions,
+      this.engineControl,
+    )
       .then(async (script) => {
         if (generation !== this.scriptGeneration) {
           script.destroy();
@@ -429,6 +458,37 @@ export class LevelScene extends Phaser.Scene {
 
   private restart(): void {
     this.startEngine();
+  }
+
+  /** Swaps the room background to `picture` (a legacy image path from
+   *  game_changeBg, e.g. "images/corridor/dark.png") - corridor/rotate/steel
+   *  do this mid-puzzle. The texture is loaded on demand the first time it's
+   *  requested (level-scoped key, so two levels' backgrounds never collide -
+   *  same reasoning as bgKey(), docs/028), then applied; a load failure is
+   *  logged and the old background simply stays. See docs/033. */
+  private applyBgChange(picture: string): void {
+    const key = `${this.levelData.levelName}-bg:${picture}`;
+    if (this.textures.exists(key)) {
+      this.bgImage.setTexture(key);
+      return;
+    }
+    this.load.image(key, pictureToAssetUrl(picture));
+    // Key-specific completion event, NOT the generic COMPLETE: the scene's
+    // loader is shared with AudioManager's on-demand sound loads (docs/018),
+    // so a generic once(COMPLETE) can be consumed by an unrelated audio load
+    // finishing first, before dark.webp is ready. filecomplete-image-<key>
+    // fires only for this file. See docs/033.
+    this.load.once(`filecomplete-image-${key}`, () => {
+      // The scene may have been torn down (level exited) before the load
+      // finished - guard against a stale swap on a destroyed image.
+      if (this.bgImage.active) this.bgImage.setTexture(key);
+    });
+    this.load.once(`loaderror`, (file: Phaser.Loader.File) => {
+      if (file.key === key) {
+        console.warn(`game_changeBg: failed to load "${picture}" for "${this.levelData.levelName}"`);
+      }
+    });
+    this.load.start();
   }
 
   /** Destroys any existing model animators and (re)builds them from the given
@@ -671,9 +731,12 @@ export class LevelScene extends Phaser.Scene {
       this.engine.tick(input);
     }
 
-    const renderModels = this.engine.getRenderModels();
+    // Snapshot BEFORE the script step: an auto-play show reads live positions
+    // here (moveXY -> model:getLoc()) to decide the next move, and a show
+    // command may then move/restart/load the engine inside this call.
+    const preStepModels = this.engine.getRenderModels();
     try {
-      this.levelScript?.tick(renderModels);
+      this.levelScript?.tick(preStepModels);
     } catch (error) {
       // A show command (or item-anim script) threw - if a show was running,
       // end it and hand control back; otherwise re-surface the error.
@@ -690,6 +753,15 @@ export class LevelScene extends Phaser.Scene {
       return;
     }
 
+    // Re-read AFTER the script step for rendering: a show's move/restart/load
+    // mutates or swaps this.engine (and a restart/load rebuilds the animators)
+    // mid-tick, so the sprite sync must reflect the post-step engine - syncing
+    // the fresh animators with the stale pre-step snapshot is what made a demo
+    // restart briefly slide items around and drop the fish (docs/032). For the
+    // normal (non-show) path the move already happened above, so this is
+    // identical to preStepModels.
+    const renderModels = this.engine.getRenderModels();
+
     const subtitle = this.levelScript?.getActiveSubtitle() ?? null;
     if (subtitle) {
       this.subtitleText.setText(subtitle.text).setVisible(true);
@@ -697,6 +769,11 @@ export class LevelScene extends Phaser.Scene {
       this.subtitleText.setVisible(false);
     }
     this.tickAudio(subtitle);
+
+    // game_changeBg() (corridor/rotate/steel) swaps the room background as the
+    // puzzle progresses - see docs/033.
+    const bgChange = this.levelScript?.takeBgChange();
+    if (bgChange) this.applyBgChange(bgChange);
 
     for (const model of renderModels) {
       // Fish stay entirely TS-owned (docs/009/013) - only items consult the
@@ -715,11 +792,15 @@ export class LevelScene extends Phaser.Scene {
     if (showing) return;
 
     if (this.engine.isSolved()) {
-      if (!this.gameOver) {
+      // Gate on solvedCountdown (not !gameOver) so the win still latches even
+      // if the "stuck" branch briefly latched gameOver on the not-yet-settled
+      // round the winning escape completes on - and cancel that stray latch.
+      if (this.solvedCountdown < 0) {
         // First round solved: latch the result and start the return
         // countdown (legacy LevelCountDown - longer if a dialog is still
         // running so the player can finish it).
         this.gameOver = true;
+        this.wrongCountdown = -1;
         const isNewBest = saveSolvedMoves(this.levelData.levelName, this.engine.getMoves());
         this.statusText
           .setText(
@@ -733,9 +814,30 @@ export class LevelScene extends Phaser.Scene {
           : SOLVED_RETURN_ROUNDS;
       } else if (this.solvedCountdown > 0) {
         this.solvedCountdown -= 1;
-      } else if (this.solvedCountdown === 0) {
+      } else {
         this.solvedCountdown = -1; // one-shot: don't re-trigger after start()
         this.scene.start("worldmap");
+        return;
+      }
+    } else if (this.engine.cannotMove() && this.engine.isFresh()) {
+      // Both fish can no longer move (dead or wedged) AND the room has settled:
+      // legacy LevelCountDown counts getCountForWrong() cycles then
+      // action_restart(1)s the room. Mirror that - latch the message, count
+      // down, then restart exactly like R. The isFresh() gate matters: on the
+      // round a winning escape completes, both fish are already isLost (so
+      // cannotMove() is true) but the room isn't fresh yet, so isSolved() is
+      // still false - without the gate this fired "stuck" on a level the player
+      // just solved (docs/034). Tracked on its own counter so it still fires
+      // when gameOver was already latched by the single-death branch below.
+      if (this.wrongCountdown < 0) {
+        this.gameOver = true;
+        this.wrongCountdown = WRONG_RESTART_ROUNDS;
+        this.statusText.setText("Both fish are stuck - restarting...").setVisible(true);
+      } else if (this.wrongCountdown > 0) {
+        this.wrongCountdown -= 1;
+      } else {
+        this.wrongCountdown = -1; // one-shot: restart() resets it anyway
+        this.restart();
         return;
       }
     } else if (!this.engine.isSolvable() && !this.gameOver) {
