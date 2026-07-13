@@ -17,7 +17,7 @@ original Lua level content) — see the next section. Repo layout:
 - `docs/` — dated, numbered dev log of the port (`docs/README.md` has the convention).
   **This is the source of truth for current status/open questions** — this file covers
   stable architecture and won't be kept in sync with day-to-day progress.
-- `scripts/` — PowerShell helpers (`start.ps1`, `build.ps1`, `new-doc.ps1`) for the web port.
+- `scripts/` — PowerShell helpers (`setup.ps1`, `publish.ps1`, `start.ps1`, `new-doc.ps1`) for the web port.
 - `README.md` — human-facing overview and run instructions.
 
 ## Web port (`web/`) — start here for new work
@@ -642,17 +642,36 @@ reasoning; check for later numbered entries too — decisions here can change):
   active scenes (robust to history drift). Verified in a real browser (backdrop alpha 0, dots+edges
   hidden, real cs solver text no-bg, Cancel restores; Back from a level returns to the map, page
   still loaded; screenshot).
+- Build + publish scripts, production Lua packaging
+  (`docs/041-2026-07-13-build-and-publish-scripts.md`): two user-facing PowerShell scripts at the
+  repo root so a fresh clone works with no AI tooling (Windows 11 only for now). **Enabling code
+  change**: `LEGACY_ROOT` (`web/src/lua/levelLoader.ts`) now branches on `import.meta.env.DEV` - dev
+  keeps the `/@fs/` literal, **prod** resolves to `<site>/legacy/` (via `import.meta.env.BASE_URL`),
+  closing the docs/005/006 "production Lua packaging still open" gap (everything fetched is under
+  `legacy/script/**` + `legacy/solution/**`). Added `web/src/vite-env.d.ts`. **`build.ps1`**:
+  checks tools (`node`/`npm`/`ffmpeg`/`ffprobe`, prints `winget install` hints for missing ones via
+  new `scripts/lib/common.ps1`), `npm install`, converts all assets (`convert-assets.ps1` + the
+  `intro.mpg`->`intro.mp4` step + both manifests), then runs the dev server; flags `-NoRun`/
+  `-SkipAssets`/`-Force`/`-Install`/`-Port`. **`publish.ps1`**: runs `build.ps1 -NoRun`, `npm run
+  build`, then assembles a self-contained `publish/` (built site + `legacy/script`+`solution` under
+  `/legacy/` + `staticwebapp.config.json` + `web.config` + `README.txt`) - a pure static site,
+  ~176MB. Verified by serving `publish/` and driving the **production** build in a real browser:
+  world map + a level both load from `/legacy/`, no errors.
 
 Commands (from repo root):
 
 ```
-scripts\start.ps1              # installs deps if needed, runs the Vite dev server, opens a browser
-scripts\build.ps1              # tsc -b + vite build (add -Preview to serve the build)
+scripts\setup.ps1              # ONE-COMMAND local build+run: checks tools, converts assets, runs (docs/041)
+scripts\setup.ps1 -SkipAssets  # fast restart once assets are already built
+scripts\publish.ps1            # produce a deployable static-site 'publish/' folder (docs/041)
+scripts\start.ps1              # just (re)start the Vite dev server (assumes assets built)
+scripts\build.ps1              # low-level tsc -b + vite build only (add -Preview to serve)
 scripts\new-doc.ps1 "<slug>"   # scaffold the next numbered docs/ entry
 ```
 
 Equivalent by hand, from `web/`: `npm install`, `npm run dev`, `npm run build`,
-`npm run preview`. No test suite yet.
+`npm run preview`. Asset conversion (needed before a hand build works) is what `setup.ps1`
+orchestrates via `scripts/convert-assets.ps1` + the manifest scripts. No test suite yet.
 
 **Workflow convention:** whenever a notable feature/decision lands (not small edits), add
 the next `docs/NNN-YYYY-MM-DD-slug.md` entry via `scripts/new-doc.ps1` summarizing what

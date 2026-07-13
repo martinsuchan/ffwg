@@ -61,22 +61,31 @@ export async function fetchText(url: string | URL): Promise<string> {
   return response.text();
 }
 
-// A *static* new URL(literal, import.meta.url) is what Vite's dev server
+// Where the runtime fetches the legacy `.lua` content (level scripts under
+// legacy/script/**, reference solutions under legacy/solution/**).
+//
+// Dev: a *static* new URL(literal, import.meta.url) is what Vite's dev server
 // specially rewrites into an /@fs/<absolute-path> URL (server.fs.allow in
-// vite.config.ts) - resolving it once here means every other legacy/ fetch
-// below can just do plain WHATWG URL joining against it at runtime
-// (new URL(relativePath, LEGACY_ROOT)), instead of needing its own literal
-// new URL(..., import.meta.url) call that Vite would otherwise have to
-// glob-match (which is what made every level's models.lua end up bundled
-// into `vite build` output - see docs/006's "Open for next time").
-// Vite's rewrite of the literal above doesn't reliably preserve the
-// trailing slash, and WHATWG URL resolution treats a base with no
-// trailing slash as "replace the last segment" rather than "append to
-// it" - normalize explicitly so new URL(relativePath, LEGACY_ROOT) below
-// actually appends instead of silently landing one directory up.
-export const LEGACY_ROOT = new URL(
-  new URL("../../../legacy/", import.meta.url).href.replace(/\/?$/, "/"),
-);
+// vite.config.ts) - so legacy/ is read straight off disk, uncopied. Resolving
+// it once here means every other legacy/ fetch below can just do plain WHATWG
+// URL joining against it at runtime (new URL(relativePath, LEGACY_ROOT)),
+// instead of needing its own literal new URL(..., import.meta.url) call that
+// Vite would otherwise glob-match (which is what made every level's models.lua
+// end up bundled into `vite build` output - see docs/006's "Open for next
+// time"). Vite's rewrite doesn't reliably preserve the trailing slash, and
+// WHATWG URL resolution treats a base with no trailing slash as "replace the
+// last segment" rather than "append to it" - normalize explicitly so
+// new URL(relativePath, LEGACY_ROOT) below actually appends instead of
+// silently landing one directory up.
+//
+// Prod (`vite build`): there is no /@fs/ route. `scripts/publish.ps1` copies
+// legacy/script + legacy/solution next to the built site (into <site>/legacy/),
+// so resolve against the deployed base URL instead. See docs/041.
+export const LEGACY_ROOT = import.meta.env.DEV
+  ? // This dev-only literal is dead code in a prod build (import.meta.env.DEV is
+    // statically false); the /* @vite-ignore */ stops Vite trying to resolve it.
+    new URL(new URL(/* @vite-ignore */ "../../../legacy/", import.meta.url).href.replace(/\/?$/, "/"))
+  : new URL(`${import.meta.env.BASE_URL}legacy/`, window.location.origin);
 
 export function fetchLegacyFile(relativePath: string): Promise<string> {
   return fetchText(new URL(relativePath, LEGACY_ROOT));
