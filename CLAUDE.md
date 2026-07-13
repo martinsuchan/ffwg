@@ -657,6 +657,58 @@ reasoning; check for later numbered entries too — decisions here can change):
   `/legacy/` + `staticwebapp.config.json` + `web.config` + `README.txt`) - a pure static site,
   ~176MB. Verified by serving `publish/` and driving the **production** build in a real browser:
   world map + a level both load from `/legacy/`, no errors.
+- Texture atlas migration (`docs/042-2026-07-13-texture-atlas-migration.md`): finished the
+  atlas goal first scoped in docs/003/004 - model sprites now render from Phaser **texture
+  atlases** (one `load.atlas` per level dir + one per shared fish variant) instead of a
+  `load.image()` per frame, and the individual per-sprite `.webp` files are no longer shipped
+  for atlased dirs (docs/004's packer existed but was never wired in - only a stray
+  `airplane/atlas.*` test artifact remained, double-shipping that one level). Two atlas
+  families packed by `convert-assets.ps1`: per-level `images/<level>/**` (items + background)
+  and shared `images/fishes/{small,big,ex_small,ex_big}/**` (loaded every level, one atlas key
+  each so it caches across levels). New `web/src/scenes/atlas.ts` maps a Lua picture path to
+  `{atlasKey, frame}` where the frame name is the path relative to the atlas dir minus ext -
+  the same string `build-atlas.mjs` writes; `ModelAnimator` resolves + `setTexture(atlasKey,
+  frame)` from it (`resolveTextureKey`->`resolveFrame`, `preloadModelFrames`->`collectAtlasKeys`
+  + `preloadAtlases`), and `applyBgChange` (docs/033) simplified to a synchronous atlas frame
+  swap since changeBg targets are already in the level atlas. `build-atlas.mjs` now recurses
+  subdirs + names frames by relative path (for the nested fish tree; also guards `sharp.trim()`
+  on the extra fish's sub-3×3 placeholder heads). Only `menu/` (world-map UI + lossless masks)
+  and `demo_briefcase/` (movie frames) stay individual - both load through their own pathways
+  and fail single-page packing. Result: **3732 image files -> 510**, `assets/images` 24MB->18MB,
+  a level fetches one atlas instead of up to ~188 requests. Verified: tsc + vite build clean;
+  every atlas's frame set proven to exactly equal its source-PNG set (airtight resolution proof
+  since the runtime derives frame names by the same rule); atlas URLs served 200. **Not yet
+  done**: interactive real-browser drive (no browser-automation tool this session) - see the
+  doc's "Open for next time". Also fixed a **separate pre-existing docs/041 bug** found while
+  verifying: the dev world map failed with a Lua `unexpected symbol near '<'` because docs/041's
+  `/* @vite-ignore */` on `LEGACY_ROOT`'s dev branch disabled Vite's `/@fs/` rewrite (fetched
+  `.lua` as the SPA `index.html`); replaced the whole mechanism with a dev-only `serveLegacyDev`
+  middleware (`vite.config.ts`) serving repo-root `legacy/` at `/legacy/`, so dev+prod share one
+  `/legacy/` path and `LEGACY_ROOT` needs no `import.meta.url`/`@vite-ignore` (prod JS bundle
+  byte-identical).
+- Polyphonic audio + Web Audio buffer engine
+  (`docs/043-2026-07-13-polyphonic-audio-and-web-audio-engine.md`): fixed two audio defects by
+  mirroring the original's in-memory multi-channel model. **(1) No simultaneous playback** - the
+  port collapsed legacy's `DialogStack` (FIFO lists of concurrent `PlannedDialog`s, each on its
+  own mixer channel; `m_activeDialog` only the blocking one) into a single `activeDialog` slot
+  that cut the previous voice, so viking1's whistle+bass+voice trio played one note at a time
+  (docs/036). **(2) 1-2s latency** - each dir's concatenated `sprite.mp3` was decoded whole by
+  Phaser on first use (can't partial-decode an MP3); un-warmed dirs hit cold mid-game decodes.
+  New `web/src/scenes/audioEngine.ts` (Web Audio, shares Phaser's AudioContext/`destination`):
+  decode each dir's sprite **once** into one `AudioBuffer` (module-global cache = decode-once-
+  per-session across scenes), play regions by offset via independent `AudioBufferSourceNode`s →
+  instant + unlimited concurrency; per-actor grouping backs `killSound`. `AudioManager` routes
+  voices+effects through it (`preloadAll`/`playDialogVoice(...,actor,loop)`/`playSoundEffect`
+  overlap); music stays on Phaser. `levelScript.ts` ports `DialogStack`: `activeDialog` →
+  `talkers[]` + `activeBlocking` + `killedActors`; `model_talk` honors its real 5th `dialogFlag`
+  arg (`planDialog`=blocking, `object:talk`=non-blocking band) and **pushes** talkers;
+  `isModelTalking` scans all talkers; new `takePendingVoices`/`takeKilledActors` drains replace
+  the `getActiveDialogId`/`lastDialogId` single-voice diff. `LevelScene` pre-decodes the level's
+  voice + shared pools + `<level>/en` fallback (viking instruments) at load and plays each round's
+  talkers concurrently; `DemoScene` movie stays sequential (one group, cut-previous). Verified:
+  tsc + vite build clean, modules transform + app boots, sprite.json/`viking1/en` band regions
+  present. **Not yet done**: interactive real-browser drive (no automation tool this session) -
+  viking1 polyphony, first-line sync, overlap, teardown; see doc's "Open for next time".
 
 Commands (from repo root):
 

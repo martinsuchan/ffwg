@@ -123,21 +123,24 @@ interface DialogEntry {
   soundPath: string;
 }
 
-/** The single currently-showing subtitle (docs/015's simplification: one
- *  active slot, not the original's 5-line stacking deque). */
-interface ActiveDialog {
+/** One running dialog voice - the port of legacy's PlannedDialog held in
+ *  DialogStack's m_running/m_cycling lists (docs/043). Multiple coexist and play
+ *  concurrently (viking1's musician band), unlike docs/015's single slot. */
+interface Talker {
+  id: number;
   actorIndex: number;
-  text: string;
-  font: string;
-  /** cycles value (LevelScriptState.cycles) at which this subtitle should
-   *  stop counting as active - computed once when model_talk() fires, not
-   *  re-derived, matching Dialog::getMinTime()'s one-shot duration calc. */
-  endCycle: number;
-  /** Resolved voice clip to play once, if this dialog has real audio
-   *  (docs/018) - null falls back to the silent/text-only case. */
+  /** Resolved voice clip, if this dialog has real audio (docs/018) - null is a
+   *  text-only / silent dialog (still counts for isTalking/subtitle timing). */
   sound: ResolvedSound | null;
   /** model_talk()'s volume arg, legacy default 75 (docs/018). */
   volume: number;
+  /** cycles value at which this talker stops (non-cycling only) - computed once
+   *  when model_talk() fires, matching Dialog::getMinTime()'s one-shot calc. */
+  endCycle: number;
+  /** loops == -1: repeats its clip until killSound (DialogStack's m_cycling). */
+  cycling: boolean;
+  /** Set once LevelScene has started this talker's voice (play-once). */
+  played: boolean;
 }
 
 interface ScriptModel {
@@ -163,7 +166,19 @@ interface LevelScriptState {
   scriptAnims: Map<number, ScriptAnim>;
   cycles: number;
   dialogRegistry: Map<string, DialogEntry>;
-  activeDialog: ActiveDialog | null;
+  /** All running dialog voices (DialogStack m_running + m_cycling merged, the
+   *  `cycling` flag distinguishing them). Multiple play at once. See docs/043. */
+  talkers: Talker[];
+  /** The single *blocking* dialog (model_talk's 5th dialogFlag arg = true, i.e.
+   *  planDialog's queued conversation) - legacy m_activeDialog, drives isDialog()
+   *  which gates gameplay. Non-blocking talk (object:talk, the band) never sets
+   *  this even while it plays. */
+  activeBlocking: Talker | null;
+  /** Actors whose voices were killed this round (model_killSound / a death) -
+   *  drained by LevelScene to stop the audio (engine.stopGroup). */
+  killedActors: number[];
+  /** Monotonic id source for Talker.id. */
+  nextTalkerId: number;
   /** dialog_addFont(name, r,g,b) -> CSS "#rrggbb". Each dialog names a font
    *  (dialogId's 2nd arg) whose color the subtitle is drawn in - one color per
    *  speaker, matching the original's SubTitleAgent/ResColorPack. Populated by
@@ -211,8 +226,35 @@ interface LevelScriptState {
   currentBg: string;
 }
 
+/** Whether a *blocking* dialog is running - legacy DialogStack::isDialog()
+ *  (m_activeDialog && talking). Only planDialog conversations gate gameplay;
+ *  non-blocking object:talk (band/ambient) never makes this true. */
 function isDialogActive(state: LevelScriptState): boolean {
-  return state.activeDialog !== null && state.cycles < state.activeDialog.endCycle;
+  return (
+    state.activeBlocking !== null &&
+    (state.activeBlocking.cycling || state.cycles < state.activeBlocking.endCycle)
+  );
+}
+
+/** Per-round DialogStack::updateStack(): drop finished non-cycling talkers, and
+ *  clear activeBlocking once it's gone (expired or killed). Cycling talkers run
+ *  until killSound. */
+function updateDialogStack(state: LevelScriptState): void {
+  state.talkers = state.talkers.filter((t) => t.cycling || state.cycles < t.endCycle);
+  if (state.activeBlocking && !state.talkers.includes(state.activeBlocking)) {
+    state.activeBlocking = null;
+  }
+}
+
+/** DialogStack::killSound(actor): remove all of one actor's running talkers and
+ *  flag the actor so LevelScene stops its playing audio (engine.stopGroup). */
+function killTalkers(state: LevelScriptState, actor: number): void {
+  const had = state.talkers.some((t) => t.actorIndex === actor);
+  state.talkers = state.talkers.filter((t) => t.actorIndex !== actor);
+  if (state.activeBlocking && state.activeBlocking.actorIndex === actor) {
+    state.activeBlocking = null;
+  }
+  if (had) state.killedActors.push(actor);
 }
 
 /** dialog_addFont's (r,g,b) -> CSS "#rrggbb" (each 0-255, clamped). */
@@ -271,6 +313,7 @@ export class LevelScript {
   tick(renderModels: RenderModel[]): void {
     this.state.renderModels = renderModels;
     this.state.cycles += 1;
+    updateDialogStack(this.state);
     this.runShowStep();
     this.scriptUpdate();
     this.processPlan();
@@ -311,43 +354,50 @@ export class LevelScript {
    *  though this class already tracked everything needed for it (see
    *  docs/029). */
   isModelTalking(index: number): boolean {
-    if (!isDialogActive(this.state)) return false;
-    const actorIndex = (this.state.activeDialog as ActiveDialog).actorIndex;
-    return actorIndex === index || actorIndex === TALK_INDEX_BOTH;
+    // Any running talker for this actor (or the TALK_INDEX_BOTH narrator) counts
+    // now, not just the single blocking dialog - legacy DialogStack::isTalking()
+    // scans all running dialogs. So a fish talking via non-blocking object:talk
+    // gets its mouth animated too (docs/043).
+    return this.state.talkers.some(
+      (t) => t.actorIndex === index || t.actorIndex === TALK_INDEX_BOTH,
+    );
   }
 
-  /** The currently-showing subtitle, if any and not yet expired - see
-   *  docs/015. Font is tracked but not yet used to pick a real typeface
-   *  (deliberate simplification, see docs/015). `sound` carries the voice
-   *  clip to play, if this dialog has one (docs/018). */
-  getActiveSubtitle(): {
-    text: string;
-    font: string;
-    sound: ResolvedSound | null;
+  /** Voices that started this round and need playing - drained once per round by
+   *  LevelScene, which plays each concurrently on the audio engine (grouped by
+   *  actor). Play-once (marks `played`), replacing the old single-slot
+   *  getActiveDialogId/lastDialogId diff. Only talkers with real audio. */
+  takePendingVoices(): Array<{
+    sound: ResolvedSound;
     volume: number;
-  } | null {
-    if (!isDialogActive(this.state)) return null;
-    const dialog = this.state.activeDialog as ActiveDialog;
-    return { text: dialog.text, font: dialog.font, sound: dialog.sound, volume: dialog.volume };
-  }
-
-  /** Cuts a model's current sound/subtitle short - legacy's Dialogs::
-   *  killSound(), called from TS for built-in death sounds (Room::playDead
-   *  does this before its own death sound - docs/018), mirroring the
-   *  model_killSound Lua binding below for Lua-driven calls. */
-  killSound(index: number): void {
-    if (this.state.activeDialog?.actorIndex === index) {
-      this.state.activeDialog = null;
+    actorIndex: number;
+    loop: boolean;
+  }> {
+    const out: Array<{ sound: ResolvedSound; volume: number; actorIndex: number; loop: boolean }> =
+      [];
+    for (const t of this.state.talkers) {
+      if (t.played || !t.sound) continue;
+      t.played = true;
+      out.push({ sound: t.sound, volume: t.volume, actorIndex: t.actorIndex, loop: t.cycling });
     }
+    return out;
   }
 
-  /** Identity of the currently-active dialog (actor+start), or null - lets
-   *  LevelScene detect when a *new* dialog has started (vs. the same one
-   *  still showing) without re-playing its sound every round - docs/018. */
-  getActiveDialogId(): string | null {
-    if (!isDialogActive(this.state)) return null;
-    const dialog = this.state.activeDialog as ActiveDialog;
-    return `${dialog.actorIndex}@${dialog.endCycle}`;
+  /** Actors whose voices were killed this round (Lua model_killSound or the
+   *  killSound() below) - drained by LevelScene to stop their audio. */
+  takeKilledActors(): number[] {
+    const killed = this.state.killedActors;
+    this.state.killedActors = [];
+    return killed;
+  }
+
+  /** Cuts a model's current voices short - legacy's DialogStack::killSound(),
+   *  called from TS for built-in death sounds (Room::playDead does this before
+   *  its own death sound - docs/018), mirroring the model_killSound Lua binding
+   *  for Lua-driven calls. Removes the actor's talkers and flags the actor so
+   *  LevelScene stops the playing audio. */
+  killSound(index: number): void {
+    killTalkers(this.state, index);
   }
 
   /** Every sound_playSound() call since the last read, drained on read
@@ -588,7 +638,10 @@ export async function createLevelScript(
     scriptAnims: new Map<number, ScriptAnim>(),
     cycles: 0,
     dialogRegistry: new Map<string, DialogEntry>(),
-    activeDialog: null,
+    talkers: [],
+    activeBlocking: null,
+    killedActors: [],
+    nextTalkerId: 0,
     fontColors: new Map<string, string>(),
     pendingSubtitles: [],
     pendingActions: [],
@@ -847,6 +900,7 @@ export async function createLevelScript(
         dialogName: string,
         volume?: number | null,
         loops?: number | null,
+        dialogFlag?: boolean,
       ) => {
         const entry = state.dialogRegistry.get(dialogName);
         if (!entry) return;
@@ -858,15 +912,24 @@ export async function createLevelScript(
           durationSeconds !== undefined
             ? Math.ceil((durationSeconds * 1000) / ROUND_MS)
             : Math.min(180, entry.subtitle.length);
-        const repeats = (loops ?? 0) + 1;
-        state.activeDialog = {
+        const cycling = (loops ?? 0) === -1;
+        const repeats = cycling ? 1 : (loops ?? 0) + 1;
+        // Push a new talker (DialogStack::actorTalk) - concurrent, never
+        // overwriting a previous one, so viking1's band notes coexist (docs/043).
+        const talker: Talker = {
+          id: state.nextTalkerId++,
           actorIndex: index,
-          text: entry.subtitle,
-          font: entry.font,
-          endCycle: state.cycles + minTime * repeats,
           sound,
           volume: volume ?? 75,
+          endCycle: state.cycles + minTime * repeats,
+          cycling,
+          played: false,
         };
+        state.talkers.push(talker);
+        // Only a blocking dialog (planDialog -> dialogFlag=true) becomes the
+        // active one that gates gameplay via isDialog(); object:talk (band/
+        // ambient) plays without blocking - matches the original exactly.
+        if (dialogFlag) state.activeBlocking = talker;
         // Spawn a colored subtitle into the visual stack (decoupled from the
         // talking-state above), matching the original's SubTitleAgent. Empty-
         // subtitle "sound only" dialogs (viking d1-z-*) add nothing. See
@@ -879,18 +942,13 @@ export async function createLevelScript(
         }
       },
     );
-    // Cuts a model's current sound/subtitle short - legacy's Dialogs::
+    // Cuts a model's current sound/subtitle short - legacy's DialogStack::
     // killSound(), needed by e.g. viking1's instrument-swapping NPCs
     // (melodak1/piskac/basak cut the previous note before playing the
     // next) - see docs/018.
-    lua.global.set("model_killSound", (index: number) => {
-      if (state.activeDialog?.actorIndex === index) {
-        state.activeDialog = null;
-      }
-    });
-    lua.global.set(
-      "model_isTalking",
-      (index: number) => isDialogActive(state) && state.activeDialog?.actorIndex === index,
+    lua.global.set("model_killSound", (index: number) => killTalkers(state, index));
+    lua.global.set("model_isTalking", (index: number) =>
+      state.talkers.some((t) => t.actorIndex === index),
     );
     lua.global.set("dialog_isDialog", () => isDialogActive(state));
     // Kills the plan queue outright (Planner::killPlan) - cheap and

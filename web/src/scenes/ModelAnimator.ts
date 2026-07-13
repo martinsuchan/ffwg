@@ -1,10 +1,12 @@
 import Phaser from "phaser";
 
 import { GRID_SCALE, type AnimFrames } from "../lua/levelLoader";
+import type { LevelModel } from "../lua/levelLoader";
 import type { RenderModel } from "../game/GameEngine";
 import { ROUND_MS } from "../game/timing";
 import { computeBodyAnim, computeHeadAnim } from "../game/UnitAnimator";
 import type { ScriptAnim } from "../lua/levelScript";
+import { pictureToAtlas, atlasWebpUrl, atlasJsonUrl, type AtlasFrame } from "./atlas";
 
 type Side = "left" | "right";
 
@@ -75,43 +77,34 @@ const MOVE_OFFSETS: Record<string, { dx: number; dy: number }> = {
  *  for that per-level-shader-adjacent effect (out of scope - see docs/009). */
 const REMOVE_FADE_MS = 400;
 
-/** `levelName` prefixes every key - two different levels' model 0 (say)
- *  are two entirely different pictures, but without this, both would
- *  collide on the exact same texture key. Phaser's TextureManager treats
- *  a load.image() call against an already-registered key as a no-op
- *  (keeps whichever image loaded first), so without this prefix,
- *  switching from level A to level B silently kept level A's textures -
- *  see docs/028. */
-export function textureKey(
-  levelName: string,
-  index: number,
-  animName: string,
-  side: Side,
-  phase: number,
-): string {
-  return `${levelName}-model-${index}-${animName}-${side}-${phase}`;
+/**
+ * The distinct atlas keys a level needs: every model's animation frames plus
+ * the room background. Model sprites now come from Phaser texture atlases
+ * (docs/042) - one per level dir (items + bg) and one per shared fish variant -
+ * so instead of registering hundreds of individual load.image() calls, the
+ * scene loads a handful of atlases. Shared fish atlases collapse to one key
+ * across levels (loaded once, cache-hit after). Level-scoped keys mean two
+ * levels never collide (the concern docs/028 fixed for the old per-frame keys).
+ */
+export function collectAtlasKeys(models: LevelModel[], bgPicture: string): string[] {
+  const keys = new Set<string>();
+  keys.add(pictureToAtlas(bgPicture).atlasKey);
+  for (const model of models) {
+    for (const frames of Object.values(model.anims)) {
+      for (const side of ["left", "right"] as const) {
+        for (const picture of frames[side]) keys.add(pictureToAtlas(picture).atlasKey);
+      }
+    }
+  }
+  return [...keys];
 }
 
-/**
- * Registers a load.image() call for every frame of every anim/side this
- * model has - call once per model from LevelScene.preload().
- */
-export function preloadModelFrames(
-  scene: Phaser.Scene,
-  levelName: string,
-  index: number,
-  anims: Record<string, AnimFrames>,
-  toAssetUrl: (picture: string) => string,
-): void {
-  for (const [animName, frames] of Object.entries(anims)) {
-    (["left", "right"] as const).forEach((side) => {
-      frames[side].forEach((picture, phase) => {
-        scene.load.image(
-          textureKey(levelName, index, animName, side, phase),
-          toAssetUrl(picture),
-        );
-      });
-    });
+/** Queues each atlas for loading (once) - call from a scene's preload(). Skips
+ *  any already-loaded key (a shared fish atlas carried over from a prior level). */
+export function preloadAtlases(scene: Phaser.Scene, atlasKeys: string[]): void {
+  for (const key of atlasKeys) {
+    if (scene.textures.exists(key)) continue;
+    scene.load.atlas(key, atlasWebpUrl(key), atlasJsonUrl(key));
   }
 }
 
@@ -124,23 +117,23 @@ function frameCount(anims: Record<string, AnimFrames>, name: string, side: Side)
   return frames[side].length || frames[side === "left" ? "right" : "left"].length;
 }
 
-/** Resolves an (anim, side, phase) triple to a preloaded texture key,
+/** Resolves an (anim, side, phase) triple to its atlas key + frame name,
  *  falling back to the other side if this model never registered frames
  *  for the requested one (e.g. an item that never turns only has "left"
- *  populated), and wrapping phase by modulo like Anim::setAnim does. */
-export function resolveTextureKey(
-  levelName: string,
-  index: number,
+ *  populated), and wrapping phase by modulo like Anim::setAnim does. The frame
+ *  identity comes straight from the picture path stored in `anims` (docs/042),
+ *  so no per-level/index key synthesis is needed anymore. */
+export function resolveFrame(
   anims: Record<string, AnimFrames>,
   name: string,
   side: Side,
   phase: number,
-): string | null {
+): AtlasFrame | null {
   const frames = anims[name];
   if (!frames) return null;
   const usableSide = frames[side].length > 0 ? side : side === "left" ? "right" : "left";
   if (frames[usableSide].length === 0) return null;
-  return textureKey(levelName, index, name, usableSide, phase % frames[usableSide].length);
+  return pictureToAtlas(frames[usableSide][phase % frames[usableSide].length]);
 }
 
 /**
@@ -185,8 +178,6 @@ export class ModelAnimator {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private readonly levelName: string,
-    private readonly index: number,
     private readonly anims: Record<string, AnimFrames>,
     private readonly bodySprite: Phaser.GameObjects.Image,
     private readonly isFish: boolean,
@@ -401,16 +392,9 @@ export class ModelAnimator {
     }
     this.headAnim = head.name;
     this.headPhase = head.phase;
-    const key = resolveTextureKey(
-      this.levelName,
-      this.index,
-      this.anims,
-      this.headAnim,
-      this.currentSide(),
-      this.headPhase,
-    );
-    if (key) {
-      this.headSprite.setTexture(key).setVisible(true);
+    const frame = resolveFrame(this.anims, this.headAnim, this.currentSide(), this.headPhase);
+    if (frame) {
+      this.headSprite.setTexture(frame.atlasKey, frame.frame).setVisible(true);
     } else {
       this.headSprite.setVisible(false);
     }
@@ -433,16 +417,9 @@ export class ModelAnimator {
   }
 
   private applyBodyTexture(): void {
-    const key = resolveTextureKey(
-      this.levelName,
-      this.index,
-      this.anims,
-      this.bodyAnim,
-      this.currentSide(),
-      this.bodyPhase,
-    );
-    if (key) {
-      this.bodySprite.setTexture(key);
+    const frame = resolveFrame(this.anims, this.bodyAnim, this.currentSide(), this.bodyPhase);
+    if (frame) {
+      this.bodySprite.setTexture(frame.atlasKey, frame.frame);
     }
   }
 }

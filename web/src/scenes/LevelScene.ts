@@ -6,7 +6,6 @@ import {
   levelSoundSpriteDirs,
   levelDialogVoiceDir,
   type LevelScript,
-  type ResolvedSound,
   type HostActions,
   type EngineControl,
 } from "../lua/levelScript";
@@ -14,9 +13,10 @@ import { GameEngine, type RenderModel } from "../game/GameEngine";
 import { V2 } from "../game/V2";
 import { Weight } from "../game/Cube";
 import { ROUND_MS } from "../game/timing";
-import { ModelAnimator, preloadModelFrames } from "./ModelAnimator";
+import { ModelAnimator, collectAtlasKeys, preloadAtlases } from "./ModelAnimator";
 import { AudioManager, type MusicCommand } from "./AudioManager";
-import { pictureToAssetUrl, isFishKind, resolveInitialTextureKey } from "./sceneUtils";
+import { isFishKind, resolveInitialFrame } from "./sceneUtils";
+import { pictureToAtlas } from "./atlas";
 import { SaveSlotUI } from "./SaveSlotUI";
 import { HelpOverlay } from "./HelpOverlay";
 import { SubtitleStack } from "./SubtitleStack";
@@ -121,11 +121,8 @@ export class LevelScene extends Phaser.Scene {
   /** Guards against a superseded startEngine()'s createLevelScript() call
    *  resolving *after* a newer restart already happened - see startEngine(). */
   private scriptGeneration = 0;
-  /** Music/sound-effect/dialog-voice playback - see docs/018. */
+  /** Music/sound-effect/dialog-voice playback - see docs/018, docs/043. */
   private audioManager!: AudioManager;
-  /** Identity of the dialog last seen active, so a new dialog's voice clip
-   *  plays exactly once (docs/018) rather than every round it's showing. */
-  private lastDialogId: string | null = null;
   /** Last background-music "play" command this level issued, so it can be
    *  re-applied when resuming from the briefcase movie (which stops it and
    *  plays its own) - null if the level has no music. See docs/031. */
@@ -176,19 +173,9 @@ export class LevelScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image(this.bgKey(), pictureToAssetUrl(this.levelData.bgPicture));
-    this.levelData.models.forEach((model, index) => {
-      preloadModelFrames(this, this.levelData.levelName, index, model.anims, pictureToAssetUrl);
-    });
-  }
-
-  /** Level-scoped, not a bare "bg" - two different levels' textures must
-   *  never collide under one key, or switching levels (now dynamic via
-   *  the world map, docs/027) silently keeps the previous level's images
-   *  since Phaser's loader no-ops a load.image() against an already-
-   *  registered key. See docs/028. */
-  private bgKey(): string {
-    return `${this.levelData.levelName}-bg`;
+    // One atlas per level dir (items + background) + one per shared fish
+    // variant, instead of hundreds of individual load.image() calls (docs/042).
+    preloadAtlases(this, collectAtlasKeys(this.levelData.models, this.levelData.bgPicture));
   }
 
   create(): void {
@@ -207,7 +194,8 @@ export class LevelScene extends Phaser.Scene {
       this.levelData.roomWidth * GRID_SCALE,
       this.levelData.roomHeight * GRID_SCALE,
     );
-    this.bgImage = this.add.image(0, 0, this.bgKey()).setOrigin(0, 0);
+    const bg = pictureToAtlas(this.levelData.bgPicture);
+    this.bgImage = this.add.image(0, 0, bg.atlasKey, bg.frame).setOrigin(0, 0);
 
     // Hidden while empty - an empty Text with a background + padding still
     // renders its little padding box (the stray top-left smudge), so it's
@@ -302,10 +290,15 @@ export class LevelScene extends Phaser.Scene {
     });
 
     this.audioManager = new AudioManager(this);
-    // Warm the loader cache for this level's dialog/effect sprites now, so the
-    // first line of dialog plays on time instead of after a network fetch
-    // (docs/031). Non-blocking - play starts as soon as it's ready.
-    this.audioManager.preload(levelSoundSpriteDirs(this.levelData.levelName));
+    // Pre-decode this level's sound sprites now, so playback is instant instead
+    // of decoding on first use (docs/043). Includes the level's own voice + the
+    // shared pools, plus the `en` fallback dir (viking1's instrument clips live
+    // only there - docs/036). Non-blocking; the level's own voice dir is
+    // additionally gated on in startEngine() so the first line is in sync.
+    void this.audioManager.preloadAll([
+      ...levelSoundSpriteDirs(this.levelData.levelName),
+      `${this.levelData.levelName}/en`,
+    ]);
 
     // The Sound Manager is game-global, not scene-scoped (docs/025) - stop
     // this scene's music explicitly when leaving (e.g. P -> replay) so it
@@ -363,7 +356,6 @@ export class LevelScene extends Phaser.Scene {
     // Level::own_initState() always stops music on a fresh restart (this
     // port has no undo to exempt) - docs/018.
     this.audioManager.reset();
-    this.lastDialogId = null;
     // Clear any lingering subtitles from the previous attempt (docs/037).
     this.subtitleStack?.clear();
 
@@ -454,33 +446,20 @@ export class LevelScene extends Phaser.Scene {
 
   /** Swaps the room background to `picture` (a legacy image path from
    *  game_changeBg, e.g. "images/corridor/dark.png") - corridor/rotate/steel
-   *  do this mid-puzzle. The texture is loaded on demand the first time it's
-   *  requested (level-scoped key, so two levels' backgrounds never collide -
-   *  same reasoning as bgKey(), docs/028), then applied; a load failure is
-   *  logged and the old background simply stays. See docs/033. */
+   *  do this mid-puzzle. The target is always another image in the level's own
+   *  dir, so it's already packed into the level atlas loaded at preload
+   *  (docs/042) - a synchronous frame swap, no on-demand load needed anymore
+   *  (this used to lazy-load an individual webp). A missing frame is logged and
+   *  the old background simply stays. See docs/033. */
   private applyBgChange(picture: string): void {
-    const key = `${this.levelData.levelName}-bg:${picture}`;
-    if (this.textures.exists(key)) {
-      this.bgImage.setTexture(key);
-      return;
+    const { atlasKey, frame } = pictureToAtlas(picture);
+    if (this.textures.exists(atlasKey) && this.textures.get(atlasKey).has(frame)) {
+      if (this.bgImage.active) this.bgImage.setTexture(atlasKey, frame);
+    } else {
+      console.warn(
+        `game_changeBg: frame "${frame}" not in atlas "${atlasKey}" for "${this.levelData.levelName}"`,
+      );
     }
-    this.load.image(key, pictureToAssetUrl(picture));
-    // Key-specific completion event, NOT the generic COMPLETE: the scene's
-    // loader is shared with AudioManager's on-demand sound loads (docs/018),
-    // so a generic once(COMPLETE) can be consumed by an unrelated audio load
-    // finishing first, before dark.webp is ready. filecomplete-image-<key>
-    // fires only for this file. See docs/033.
-    this.load.once(`filecomplete-image-${key}`, () => {
-      // The scene may have been torn down (level exited) before the load
-      // finished - guard against a stale swap on a destroyed image.
-      if (this.bgImage.active) this.bgImage.setTexture(key);
-    });
-    this.load.once(`loaderror`, (file: Phaser.Loader.File) => {
-      if (file.key === key) {
-        console.warn(`game_changeBg: failed to load "${picture}" for "${this.levelData.levelName}"`);
-      }
-    });
-    this.load.start();
   }
 
   /** Destroys any existing model animators and (re)builds them from the given
@@ -493,24 +472,22 @@ export class LevelScene extends Phaser.Scene {
 
     for (const model of renderModels) {
       const levelModel = this.levelData.models[model.index];
-      const initialKey = resolveInitialTextureKey(this.levelData.levelName, model.index, levelModel);
-      if (!initialKey) continue;
+      const initial = resolveInitialFrame(levelModel);
+      if (!initial) continue;
 
       const isFish = isFishKind(model.kind);
       const bodySprite = this.add
-        .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
+        .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initial.atlasKey, initial.frame)
         .setOrigin(0, 0);
       const headSprite = isFish
         ? this.add
-            .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
+            .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initial.atlasKey, initial.frame)
             .setOrigin(0, 0)
             .setVisible(false)
         : undefined;
 
       const animator = new ModelAnimator(
         this,
-        this.levelData.levelName,
-        model.index,
         levelModel.anims,
         bodySprite,
         isFish,
@@ -763,10 +740,7 @@ export class LevelScene extends Phaser.Scene {
     for (const sub of this.levelScript?.takePendingSubtitles() ?? []) {
       if (showSubtitles) this.subtitleStack.add(sub.text, sub.color);
     }
-    // activeDialog (single slot) still drives the voice clip + subtitle-duration
-    // for the audio path - see tickAudio()/docs/018.
-    const subtitle = this.levelScript?.getActiveSubtitle() ?? null;
-    this.tickAudio(subtitle);
+    this.tickAudio();
 
     // game_changeBg() (corridor/rotate/steel) swaps the room background as the
     // puzzle progresses - see docs/033.
@@ -870,14 +844,14 @@ export class LevelScene extends Phaser.Scene {
   }
 
   /** Music, one-shot sound effects, built-in impact/death sounds, and
-   *  dialog/NPC voice playback for this round - see docs/018. */
-  private tickAudio(subtitle: { sound: ResolvedSound | null; volume: number } | null): void {
+   *  dialog/NPC voice playback for this round - see docs/018, docs/043. */
+  private tickAudio(): void {
     const music = this.levelScript?.getMusicCommand() ?? null;
     if (music) this.lastMusicCommand = music.type === "play" ? music : null;
     void this.audioManager.applyMusicCommand(music);
 
     for (const effect of this.levelScript?.getPendingSoundEffects() ?? []) {
-      void this.audioManager.playSoundEffect(effect.sound, effect.volume);
+      this.audioManager.playSoundEffect(effect.sound, effect.volume);
     }
 
     // Built-in sounds (Room::playImpact/playDead) - no Lua call site at
@@ -888,27 +862,27 @@ export class LevelScene extends Phaser.Scene {
     else if (impact === Weight.HEAVY) this.playNamedSound("impact_heavy", 50);
 
     for (const dead of this.engine.lastDead) {
+      // Cut the dying fish's own voices (legacy DialogStack::killSound) - both
+      // the Lua-side talkers and the playing audio for that actor.
       this.levelScript?.killSound(dead.index);
-      // Cut the dying fish's own voice line too (legacy Dialogs::killSound).
-      this.audioManager.stopDialogVoice();
+      this.audioManager.stopDialogVoice(dead.index);
       if (dead.power === Weight.LIGHT) this.playNamedSound("dead_small", 100);
       else if (dead.power === Weight.HEAVY) this.playNamedSound("dead_big", 100);
     }
 
-    // Dialog/NPC voice: play once when a *new* dialog starts, not every
-    // round it's still showing - via playDialogVoice so a new line cuts the
-    // previous one (no overlap) and leaving the level stops it (docs/031).
-    const dialogId = this.levelScript?.getActiveDialogId() ?? null;
-    if (dialogId !== this.lastDialogId) {
-      this.lastDialogId = dialogId;
-      if (dialogId && subtitle?.sound) {
-        void this.audioManager.playDialogVoice(subtitle.sound, subtitle.volume);
-      }
+    // Dialog/NPC voices: play each talker started this round, concurrently and
+    // grouped by actor (viking1's band plays together now) - docs/043. Then stop
+    // any actor whose voices were killed this round (Lua model_killSound).
+    for (const v of this.levelScript?.takePendingVoices() ?? []) {
+      this.audioManager.playDialogVoice(v.sound, v.volume, v.actorIndex, v.loop);
+    }
+    for (const actor of this.levelScript?.takeKilledActors() ?? []) {
+      this.audioManager.stopDialogVoice(actor);
     }
   }
 
   private playNamedSound(name: string, volume: number): void {
     const sound = this.levelScript?.resolveSound(name) ?? null;
-    if (sound) void this.audioManager.playSoundEffect(sound, volume);
+    if (sound) this.audioManager.playSoundEffect(sound, volume);
   }
 }

@@ -4,9 +4,10 @@ import { GRID_SCALE, type LevelData } from "../lua/levelLoader";
 import { createLevelScript, type LevelScript, type EngineControl } from "../lua/levelScript";
 import { GameEngine } from "../game/GameEngine";
 import { ROUND_MS } from "../game/timing";
-import { ModelAnimator, preloadModelFrames } from "./ModelAnimator";
+import { ModelAnimator, collectAtlasKeys, preloadAtlases } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
-import { pictureToAssetUrl, isFishKind, resolveInitialTextureKey } from "./sceneUtils";
+import { isFishKind, resolveInitialFrame } from "./sceneUtils";
+import { pictureToAtlas } from "./atlas";
 
 type PlayState = "paused" | "play" | "fast";
 
@@ -83,16 +84,9 @@ export class ReplayScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image(this.bgKey(), pictureToAssetUrl(this.levelData.bgPicture));
-    this.levelData.models.forEach((model, index) => {
-      preloadModelFrames(this, this.levelData.levelName, index, model.anims, pictureToAssetUrl);
-    });
-  }
-
-  /** Level-scoped, not a bare "bg" - see LevelScene's identical helper
-   *  (docs/028) for why. */
-  private bgKey(): string {
-    return `${this.levelData.levelName}-bg`;
+    // One atlas per level dir + shared fish variants (docs/042) - see
+    // LevelScene.preload() for the identical rationale.
+    preloadAtlases(this, collectAtlasKeys(this.levelData.models, this.levelData.bgPicture));
   }
 
   create(): void {
@@ -104,7 +98,8 @@ export class ReplayScene extends Phaser.Scene {
       this.levelData.roomWidth * GRID_SCALE,
       this.levelData.roomHeight * GRID_SCALE,
     );
-    this.add.image(0, 0, this.bgKey()).setOrigin(0, 0);
+    const bg = pictureToAtlas(this.levelData.bgPicture);
+    this.add.image(0, 0, bg.atlasKey, bg.frame).setOrigin(0, 0);
 
     const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
 
@@ -170,24 +165,22 @@ export class ReplayScene extends Phaser.Scene {
 
     for (const model of initialRenderModels) {
       const levelModel = this.levelData.models[model.index];
-      const initialKey = resolveInitialTextureKey(this.levelData.levelName, model.index, levelModel);
-      if (!initialKey) continue;
+      const initial = resolveInitialFrame(levelModel);
+      if (!initial) continue;
 
       const isFish = isFishKind(model.kind);
       const bodySprite = this.add
-        .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
+        .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initial.atlasKey, initial.frame)
         .setOrigin(0, 0);
       const headSprite = isFish
         ? this.add
-            .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initialKey)
+            .image(model.x * GRID_SCALE, model.y * GRID_SCALE, initial.atlasKey, initial.frame)
             .setOrigin(0, 0)
             .setVisible(false)
         : undefined;
 
       const animator = new ModelAnimator(
         this,
-        this.levelData.levelName,
-        model.index,
         levelModel.anims,
         bodySprite,
         isFish,

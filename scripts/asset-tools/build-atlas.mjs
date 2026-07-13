@@ -1,7 +1,14 @@
-// Packs every .png directly inside --source into one Phaser texture atlas:
+// Packs every .png under --source (recursively) into one Phaser texture atlas:
 // a single WebP image + a TexturePacker "JSON Hash" file, the exact format
 // Phaser's Textures.Parsers.JSONHash reads (verified against
 // node_modules/phaser/dist/phaser.esm.js directly, not just its .d.ts types).
+//
+// Each frame is named by its path relative to --source, forward-slashed, minus
+// the ".png" extension (e.g. "letadlo-p", or "left/body_0" for a nested fish
+// sprite) - the same string the runtime derives from a Lua picture path. The
+// recursion + relative naming is what lets the shared fish tree
+// (images/fishes/<variant>/{left,right,heads/...}) pack into one atlas without
+// its left/right "body_0.png" basenames colliding.
 //
 // Usage:
 //   node build-atlas.mjs --source <dir> --output <path-without-extension> \
@@ -31,12 +38,38 @@ function parseArgs(argv) {
   return args;
 }
 
-async function loadSprite(source, fileName) {
-  const name = path.basename(fileName, ".png");
-  const fullPath = path.join(source, fileName);
+// Recursively collect every .png under `dir`, returned as paths relative to
+// `root` (forward-slashed) so the frame name carries the subdir (fish left/right).
+async function collectPngs(dir, root = dir) {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectPngs(full, root)));
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".png")) {
+      files.push(path.relative(root, full).split(path.sep).join("/"));
+    }
+  }
+  return files;
+}
+
+async function loadSprite(source, relPath) {
+  // Frame name = relative path minus ".png" (forward slashes already normalized
+  // by collectPngs). Flat level dirs -> just the basename; nested fish dirs ->
+  // "left/body_0" etc.
+  const name = relPath.replace(/\.png$/i, "");
+  const fullPath = path.join(source, relPath);
 
   const meta = await sharp(fullPath).metadata();
-  const { data, info } = await sharp(fullPath).trim().toBuffer({ resolveWithObject: true });
+  // sharp's .trim() throws on anything smaller than 3x3 (e.g. the extra fish's
+  // 1x1 placeholder head sprites - windoze's "old couple", effectively
+  // invisible). Pack those untrimmed at full size rather than failing the whole
+  // atlas; the old per-file conversion handled them the same way.
+  const canTrim = meta.width >= 3 && meta.height >= 3;
+  const { data, info } = canTrim
+    ? await sharp(fullPath).trim().toBuffer({ resolveWithObject: true })
+    : await sharp(fullPath).toBuffer({ resolveWithObject: true });
 
   return {
     name,
@@ -56,18 +89,15 @@ async function loadSprite(source, fileName) {
 async function main() {
   const { source, output, padding, maxSize, quality } = parseArgs(process.argv.slice(2));
 
-  const pngFiles = (await fs.readdir(source, { withFileTypes: true }))
-    .filter((e) => e.isFile() && e.name.toLowerCase().endsWith(".png"))
-    .map((e) => e.name)
-    .sort();
+  const pngFiles = (await collectPngs(source)).sort();
 
   if (pngFiles.length === 0) {
-    throw new Error(`No .png files found directly in ${source}`);
+    throw new Error(`No .png files found under ${source}`);
   }
 
   const sprites = [];
-  for (const fileName of pngFiles) {
-    sprites.push(await loadSprite(source, fileName));
+  for (const relPath of pngFiles) {
+    sprites.push(await loadSprite(source, relPath));
   }
 
   // pot:false - non-power-of-2 textures are fine in WebGL/Phaser and POT

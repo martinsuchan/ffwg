@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 
 import { type LevelModel } from "../lua/levelLoader";
-import { resolveTextureKey } from "./ModelAnimator";
+import { resolveFrame } from "./ModelAnimator";
+import { type AtlasFrame } from "./atlas";
 
 /** An offscreen-read RGBA pixel buffer of a loaded texture. */
 export interface TexturePixels {
@@ -79,10 +80,11 @@ export function buildMaskedTexture(
 }
 
 /**
- * Maps a Lua-style picture path ("images/<level>/name.png") to the
- * converted web asset. scripts/convert-images.ps1 mirrors legacy/images/**
- * into web/public/assets/images/** 1:1, swapping the extension to .webp.
- * Shared by LevelScene and ReplayScene - see docs/025.
+ * Maps a Lua-style picture path ("images/menu/name.png") to an individual
+ * converted .webp asset. Only used for the dirs that are NOT atlased (docs/042):
+ * menu/ (world map / credits / pedometer) and demo_briefcase/ (movie frames),
+ * which convert-images.ps1 mirrors 1:1 (extension -> .webp). Model/level sprites
+ * go through the atlas path instead (pictureToAtlas, ./atlas).
  */
 export function pictureToAssetUrl(picture: string): string {
   const withoutPrefix = picture.replace(/^images\//, "");
@@ -94,15 +96,9 @@ export function isFishKind(kind: string): boolean {
   return kind.startsWith("fish_");
 }
 
-export function resolveInitialTextureKey(
-  levelName: string,
-  index: number,
-  levelModel: LevelModel,
-): string | null {
+export function resolveInitialFrame(levelModel: LevelModel): AtlasFrame | null {
   if (!levelModel.initialAnim) return null;
-  return resolveTextureKey(
-    levelName,
-    index,
+  return resolveFrame(
     levelModel.anims,
     levelModel.initialAnim,
     levelModel.isLeft ? "left" : "right",

@@ -87,7 +87,7 @@ export class DemoScene extends Phaser.Scene {
 
     this.audioManager = new AudioManager(this);
     // Warm the movie's voice/music sprites so the first line plays on time.
-    this.audioManager.preload(levelSoundSpriteDirs(this.levelName));
+    void this.audioManager.preloadAll(levelSoundSpriteDirs(this.levelName));
 
     // Esc-only skip (per user - not Space/click).
     this.input.keyboard!.addCapture("ESC");
@@ -144,11 +144,16 @@ export class DemoScene extends Phaser.Scene {
 
     void this.audioManager.applyMusicCommand(script.getMusicCommand());
 
+    // The movie is inherently sequential (one line at a time, gated by
+    // waitForTalker), so it uses a single voice group (0) and cuts the previous
+    // line when a new one starts - the degenerate case of docs/043's concurrent
+    // voices.
     const dialogId = script.getActiveDialogId();
     if (dialogId !== this.lastDialogId) {
       this.lastDialogId = dialogId;
       if (dialogId && subtitle?.sound) {
-        void this.audioManager.playDialogVoice(subtitle.sound, subtitle.volume);
+        this.audioManager.stopDialogVoice(0);
+        this.audioManager.playDialogVoice(subtitle.sound, subtitle.volume, 0);
       }
     }
 

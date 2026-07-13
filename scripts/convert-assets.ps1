@@ -8,10 +8,20 @@
     directly contains .ogg files gets its own audio sprite (this covers
     per-level per-language voice lines in legacy/sound/<level>/<lang>/, and
     the shared SFX pool in legacy/sound/share/ and its subfolders).
+
+    Images are packed into Phaser texture atlases (docs/042): each level dir
+    (legacy/images/<level>/) and each shared fish variant
+    (legacy/images/fishes/{small,big,ex_small,ex_big}/) becomes one
+    atlas.webp + atlas.json, and the individual per-sprite .webp files are NOT
+    emitted for those dirs. Only the two dirs that can't single-page pack and
+    are loaded through their own pathways - menu/ (world map UI, needs its
+    lossless masks) and demo_briefcase/ (the movie frames) - stay as
+    individual webp.
 .PARAMETER Level
     Optional: only process this one level's images/sound (e.g. "airplane"),
     for quick testing instead of the full ~9000-file batch. Music has no
-    per-level concept, so it's skipped when -Level is set.
+    per-level concept, so it's skipped when -Level is set. The shared fish
+    atlases are always (re)built too, since every level needs them.
 .PARAMETER Force
     Re-convert everything even if outputs already look up to date.
 #>
@@ -27,12 +37,69 @@ $legacyMusic = Join-Path $repoRoot "legacy\music"
 $legacySound = Join-Path $repoRoot "legacy\sound"
 $assetsRoot = Join-Path $repoRoot "web\public\assets"
 
-# --- Images ---
-$imageSource = if ($Level) { Join-Path $legacyImages $Level } else { $legacyImages }
-$imageDest = if ($Level) { Join-Path $assetsRoot "images\$Level" } else { Join-Path $assetsRoot "images" }
-if (Test-Path $imageSource) {
-    Write-Host "== Images: $imageSource -> $imageDest =="
-    & (Join-Path $PSScriptRoot "convert-images.ps1") -Source $imageSource -Destination $imageDest -Force:$Force
+# Dirs under legacy/images/ that are NOT atlased: they're loaded through their
+# own pathways (not ModelAnimator) and/or can't single-page pack. They get
+# individual webp conversion instead. "fishes" is excluded from the level loop
+# because it's atlased separately (one atlas per variant, below).
+$nonAtlasImageDirs = @("menu", "demo_briefcase")
+$fishVariants = @("small", "big", "ex_small", "ex_big")
+
+# --- Images: per-level + fish atlases, individual webp for the rest ---
+$buildAtlas = Join-Path $PSScriptRoot "build-atlas.ps1"
+$convertImages = Join-Path $PSScriptRoot "convert-images.ps1"
+
+function Convert-ImageDirIndividual {
+    param([string]$Name)
+    $src = Join-Path $legacyImages $Name
+    if (-not (Test-Path $src)) { return }
+    Write-Host "== Images (individual): $Name =="
+    & $convertImages -Source $src -Destination (Join-Path $assetsRoot "images\$Name") -Force:$Force
+}
+
+# Atlas one image dir into <destDir>/atlas.{webp,json}. Wipes destDir first so
+# the dir becomes atlas-only - no stale individual .webp sprites from an earlier
+# (pre-atlas) conversion linger to be published alongside the atlas.
+function Build-Atlas {
+    param([string]$Src, [string]$DestDir)
+    if (-not (Test-Path $Src)) { return }
+    if (Test-Path $DestDir) { Remove-Item -LiteralPath $DestDir -Recurse -Force }
+    & $buildAtlas -Source $Src -Destination (Join-Path $DestDir "atlas")
+}
+
+function Build-LevelAtlas {
+    param([string]$Name)
+    Write-Host "== Atlas: $Name =="
+    Build-Atlas -Src (Join-Path $legacyImages $Name) -DestDir (Join-Path $assetsRoot "images\$Name")
+}
+
+function Build-FishAtlas {
+    param([string]$Variant)
+    Write-Host "== Atlas: fishes/$Variant =="
+    Build-Atlas -Src (Join-Path $legacyImages "fishes\$Variant") `
+        -DestDir (Join-Path $assetsRoot "images\fishes\$Variant")
+}
+
+if ($Level) {
+    # Quick single-level path. Atlas the level (unless it's one of the
+    # non-atlased special dirs) plus always (re)build the fish atlases it needs.
+    if ($nonAtlasImageDirs -contains $Level -or $Level -eq "fishes") {
+        Convert-ImageDirIndividual -Name $Level
+    }
+    else {
+        Build-LevelAtlas -Name $Level
+    }
+    foreach ($variant in $fishVariants) { Build-FishAtlas -Variant $variant }
+}
+else {
+    # Full batch: individual webp for the non-atlased dirs, an atlas per level
+    # dir, and an atlas per fish variant.
+    foreach ($name in $nonAtlasImageDirs) { Convert-ImageDirIndividual -Name $name }
+
+    $levelDirs = Get-ChildItem -Path $legacyImages -Directory |
+        Where-Object { $nonAtlasImageDirs -notcontains $_.Name -and $_.Name -ne "fishes" }
+    foreach ($dir in $levelDirs) { Build-LevelAtlas -Name $dir.Name }
+
+    foreach ($variant in $fishVariants) { Build-FishAtlas -Variant $variant }
 }
 
 # --- Music (standalone tracks, not per-level) ---
