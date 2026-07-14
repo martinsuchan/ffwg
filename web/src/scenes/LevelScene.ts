@@ -30,6 +30,7 @@ import {
   saveSolvedMoves,
 } from "../storage/levelStorage";
 import { loadSettings } from "../storage/settingsStorage";
+import { isSandboxMode } from "../game/appMode";
 
 /** Keys that can drive a fish - the only ones worth buffering as a queued
  *  edge (see LevelScene.queuedKey). Space/R are already handled as
@@ -624,17 +625,18 @@ export class LevelScene extends Phaser.Scene {
     this.feedbackTimer = this.time.delayedCall(1500, () => this.feedbackText.setVisible(false));
   }
 
-  /** P: launch a watchable replay - see docs/025. Prefers the player's own
-   *  solved solution (docs/026) if this level has been solved here before;
-   *  otherwise falls back to legacy/solution/<level>.lua, the same
-   *  reference solution the headless validator (docs/022-024) checks. */
+  /** P: launch a watchable replay - see docs/025. Plays the player's own
+   *  solved solution (docs/026) if this level has been solved here before.
+   *  In sandbox mode (docs/045) it also falls back to the bundled
+   *  legacy/solution/<level>.lua reference solution; the standard game does
+   *  not, so only the player's own solutions are ever replayable there. */
   private async launchReplay(): Promise<void> {
     if (this.launchingReplay) return;
     this.launchingReplay = true;
     try {
       const levelName = this.levelData.levelName;
       let moves = loadSolvedMoves(levelName);
-      if (!moves) {
+      if (!moves && isSandboxMode()) {
         const solutionSource = await fetchLegacyFile(`solution/${levelName}.lua`);
         moves = extractSavedMoves(solutionSource);
       }

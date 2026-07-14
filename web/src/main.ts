@@ -38,6 +38,13 @@ async function boot(): Promise<void> {
 
   // Browser Back returns to the world map instead of unloading the SPA.
   initHistoryNav(game);
+
+  // Dev-only handle for the e2e regression suite (web/tests). Statically
+  // stripped from production builds (import.meta.env.DEV is false there), so
+  // it never ships - see web/tests/README.md.
+  if (import.meta.env.DEV) {
+    (window as unknown as { __game: Phaser.Game }).__game = game;
+  }
 }
 
 boot().catch((error: unknown) => {

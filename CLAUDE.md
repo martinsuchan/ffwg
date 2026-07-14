@@ -709,6 +709,19 @@ reasoning; check for later numbered entries too — decisions here can change):
   tsc + vite build clean, modules transform + app boots, sprite.json/`viking1/en` band regions
   present. **Not yet done**: interactive real-browser drive (no automation tool this session) -
   viking1 polyphony, first-line sync, overlap, teardown; see doc's "Open for next time".
+- Standard vs sandbox modes (`docs/045-2026-07-13-standard-vs-sandbox-modes.md`): the published
+  game now behaves like the real game by default and keeps the sandbox as a separate endpoint,
+  both from one static build. Mode is decided at runtime from the URL path (new
+  `web/src/game/appMode.ts` `isSandboxMode()` = path ends with `/sandbox`): **`/`** = standard
+  game (real progression gating; Replay plays only the player's own saved solutions), **`/sandbox`**
+  = every node unlocked + bundled `legacy/solution/**` reference solutions replayable. Replaces the
+  compile-time `SANDBOX_MODE = true` constant (docs/027) - `WorldMapScene` passes `isSandboxMode()`
+  to the existing `computeNodeStates(..., sandbox)`, and `LevelScene.launchReplay()` (the `P` key)
+  only falls back to `legacy/solution/<level>.lua` in sandbox. `/sandbox` needs SPA fallback:
+  `staticwebapp.config.json` already rewrites to index.html; `scripts/publish.ps1`'s `web.config`
+  gained an IIS URL-Rewrite rule; Vite dev serves it natively. Verified: e2e case `07-sandbox-mode`
+  (`/` shows 1 open node + 79 gated, `/sandbox` 80 open + 0 gated; suite 7/7) + a real-browser prod
+  boot of both endpoints (titles reflect the mode).
 
 Commands (from repo root):
 
@@ -716,14 +729,23 @@ Commands (from repo root):
 scripts\setup.ps1              # ONE-COMMAND local build+run: checks tools, converts assets, runs (docs/041)
 scripts\setup.ps1 -SkipAssets  # fast restart once assets are already built
 scripts\publish.ps1            # produce a deployable static-site 'publish/' folder (docs/041)
-scripts\start.ps1              # just (re)start the Vite dev server (assumes assets built)
+scripts\test.ps1               # run the e2e regression suite (starts/stops the dev server) (docs/042)
+scripts\start.ps1              # (re)start the dev server, open the standard game at / (assumes assets built)
+scripts\startSandbox.ps1       # same but open /sandbox - all levels unlocked (docs/045)
 scripts\build.ps1              # low-level tsc -b + vite build only (add -Preview to serve)
 scripts\new-doc.ps1 "<slug>"   # scaffold the next numbered docs/ entry
 ```
 
 Equivalent by hand, from `web/`: `npm install`, `npm run dev`, `npm run build`,
-`npm run preview`. Asset conversion (needed before a hand build works) is what `setup.ps1`
-orchestrates via `scripts/convert-assets.ps1` + the manifest scripts. No test suite yet.
+`npm run preview`, `npm run test:e2e`. Asset conversion (needed before a hand build works) is
+what `setup.ps1` orchestrates via `scripts/convert-assets.ps1` + the manifest scripts.
+
+**E2e regression suite** (`web/tests/`, docs/042): Playwright-driven, run via `scripts\test.ps1`
+(or `npm run test:e2e` against a running dev server). Cases in `web/tests/cases/NN-*.mjs` drive the
+real app through a dev-only `window.__game` handle (`main.ts`, gated on `import.meta.env.DEV`); the
+two broadest are the all-levels Lua-load sweep and the all-solutions headless replay (80/81 -
+`redhat` has no content). `web/tests/README.md` covers running + adding cases. Prefer promoting a
+durable check here over re-deriving a scratchpad probe. No unit-test layer yet.
 
 **Workflow convention:** whenever a notable feature/decision lands (not small edits), add
 the next `docs/NNN-YYYY-MM-DD-slug.md` entry via `scripts/new-doc.ps1` summarizing what

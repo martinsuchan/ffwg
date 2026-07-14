@@ -15,10 +15,10 @@ export type NodeState = "hidden" | "far" | "open" | "solved";
  * signal is needed - see docs/027's reasoning for recomputing the whole
  * map from localStorage on every return instead of tracking deltas).
  *
- * `sandboxMode` (docs/027, on for now per the user's request): every node
- * that isn't already solved is forced `"open"`, including ones that would
- * normally be `"hidden"` (secret branches) or `"far"` (locked) - flipping
- * it off restores real progression-gating with no other changes needed.
+ * `sandboxMode` (docs/027; wired to the URL in docs/045 - true on /sandbox,
+ * false on /): every node that isn't already solved is forced `"open"`,
+ * including ones that would normally be `"hidden"` (secret branches) or
+ * `"far"` (locked). False gives real progression-gating - the standard game.
  */
 export function computeNodeStates(
   data: WorldMapData,

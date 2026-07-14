@@ -74,9 +74,12 @@ function Write-DeployFiles {
     $webConfig = @'
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Static hosting for IIS / Azure App Service (Windows). The game has no
-  client-side routes (it always loads at "/"), so no URL-rewrite module or SPA
-  fallback is needed - only correct MIME types for the served assets.
+  Static hosting for IIS / Azure App Service (Windows): correct MIME types for
+  the served assets, plus an SPA fallback so the /sandbox entry point serves
+  index.html (the app reads the URL path to pick standard vs sandbox mode).
+  The rewrite rule needs the IIS URL Rewrite module (present on Azure App
+  Service). If your host lacks it, drop the <rewrite> block - only /sandbox
+  needs it; the default game at "/" works without.
 -->
 <configuration>
   <system.webServer>
@@ -90,6 +93,18 @@ function Write-DeployFiles {
       <remove fileExtension=".mp4" />
       <mimeMap fileExtension=".mp4" mimeType="video/mp4" />
     </staticContent>
+    <rewrite>
+      <rules>
+        <rule name="SPA fallback" stopProcessing="true">
+          <match url=".*" />
+          <conditions logicalGrouping="MatchAll">
+            <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+            <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+          </conditions>
+          <action type="Rewrite" url="/index.html" />
+        </rule>
+      </rules>
+    </rewrite>
   </system.webServer>
 </configuration>
 '@
@@ -105,6 +120,17 @@ interpreter, compiled to WebAssembly) runs in the visitor's browser.
 
 To publish: serve the CONTENTS of this folder from your web root, at the site
 ROOT (not a sub-path), over HTTPS.
+
+Two modes (by URL)
+------------------
+* /          the standard game: only solved levels unlock the next, and Replay
+             plays only the player's own saved solutions.
+* /sandbox   every level unlocked (incl. secret branches), and the bundled
+             reference solutions are available to replay.
+
+/sandbox needs the host to serve index.html for that path (SPA fallback). The
+included staticwebapp.config.json (Azure Static Web Apps) and web.config (IIS /
+Azure App Service) both do this. The default game at "/" works without it.
 
 Contents
 --------

@@ -3,6 +3,7 @@ import Phaser from "phaser";
 import { loadLevelModels } from "../lua/levelLoader";
 import type { WorldMapData, WorldMapNode } from "../lua/worldMapLoader";
 import { computeNodeStates, type NodeState } from "../game/worldMapState";
+import { isSandboxMode } from "../game/appMode";
 import { loadSolvedMoves } from "../storage/levelStorage";
 import {
   pictureToAssetUrl,
@@ -29,13 +30,6 @@ const NODE_HIT_RADIUS = 13;
  *  anything (matches this project's other first-guess timing constants,
  *  e.g. docs/025's FAST_MULTIPLIER). */
 const PULSE_FRAME_MS = 150;
-
-/** Sandbox mode (docs/027): every not-yet-solved node is treated as open,
- *  including normally-hidden secret branches, per the user's explicit
- *  request. Flip to false to restore real progression-gating - no other
- *  code needs to change, computeNodeStates() already implements the real
- *  derivation either way. */
-const SANDBOX_MODE = true;
 
 /** This port's own name, shown as the tab/window title on the world map
  *  (the original used the "menu" desc's "Fish Fillets - Next Generation";
@@ -76,6 +70,8 @@ interface CornerButton {
  */
 export class WorldMapScene extends Phaser.Scene {
   private nodeStates!: Map<string, NodeState>;
+  /** True on /sandbox (every node unlocked); false for the standard game. */
+  private sandbox = false;
   private nodeSprites = new Map<string, NodeSprites>();
   private openOverlays: Phaser.GameObjects.Image[] = [];
   private edges?: Phaser.GameObjects.Graphics;
@@ -142,7 +138,8 @@ export class WorldMapScene extends Phaser.Scene {
     // caption; returning here (Esc or the solved auto-return) always re-runs
     // create() and restores the map title. All document.title changes live
     // in this scene, the only one holding the names/sections data.
-    document.title = GAME_TITLE;
+    this.sandbox = isSandboxMode();
+    document.title = this.sandbox ? `${GAME_TITLE} - Sandbox` : GAME_TITLE;
     // Base history entry, so browser Back from a level returns here (see
     // navigation.ts), not to a blank tab.
     markWorldMap();
@@ -151,7 +148,8 @@ export class WorldMapScene extends Phaser.Scene {
     for (const node of this.mapData.nodes) {
       if (loadSolvedMoves(node.codename) !== null) solved.add(node.codename);
     }
-    this.nodeStates = computeNodeStates(this.mapData, solved, SANDBOX_MODE);
+    // /sandbox unlocks every node; / gates on the solved set (docs/045).
+    this.nodeStates = computeNodeStates(this.mapData, solved, this.sandbox);
 
     this.drawEdges();
     this.drawNodes();

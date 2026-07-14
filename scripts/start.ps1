@@ -11,14 +11,22 @@
     localStorage - solved levels/saves, scoped per origin incl. port - survives
     restarts). If a server is already listening here, this script attaches to it
     (opens a browser tab) instead of failing on the strictPort conflict.
+.PARAMETER Sandbox
+    Open /sandbox (every level unlocked + reference solutions) instead of the
+    standard game at / (docs/045). Used by startSandbox.ps1.
 #>
 param(
     [switch]$NoOpen,
     [switch]$Install,
-    [int]$Port = 5173
+    [int]$Port = 5173,
+    [switch]$Sandbox
 )
 
 $ErrorActionPreference = "Stop"
+
+# Which path to open in the browser: / is the standard, progression-gated game;
+# /sandbox unlocks everything (docs/045). The dev server serves both.
+$openPath = if ($Sandbox) { "/sandbox" } else { "/" }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $webDir = Join-Path $repoRoot "web"
@@ -38,8 +46,8 @@ catch {
     # Get-NetTCPConnection unavailable - fall through and let vite try to start.
 }
 if ($alreadyRunning) {
-    $url = "http://localhost:$Port/"
-    Write-Host "Dev server already running at $url - attaching (nothing to start)."
+    $url = "http://localhost:$Port$openPath"
+    Write-Host "Dev server already running - attaching (nothing to start). Opening $url"
     if (-not $NoOpen) {
         Start-Process $url
     }
@@ -61,7 +69,8 @@ try {
 
     $devArgs = @("run", "dev")
     if (-not $NoOpen) {
-        $devArgs += @("--", "--open")
+        # vite --open <path> opens the browser straight at that route.
+        $devArgs += @("--", "--open", $openPath)
     }
 
     & npm @devArgs
