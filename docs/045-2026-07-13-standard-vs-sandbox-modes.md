@@ -56,14 +56,13 @@ both. In-app navigation keeps the path fixed (navigation.ts's `pushState`/
 
 ## Launching locally
 
-`scripts/start.ps1` opens the standard game at `/`; `scripts/startSandbox.ps1`
-(new, a thin wrapper over `start.ps1 -Sandbox`) opens `/sandbox`. Both share the
-same dev server - the switch just changes the path the browser opens
-(`vite --open <path>`, or the URL when attaching to an already-running server).
+`scripts/start.ps1` opens the standard game at `/`; `start.ps1 -Sandbox` opens
+`/sandbox`. Both share the same dev server - the switch just changes the path 
+the browser opens (`vite --open <path>`, or the URL when attaching to an
+already-running server).
 
 ## Files
-- **New:** `web/src/game/appMode.ts`, `web/tests/cases/07-sandbox-mode.mjs`,
-  `scripts/startSandbox.ps1`.
+- **New:** `web/src/game/appMode.ts`, `web/tests/cases/07-sandbox-mode.mjs`
 - **Modify (launch):** `scripts/start.ps1` (`-Sandbox` switch).
 - **Modify:** `web/src/scenes/WorldMapScene.ts` (URL-driven mode + title),
   `web/src/scenes/LevelScene.ts` (gate reference-solution replay),

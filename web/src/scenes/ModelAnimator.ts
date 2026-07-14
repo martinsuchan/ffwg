@@ -3,65 +3,41 @@ import Phaser from "phaser";
 import { GRID_SCALE, type AnimFrames } from "../lua/levelLoader";
 import type { LevelModel } from "../lua/levelLoader";
 import type { RenderModel } from "../game/GameEngine";
-import { ROUND_MS } from "../game/timing";
+import { CYCLE_MS } from "../game/timing";
 import { computeBodyAnim, computeHeadAnim } from "../game/UnitAnimator";
 import type { ScriptAnim } from "../lua/levelScript";
 import { pictureToAtlas, atlasWebpUrl, atlasJsonUrl, type AtlasFrame } from "./atlas";
 
 type Side = "left" | "right";
 
-/** Anim's original phase-advance rate: one phase per draw call, and the
- *  original engine draws once per ~100ms logic cycle (TimerAgent's default
- *  `timeinterval`, confirmed by tracing Application::run()'s single-
- *  threaded loop - VideoAgent draws every iteration, so drawing is
- *  bottlenecked by TimerAgent's SDL_Delay to the same cadence). See
- *  docs/009. */
-const PHASE_MS = 100;
-/** Decoupled-timing design (docs/009): a triggered anim (turn, or any
- *  single-tap move) plays for a fixed window instead of being tied to
- *  PhaseLocker-style round pacing. A held key keeps re-triggering the same
- *  anim every physics tick, which just extends this window smoothly. */
-const TRIGGER_WINDOW_MS = 300;
-/**
- * Visual-only "swims faster" tiers (docs/017), keyed off Rules.moveStreak
- * (consecutive non-turn, non-pushing moves). Inspired by, not a literal
- * port of, the original's SPEED_WARP1=6/SPEED_WARP2=10 thresholds - the
- * original ties speedup to shortening the round's real-world duration
- * itself (PhaseLocker), which this project deliberately doesn't do
- * (docs/010's fixed ROUND_MS); this instead scales how fast the swim
- * animation cycles and how quickly the position-slide tween completes,
- * so grid movement stays exactly one cell per round throughout.
- */
-function speedStepsFor(moveStreak: number): number {
-  if (moveStreak > 10) return 3;
-  if (moveStreak > 6) return 2;
-  return 1;
-}
+/** Anim's phase-advance rate: one frame per cycle, matching the original's
+ *  one-frame-per-draw at the fixed `CYCLE_MS` cadence (docs/046). Always steps
+ *  by 1 (the old speed-up multiplier that skipped frames is gone - speed now
+ *  comes from the shared clock's cell duration, not from skipping frames). */
+const PHASE_MS = CYCLE_MS;
 
-/** Position-slide duration must stay under ROUND_MS (docs/010) - a new
- *  RenderModel (and thus a new tween target) arrives every ROUND_MS, so a
- *  slide has to finish with margin to spare or the next round's tween
- *  stacks on top of the still-running one: visible as growing lag on a
- *  continuously-moving object (a fish's sprite falls further and further
- *  behind its true grid cell the longer a key is held), or as diagonal
- *  motion when a pushed item transitions from a horizontal push into a
- *  vertical fall mid-slide. killTweensOf() in sync() is a second line of
- *  defense for the same failure mode (e.g. a dropped frame delaying a
- *  round). */
-const SLIDE_MS = Math.round(ROUND_MS * 0.8);
-/**
- * Grid-cell offset for each of Rules.getAction()'s move directions - lets
- * sync() predict a model's slide target the same round the move is decided
- * (Rules.dir just got set), instead of waiting for model.x/y to actually
- * change via occupyNewPos() at the *start of the following round*
- * (docs/007's decide-this-round/apply-next-round pipeline). Without this,
- * the swim texture already starts immediately (computeBodyAnim reacts to
- * `action`, not position) but the fish stands in place for one whole extra
- * round before any real motion follows - the opposite of the original,
- * whose View::getScreenPos() computes screen position from
- * Cube::getLastMoveDir() plus a growing shift, never from the committed
- * grid location. See docs/020.
- */
+/** Decoupled-timing design (docs/009): a triggered anim (turn, or any single-tap
+ *  move) plays for a fixed window instead of being tied to round pacing. A held
+ *  key keeps re-triggering the same anim each round, extending this window. */
+const TRIGGER_WINDOW_MS = 300;
+
+/** Delay before a dead fish swaps to its skeleton pose - roughly one base cell
+ *  duration, so the corpse appears as the killer (usually a falling item, a
+ *  3-phase move) finishes sliding into the adjacent cell, not before it visibly
+ *  arrives. See docs/013 (the intent) and docs/046 (now a shared-clock slide). */
+const DEATH_REACTION_DELAY_MS = 3 * CYCLE_MS;
+
+/** How long a model fades out once it's actually removed (isLost) - covers both
+ *  a disintegrated corpse (docs/011) and a goal_out/escape model vanishing at
+ *  the border. A plain alpha fade after removal, a cheap stand-in for the
+ *  original's pixel-dissolve (out of scope - see docs/009). */
+const REMOVE_FADE_MS = 400;
+
+/** Grid-cell delta for each of Rules.getAction()'s move directions. The move
+ *  decided this round is applied by the engine *next* round (docs/007's
+ *  decide/apply split), so the animator slides the sprite from its current
+ *  committed cell toward `cell + moveDir` over this round - arriving exactly
+ *  where next round's occupyNewPos() commits it. See docs/046. */
 const MOVE_OFFSETS: Record<string, { dx: number; dy: number }> = {
   move_left: { dx: -1, dy: 0 },
   move_right: { dx: 1, dy: 0 },
@@ -69,22 +45,9 @@ const MOVE_OFFSETS: Record<string, { dx: number; dy: number }> = {
   move_down: { dx: 0, dy: 1 },
 };
 
-/** How long a model fades out once it's actually removed (isLost) - covers
- *  both a disintegrated corpse (docs/011) and a goal_out/escape model
- *  vanishing at the border. The original dissolves a corpse pixel-by-pixel
- *  over ~1.4s while it's still solid (see DEATH_REMOVE_ROUNDS in Rules.ts);
- *  this plays a plain alpha fade only *after* removal, as a cheap stand-in
- *  for that per-level-shader-adjacent effect (out of scope - see docs/009). */
-const REMOVE_FADE_MS = 400;
-
 /**
  * The distinct atlas keys a level needs: every model's animation frames plus
- * the room background. Model sprites now come from Phaser texture atlases
- * (docs/042) - one per level dir (items + bg) and one per shared fish variant -
- * so instead of registering hundreds of individual load.image() calls, the
- * scene loads a handful of atlases. Shared fish atlases collapse to one key
- * across levels (loaded once, cache-hit after). Level-scoped keys mean two
- * levels never collide (the concern docs/028 fixed for the old per-frame keys).
+ * the room background (docs/042).
  */
 export function collectAtlasKeys(models: LevelModel[], bgPicture: string): string[] {
   const keys = new Set<string>();
@@ -111,18 +74,33 @@ export function preloadAtlases(scene: Phaser.Scene, atlasKeys: string[]): void {
 function frameCount(anims: Record<string, AnimFrames>, name: string, side: Side): number {
   const frames = anims[name];
   if (!frames) return 0;
-  // Fall back to the other side if this one is empty (e.g. an item's
-  // single addItemAnim() call only ever populates "left" - items never
-  // turn, so "right" is legitimately unused, not a data bug).
   return frames[side].length || frames[side === "left" ? "right" : "left"].length;
 }
 
-/** Resolves an (anim, side, phase) triple to its atlas key + frame name,
- *  falling back to the other side if this model never registered frames
- *  for the requested one (e.g. an item that never turns only has "left"
- *  populated), and wrapping phase by modulo like Anim::setAnim does. The frame
- *  identity comes straight from the picture path stored in `anims` (docs/042),
- *  so no per-level/index key synthesis is needed anymore. */
+/**
+ * legacy Controls::getNeededPhases - how many animation phases (fixed cycles)
+ * the active fish's current move occupies, and thus how long the shared slide
+ * lasts (`phases · CYCLE_MS`). Fewer phases = faster. Driven by the active fish
+ * only (docs/046), so every co-moving model shares one duration - no per-model
+ * desync. `speedup` is the active fish's move streak (reset on push).
+ */
+export function movePhases(
+  anims: Record<string, AnimFrames>,
+  side: Side,
+  action: string,
+  speedup: number,
+): number {
+  if (action === "turn") return frameCount(anims, "turn", side) || 3;
+  if (MOVE_OFFSETS[action]) {
+    const swam = frameCount(anims, "swam", side) || 6;
+    if (speedup > 10) return Math.max(1, Math.floor(swam / 6));
+    if (speedup > 6) return Math.max(1, Math.floor(swam / 3));
+    return Math.max(1, Math.floor(swam / 2));
+  }
+  return 3; // a non-move active state (rest/busy) while items push/fall elsewhere
+}
+
+/** Resolves an (anim, side, phase) triple to its atlas key + frame name (docs/042). */
 export function resolveFrame(
   anims: Record<string, AnimFrames>,
   name: string,
@@ -137,15 +115,21 @@ export function resolveFrame(
 }
 
 /**
- * Drives one model's on-screen presentation: position sliding (all
- * kinds) plus, for fish, body/head animation - computeBodyAnim/
- * computeHeadAnim (web/src/game/UnitAnimator.ts) decide *which* anim,
- * this class decides *when frames actually change on screen*. See
- * docs/009 for the overall design.
+ * Drives one model's on-screen presentation. Position is no longer a per-model
+ * tween: `sync()` records the model's committed cell + the direction of the
+ * move decided this round, and `render(progress)` (called every frame by the
+ * scene with ONE shared `cellProgress`) places the sprite - so every co-moving
+ * model slides in exact lockstep (docs/046). Body/head animation frames still
+ * advance on this class's own ~CYCLE_MS timers; computeBodyAnim/computeHeadAnim
+ * (web/src/game/UnitAnimator.ts) decide *which* anim (docs/009).
  */
 export class ModelAnimator {
-  private lastPxX: number;
-  private lastPxY: number;
+  /** The model's committed cell (px) this round, and the grid delta of the move
+   *  decided this round - render() slides `base → base + moveDir·progress`. */
+  private baseX: number;
+  private baseY: number;
+  private moveDx = 0;
+  private moveDy = 0;
   private lastIsLeft: boolean;
   private removalStarted = false;
   private deathReactionPending = false;
@@ -155,22 +139,15 @@ export class ModelAnimator {
   private bodyPhase = 0;
   private bodyRunning = true;
   private triggerExpiresAt = 0;
-  /** Visual "swims faster" multiplier from the latest sync() - see speedStepsFor(). */
-  private speedSteps = 1;
 
   private headAnim: string | null = null;
   private headPhase = 0;
-  /** Latest isAlive/state/isTalking from sync() - checkHead() runs on its
-   *  own timer, independent of the physics tick, so it needs a cached
-   *  snapshot rather than a fresh RenderModel each time. */
   private lastIsAlive = true;
   private lastState = "normal";
   private lastIsTalking = false;
-  /** Which of the 3 head_talking frames is showing - null when not
-   *  talking (legacy's model.talk_phase, false/nil when idle) so the next
-   *  time talking starts, it re-rolls fresh rather than resuming
-   *  mid-cycle. Owned here, not read from Lua - fish stay entirely
-   *  TS-owned (docs/009/013), same reasoning as body/blink animation. */
+  /** Which of the 3 head_talking frames is showing - null when not talking
+   *  (legacy's talk_phase), so talking re-rolls fresh rather than resuming
+   *  mid-cycle. Owned here, not read from Lua (docs/009/013). */
   private talkPhase: number | null = null;
 
   private readonly bodyTimer: Phaser.Time.TimerEvent;
@@ -186,8 +163,8 @@ export class ModelAnimator {
     initialY = 0,
     initialIsLeft = true,
   ) {
-    this.lastPxX = initialX * GRID_SCALE;
-    this.lastPxY = initialY * GRID_SCALE;
+    this.baseX = initialX * GRID_SCALE;
+    this.baseY = initialY * GRID_SCALE;
     this.lastIsLeft = initialIsLeft;
 
     this.bodyTimer = scene.time.addEvent({
@@ -212,19 +189,19 @@ export class ModelAnimator {
     this.headSprite?.destroy();
   }
 
-  /** Called once per physics tick with the latest engine state. `scriptAnim`
-   *  is the level's Lua-driven (animName, phase) override for this round
-   *  (docs/014's item animation), consulted only for non-fish models - see
-   *  docs/014's "Fish vs item anim ownership" for why fish never look at it.
-   *  `isTalking` (fish only - see docs/029) drives the head_talking mouth
-   *  overlay; callers that don't track dialog state (ReplayScene, which
-   *  deliberately suppresses subtitles too, docs/025) just omit it. */
+  /** Called once per physics round with the latest engine state - records the
+   *  committed cell + this round's decided move, and updates which anim plays.
+   *  `scriptAnim` is the level's Lua-driven (name, phase) override for non-fish
+   *  models only (docs/014); `isTalking` (fish only, docs/029) drives the
+   *  head_talking mouth. Actual on-screen placement happens in render(). */
   sync(model: RenderModel, scriptAnim: ScriptAnim | null = null, isTalking = false): void {
     if (model.isLost) {
+      // Stays where it was; only fade its alpha out (position is frozen).
+      this.moveDx = 0;
+      this.moveDy = 0;
       if (!this.removalStarted) {
         this.removalStarted = true;
         const targets = this.headSprite ? [this.bodySprite, this.headSprite] : this.bodySprite;
-        this.scene.tweens.killTweensOf(targets);
         this.scene.tweens.add({
           targets,
           alpha: 0,
@@ -239,54 +216,18 @@ export class ModelAnimator {
       return;
     }
     this.bodySprite.setVisible(true);
-    this.speedSteps = speedStepsFor(model.moveStreak);
 
-    // The "official" location this round - matches model.x/y exactly once
-    // occupyNewPos() has actually applied a move (one round after it was
-    // decided). Falls back to whichever target we're already sliding
-    // toward if it still agrees, so a predicted-but-not-yet-official move
-    // never gets silently overwritten with a stale value.
-    const officialX = model.x * GRID_SCALE;
-    const officialY = model.y * GRID_SCALE;
-    // Predicted target from this round's own decision (MOVE_OFFSETS),
-    // used only while the official position hasn't caught up to it yet.
+    // The model's committed cell this round (occupyNewPos already applied the
+    // previous round's move) and the direction of the move decided THIS round
+    // (applied next round) - render() slides base → base+moveDir over the round.
+    // A multi-cell fast-settle (windoze) just lands base at the settled cell
+    // with no offset, so the sprite snaps there rather than smearing - the
+    // "snap guard" falls out for free (docs/046).
+    this.baseX = model.x * GRID_SCALE;
+    this.baseY = model.y * GRID_SCALE;
     const offset = MOVE_OFFSETS[model.action];
-    const predictedX = offset ? this.lastPxX + offset.dx * GRID_SCALE : officialX;
-    const predictedY = offset ? this.lastPxY + offset.dy * GRID_SCALE : officialY;
-    // Official position is ground truth whenever it disagrees with our
-    // last known target (the normal case once occupyNewPos() runs, and a
-    // safe fallback for any move that isn't reflected in `action` for some
-    // reason - the sprite can never get stuck on a missed prediction).
-    // Otherwise, a fresh direction this round predicts the next target
-    // immediately instead of waiting a full round for `official` to move.
-    const targetX = officialX !== this.lastPxX ? officialX : predictedX;
-    const targetY = officialY !== this.lastPxY ? officialY : predictedY;
-    if (targetX !== this.lastPxX || targetY !== this.lastPxY) {
-      const targets = this.headSprite ? [this.bodySprite, this.headSprite] : this.bodySprite;
-      // Defensive: stop any still-running slide before starting the next
-      // one, so a late round (dropped frame, tab throttling) can never
-      // stack a new tween on top of an old one - see the SLIDE_MS comment.
-      // Snap back to the *previous* round's grid-aligned position first
-      // (rather than wherever mid-flight the killed tween left us): each
-      // round only ever moves a model along one axis (Rules.dir is a
-      // single value - see docs/010), so every slide must start from an
-      // exact grid cell or a leftover fractional offset on the old axis
-      // blends into the new one as visible diagonal motion.
-      this.scene.tweens.killTweensOf(targets);
-      this.bodySprite.setPosition(this.lastPxX, this.lastPxY);
-      this.headSprite?.setPosition(this.lastPxX, this.lastPxY);
-      this.scene.tweens.add({
-        targets,
-        x: targetX,
-        y: targetY,
-        // Swims-faster streak (docs/017) shortens the glide itself, not
-        // just the fin-flap rate - stays well under ROUND_MS at every tier.
-        duration: SLIDE_MS / this.speedSteps,
-        ease: "Linear",
-      });
-      this.lastPxX = targetX;
-      this.lastPxY = targetY;
-    }
+    this.moveDx = offset ? offset.dx : 0;
+    this.moveDy = offset ? offset.dy : 0;
     this.lastIsLeft = model.isLeft;
 
     if (!this.isFish) {
@@ -299,19 +240,11 @@ export class ModelAnimator {
     this.lastIsTalking = isTalking;
 
     if (!model.isAlive) {
-      // Dead: permanently show the skeleton pose, bypassing the trigger
-      // window entirely (nothing should ever supersede it again). Delayed
-      // by SLIDE_MS rather than shown instantly - the physics already
-      // detects this the round the killer (e.g. a falling item) becomes
-      // adjacent, one round before it would visually occupy this cell
-      // (matches the original's Rules::checkDeadFall exactly - see
-      // docs/013), and that killer's own position slide is still
-      // animating into place for the next SLIDE_MS. Showing the corpse
-      // immediately made it look like the fish died before the thing that
-      // killed it ever visually arrived.
+      // Dead: permanently show the skeleton pose, delayed by ~one cell so the
+      // corpse appears as its killer finishes sliding in (docs/013/046).
       if (this.bodyAnim !== "skeleton" && !this.deathReactionPending) {
         this.deathReactionPending = true;
-        this.deathReactionTimer = this.scene.time.delayedCall(SLIDE_MS, () => {
+        this.deathReactionTimer = this.scene.time.delayedCall(DEATH_REACTION_DELAY_MS, () => {
           this.bodyAnim = "skeleton";
           this.bodyPhase = 0;
           this.applyBodyTexture();
@@ -333,6 +266,16 @@ export class ModelAnimator {
     }
   }
 
+  /** Places the sprite for this frame from the ONE shared cell-progress
+   *  (0→1) the scene passes to every animator - the source of lockstep
+   *  movement (docs/046). A resting model (moveDir 0) sits at its cell. */
+  render(cellProgress: number): void {
+    const px = this.baseX + this.moveDx * cellProgress * GRID_SCALE;
+    const py = this.baseY + this.moveDy * cellProgress * GRID_SCALE;
+    this.bodySprite.setPosition(px, py);
+    this.headSprite?.setPosition(px, py);
+  }
+
   private advanceBody(): void {
     if (!this.isFish || this.bodyAnim === "skeleton") return;
 
@@ -346,11 +289,10 @@ export class ModelAnimator {
     if (this.bodyRunning) {
       const count = frameCount(this.anims, this.bodyAnim, this.currentSide());
       if (count > 0) {
-        // Swims-faster streak (docs/017) only speeds up the swim cycle
-        // itself, matching the original scoping its speedup divisor to
-        // non-turning moves only - vertical/turn anims always step by 1.
-        const steps = this.bodyAnim === "swam" ? this.speedSteps : 1;
-        this.bodyPhase = (this.bodyPhase + steps) % count;
+        // Always step by 1 - the fixed CYCLE_MS cadence matches the original's
+        // one-frame-per-draw; speed is the shared clock's cell duration, not
+        // frame-skipping (which made fast swimming jumpy - docs/046).
+        this.bodyPhase = (this.bodyPhase + 1) % count;
       }
       this.applyBodyTexture();
     }
@@ -358,18 +300,11 @@ export class ModelAnimator {
 
   private checkHead(): void {
     if (!this.isFish || !this.headSprite) return;
-    // Dead fish never show a head overlay - sync() already hides it.
     if (!this.bodySprite.visible || !this.lastIsAlive) return;
 
-    // legacy's animateHead(): re-rolls a fresh starting phase the moment
-    // talking starts, then randomly steps to a different one of the 3
-    // head_talking frames on each subsequent check while it continues -
-    // resets to null (legacy's talk_phase = false) the moment talking
-    // stops, so the next time it starts it re-rolls rather than resuming
-    // mid-cycle. Ticks on this class's existing ~100ms head timer, not
-    // tied to physics rounds (docs/009's decoupled-timing design) - a
-    // deliberately simpler cadence than the original's game_getCycles()-
-    // gated one, not an attempt at exact parity.
+    // legacy's animateHead(): re-rolls a fresh phase the moment talking starts,
+    // randomly steps between the 3 head_talking frames while it continues,
+    // resets to null when it stops (docs/029).
     if (this.lastIsTalking) {
       this.talkPhase =
         this.talkPhase === null
@@ -401,9 +336,7 @@ export class ModelAnimator {
   }
 
   /** Item animation (docs/014): applies the level's Lua-driven (name, phase)
-   *  override, if any, through the same texture pathway fish body anim
-   *  uses - reusing bodyAnim/bodyPhase as "this item's current anim" rather
-   *  than a parallel field, since items never used them before this. */
+   *  override through the same texture pathway fish body anim uses. */
   private applyScriptAnim(scriptAnim: ScriptAnim | null): void {
     if (!scriptAnim) return;
     if (scriptAnim.name === this.bodyAnim && scriptAnim.phase === this.bodyPhase) return;

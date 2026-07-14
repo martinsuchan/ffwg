@@ -13,7 +13,7 @@
     (opens a browser tab) instead of failing on the strictPort conflict.
 .PARAMETER Sandbox
     Open /sandbox (every level unlocked + reference solutions) instead of the
-    standard game at / (docs/045). Used by startSandbox.ps1.
+    standard game at / (docs/045).
 #>
 param(
     [switch]$NoOpen,

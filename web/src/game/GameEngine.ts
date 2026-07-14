@@ -209,6 +209,34 @@ export class GameEngine {
     return this.room.showMove(symbol);
   }
 
+  /** The active fish's model index + current action + speedup (its own
+   *  moveStreak), for the scene's phase/speed computation - legacy
+   *  Controls::lockPhases uses only the active fish, so every co-moving model
+   *  shares one slide duration (no per-model desync). See docs/046. */
+  getActiveInfo(): { index: number; action: string; speedup: number; powerful: boolean } | null {
+    const active = this.room.getActiveUnit();
+    if (!active) return null;
+    const index = this.room.models.indexOf(active.cube);
+    if (index < 0) return null;
+    return {
+      index,
+      action: active.cube.rules.getAction(),
+      speedup: active.cube.rules.getMoveStreak(),
+      // legacy StepDecor: blue when the active fish is "powerful" (power >=
+      // HEAVY, i.e. the big fish), orange otherwise (Unit::isPowerful).
+      powerful: active.cube.power >= Weight.HEAVY,
+    };
+  }
+
+  /** Any model has a move decided this round (a fish move, a push, or a fall) -
+   *  gates the phase-locked slide vs. an idle one-cycle round (docs/046). */
+  anyModelMoving(): boolean {
+    return this.room.models.some((cube) => {
+      const a = cube.rules.getAction();
+      return a === "move_left" || a === "move_right" || a === "move_up" || a === "move_down";
+    });
+  }
+
   getRenderModels(): RenderModel[] {
     return this.room.models.map((cube, index) => ({
       index,

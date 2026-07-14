@@ -2,7 +2,7 @@ import { LuaFactory, LuaMultiReturn, type LuaEngine } from "wasmoon";
 
 import { Shape } from "../game/Shape";
 import type { RenderModel } from "../game/GameEngine";
-import { ROUND_MS } from "../game/timing";
+import { CYCLE_MS } from "../game/timing";
 import {
   fetchText,
   fetchLegacyFile,
@@ -306,13 +306,19 @@ export class LevelScript {
     private readonly restoreModelStateFn: (serialized: string) => void,
   ) {}
 
-  /** Called once per physics round with the latest render state. The show
-   *  step runs before script_update(), matching the original's per-cycle order
-   *  (Level::own_updateState -> nextShowAction, then updateLevel). Both are
-   *  no-ops outside the briefcase auto-play tutorial. */
-  tick(renderModels: RenderModel[]): void {
+  /** Called once per physics round with the latest render state. `cyclesThisRound`
+   *  is how many fixed CYCLE_MS cycles the round occupied (docs/046) - a moving
+   *  round is `phases` cycles, an idle one is 1. Advancing `state.cycles` by it
+   *  (not by a flat 1) keeps all cycle-based timing - dialog voice length,
+   *  model_isTalking, the dialog FIFO, game_getCycles, pokus - locked to
+   *  wall-clock regardless of movement speed, now that rounds vary in duration.
+   *
+   *  The show step runs before script_update(), matching the original's
+   *  per-cycle order (Level::own_updateState -> nextShowAction, then
+   *  updateLevel). Both are no-ops outside the briefcase auto-play tutorial. */
+  tick(renderModels: RenderModel[], cyclesThisRound = 1): void {
     this.state.renderModels = renderModels;
-    this.state.cycles += 1;
+    this.state.cycles += cyclesThisRound;
     updateDialogStack(this.state);
     this.runShowStep();
     this.scriptUpdate();
@@ -910,7 +916,7 @@ export async function createLevelScript(
           : undefined;
         const minTime =
           durationSeconds !== undefined
-            ? Math.ceil((durationSeconds * 1000) / ROUND_MS)
+            ? Math.ceil((durationSeconds * 1000) / CYCLE_MS)
             : Math.min(180, entry.subtitle.length);
         const cycling = (loops ?? 0) === -1;
         const repeats = cycling ? 1 : (loops ?? 0) + 1;

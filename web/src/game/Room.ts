@@ -175,6 +175,12 @@ export class Room {
     return this.controls.getStepCount();
   }
 
+  /** The currently-active fish (arrows drive it) - legacy's Controls::m_active.
+   *  Drives the shared animation clock's phase count (docs/046). */
+  getActiveUnit(): Unit | null {
+    return this.controls.getActive();
+  }
+
   /** Fast, render-free replay of one recorded move symbol - legacy's
    *  Room::loadMove(): settle any pending falls first, then apply exactly
    *  this one move. The move's own consequences (position committing, and

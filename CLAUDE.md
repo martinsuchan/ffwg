@@ -722,6 +722,35 @@ reasoning; check for later numbered entries too — decisions here can change):
   gained an IIS URL-Rewrite rule; Vite dev serves it natively. Verified: e2e case `07-sandbox-mode`
   (`/` shows 1 open node + 79 gated, `/sandbox` 80 open + 0 gated; suite 7/7) + a real-browser prod
   boot of both endpoints (titles reflect the mode).
+- Phase-locked animation rework (`docs/046-2026-07-13-phase-locked-animation-rework.md`):
+  **supersedes the per-model tween animation of docs/009/010/013/017/020.** The reported bugs
+  (warcraft's 3 pushed items desyncing, jumpy fast-swim, replay push/fall desync) all came from
+  the port having replaced the original's *single shared animation clock + phase-lock* with
+  independent per-model Phaser tweens on a fixed `ROUND_MS`=130 timer, plus a *per-model*
+  `speedStepsFor(moveStreak)` (a pushed item's streak climbs while the pusher's resets, so their
+  slides diverged). Now faithful to `legacy/src/level/View.cpp`+`plan/PhaseLocker.cpp`+
+  `Controls::getNeededPhases`: `timing.ts`'s `ROUND_MS` → **`CYCLE_MS`=100** (the single
+  base-speed knob; move = `phases·CYCLE_MS` = 300/200/100ms, an Advanced-settings candidate);
+  the scenes drive **one shared `cellProgress`** in a Phaser `update(delta)` that every
+  `ModelAnimator.render(progress)` reads (lockstep by construction), running the next physics
+  round when the phase-locked interval elapses; phase count comes from the **active fish alone**
+  (`GameEngine.getActiveInfo`/`anyModelMoving`, `movePhases`), so a fish + everything it pushes
+  share one duration. `ModelAnimator` lost its per-model tween/`SLIDE_MS`/`speedStepsFor`/
+  `MOVE_OFFSETS`-prediction/`killTweensOf` (net simpler); frames step by 1 (no skipping). Lua/
+  dialog timing is now **cycle-accurate** (`levelScript.tick(models, cyclesThisRound)`,
+  `minTime` via `CYCLE_MS`) so voice/`isTalking` stay synced to subtitles under the variable
+  round interval; win/lose countdowns count cycles too. Multi-cell fast-settle (windoze) snaps
+  for free (`base = model.x` each round). `ReplayScene` media buttons became a shared-clock speed
+  factor. Verified: warcraft push lockstep = 0.0000 fraction spread + no zip-wait; movePhases
+  3/2/1 mapping; windoze/briefcase/viking1 (dialog cycle-accurate) + airplane replay solve; e2e
+  7/7; build clean. `UnitAnimator` (which-anim) and physics untouched.
+- In-level step counter (`docs/047-2026-07-13-in-level-step-counter.md`): port of legacy
+  `StepDecor` - an always-visible move counter in the top-right corner (right edge at room width,
+  `y=10`), outlined size-20 console-style font, **orange `#ffc566`** normally / **blue `#a2f4ff`**
+  when the powerful (big) fish is active (`Unit::isPowerful` = active fish `power >= HEAVY`).
+  `GameEngine.getActiveInfo()` gained a `powerful` flag; `LevelScene` draws the Text and updates
+  it each round from `getStepCount()`. Always on (the original gates it behind a `show_steps`
+  toggle). Verified in a real browser (position/size/colors, increment, orange→blue on fish switch).
 
 Commands (from repo root):
 
@@ -731,7 +760,6 @@ scripts\setup.ps1 -SkipAssets  # fast restart once assets are already built
 scripts\publish.ps1            # produce a deployable static-site 'publish/' folder (docs/041)
 scripts\test.ps1               # run the e2e regression suite (starts/stops the dev server) (docs/042)
 scripts\start.ps1              # (re)start the dev server, open the standard game at / (assumes assets built)
-scripts\startSandbox.ps1       # same but open /sandbox - all levels unlocked (docs/045)
 scripts\build.ps1              # low-level tsc -b + vite build only (add -Preview to serve)
 scripts\new-doc.ps1 "<slug>"   # scaffold the next numbered docs/ entry
 ```

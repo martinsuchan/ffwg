@@ -2,9 +2,9 @@ import Phaser from "phaser";
 
 import { GRID_SCALE, type LevelData } from "../lua/levelLoader";
 import { createLevelScript, type LevelScript, type EngineControl } from "../lua/levelScript";
-import { GameEngine } from "../game/GameEngine";
-import { ROUND_MS } from "../game/timing";
-import { ModelAnimator, collectAtlasKeys, preloadAtlases } from "./ModelAnimator";
+import { GameEngine, type RenderModel } from "../game/GameEngine";
+import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
+import { ModelAnimator, collectAtlasKeys, preloadAtlases, movePhases } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
 import { isFishKind, resolveInitialFrame } from "./sceneUtils";
 import { pictureToAtlas } from "./atlas";
@@ -66,7 +66,12 @@ export class ReplayScene extends Phaser.Scene {
   private scriptGeneration = 0;
   private gameOver = false;
 
-  private roundTimer: Phaser.Time.TimerEvent | null = null;
+  // Shared phase-locked animation clock (docs/046) - same model as LevelScene.
+  private roundsActive = false;
+  private roundClock = 0;
+  private moving = false;
+  private moveDurationMs = CYCLE_MS;
+  private cyclesThisRound = 1;
   private playState: PlayState = "paused";
   private controlButtons = new Map<PlayState | "step", Phaser.GameObjects.Text>();
 
@@ -216,6 +221,13 @@ export class ReplayScene extends Phaser.Scene {
         );
       });
 
+    // Fresh shared clock for this run/restart (docs/046).
+    this.roundClock = 0;
+    this.moving = false;
+    this.moveDurationMs = CYCLE_MS;
+    this.cyclesThisRound = 1;
+    this.roundsActive = true;
+
     this.stepText.setText(`0 / ${this.moves.length}`);
     // User's requirement: replay starts playing at normal speed immediately,
     // not paused waiting for input - unlike the original (no controls at
@@ -262,24 +274,42 @@ export class ReplayScene extends Phaser.Scene {
 
   private setPlayState(state: PlayState): void {
     this.playState = state;
-    this.roundTimer?.remove();
-    this.roundTimer = null;
-    if (state !== "paused") {
-      const delay = state === "fast" ? ROUND_MS / FAST_MULTIPLIER : ROUND_MS;
-      this.roundTimer = this.time.addEvent({ delay, loop: true, callback: () => this.tick() });
-    }
     this.updateButtonHighlight();
   }
 
-  /** Advances exactly one round, pausing first if not already - matches
-   *  standard media-player "step" behavior. */
+  /** Advances exactly one round and pauses (snap, no slide) - matches standard
+   *  media-player "step". */
   private step(): void {
     this.setPlayState("paused");
     this.tick();
+    this.roundClock = 0; // freeze the render at the new committed positions
+  }
+
+  /**
+   * Per-frame render + round driver - the same shared phase-locked clock as
+   * LevelScene (docs/046). The media buttons become a speed factor on the
+   * clock: play = 1×, fast = FAST_MULTIPLIER×, pause = frozen.
+   */
+  update(_time: number, delta: number): void {
+    if (!this.roundsActive) return;
+    const factor = this.playState === "fast" ? FAST_MULTIPLIER : this.playState === "play" ? 1 : 0;
+    if (factor > 0) this.roundClock += delta * factor;
+
+    const progress = this.moving ? Math.min(1, this.roundClock / this.moveDurationMs) : 1;
+    for (const animator of this.animators.values()) animator.render(progress);
+
+    if (factor > 0) {
+      const interval = this.moving ? this.moveDurationMs : IDLE_ROUND_MS;
+      if (this.roundClock >= interval) {
+        this.roundClock -= interval;
+        this.tick();
+      }
+    }
   }
 
   private tick(): void {
     if (this.gameOver) return;
+    const cyclesElapsed = this.cyclesThisRound;
 
     const symbol = this.moveIndex < this.moves.length ? this.moves[this.moveIndex] : null;
     if (this.engine.tickReplay(symbol)) {
@@ -291,7 +321,7 @@ export class ReplayScene extends Phaser.Scene {
     // mid-level stops like viking1's musician gag) come from here, even
     // though every *other* output (subtitles, item anim, SFX/dialog voice)
     // is deliberately ignored below - see this class's own doc comment.
-    this.levelScript?.tick(renderModels);
+    this.levelScript?.tick(renderModels, cyclesElapsed);
 
     void this.audioManager.applyMusicCommand(this.levelScript?.getMusicCommand() ?? null);
     // Drain and discard - no sound effects/dialog voice during replay, but
@@ -308,6 +338,8 @@ export class ReplayScene extends Phaser.Scene {
       this.animators.get(model.index)?.sync(model, null);
     }
 
+    this.updateRoundPacing(renderModels);
+
     this.stepText.setText(`${this.moveIndex} / ${this.moves.length}`);
 
     if (this.engine.isSolved()) {
@@ -323,6 +355,27 @@ export class ReplayScene extends Phaser.Scene {
       // spinning the timer forever with nothing left to consume.
       this.setPlayState("paused");
     }
+  }
+
+  /** Current round's phase-locked pacing from the active fish's speed - same as
+   *  LevelScene.updateRoundPacing (docs/046). */
+  private updateRoundPacing(renderModels: RenderModel[]): void {
+    this.moving = this.engine.anyModelMoving();
+    if (!this.moving) {
+      this.cyclesThisRound = 1;
+      this.moveDurationMs = CYCLE_MS;
+      return;
+    }
+    const info = this.engine.getActiveInfo();
+    let phases = 3;
+    if (info) {
+      const active = renderModels[info.index];
+      const anims = this.levelData.models[info.index]?.anims ?? {};
+      const side = active && !active.isLeft ? "right" : "left";
+      phases = movePhases(anims, side, info.action, info.speedup);
+    }
+    this.cyclesThisRound = phases;
+    this.moveDurationMs = phases * CYCLE_MS;
   }
 
   private escLabel(): string {

@@ -12,8 +12,8 @@ import {
 import { GameEngine, type RenderModel } from "../game/GameEngine";
 import { V2 } from "../game/V2";
 import { Weight } from "../game/Cube";
-import { ROUND_MS } from "../game/timing";
-import { ModelAnimator, collectAtlasKeys, preloadAtlases } from "./ModelAnimator";
+import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
+import { ModelAnimator, collectAtlasKeys, preloadAtlases, movePhases } from "./ModelAnimator";
 import { AudioManager, type MusicCommand } from "./AudioManager";
 import { isFishKind, resolveInitialFrame } from "./sceneUtils";
 import { pictureToAtlas } from "./atlas";
@@ -55,16 +55,23 @@ const MOVE_KEYS = new Set([
  *  ~10 game cycles (own_updateState, ~timeinterval=100ms/cycle) once the
  *  room is solved, then quitState()s back to the map - or 30 cycles if a
  *  dialog is still running, so the player can finish reading/hearing it.
- *  Counted here in physics rounds (tick(), ROUND_MS), this port's per-cycle
- *  proxy. */
+ *  Counted in fixed CYCLE_MS cycles now (the countdowns decrement by the
+ *  round's `cyclesThisRound`), so the wall-clock delay is stable under the
+ *  variable, phase-locked round interval (docs/046). */
 const SOLVED_RETURN_ROUNDS = 10;
 const SOLVED_RETURN_ROUNDS_DIALOG = 30;
 
-/** Rounds to wait, once both fish can no longer move (dead/wedged), before the
+/** Cycles to wait, once both fish can no longer move (dead/wedged), before the
  *  level auto-restarts - legacy LevelCountDown's getCountForWrong() (75 cycles)
- *  feeding action_restart(1) from Level::finishLevel(). Counted here in physics
- *  rounds (ROUND_MS), the same per-cycle proxy SOLVED_RETURN_ROUNDS uses. */
+ *  feeding action_restart(1) from Level::finishLevel(). Counted in fixed
+ *  CYCLE_MS cycles (docs/046), like SOLVED_RETURN_ROUNDS. */
 const WRONG_RESTART_ROUNDS = 75;
+
+/** Step-counter colors - legacy StepDecor's COLOR_ORANGE (255,197,102) for a
+ *  normal active fish and COLOR_BLUE (162,244,255) when the "powerful" (big)
+ *  fish is active (Unit::isPowerful). */
+const STEP_COLOR_NORMAL = "#ffc566";
+const STEP_COLOR_POWERFUL = "#a2f4ff";
 
 /**
  * Renders and plays a level's puzzle: background + every model, driven by
@@ -154,12 +161,31 @@ export class LevelScene extends Phaser.Scene {
   /** Guards keydown-P against double-firing while the reference-solution
    *  fetch for launchReplay() is still in flight - see docs/025. */
   private launchingReplay = false;
+  // --- Shared phase-locked animation clock (docs/046) ---------------------
+  /** True once startEngine() has built the engine + animators; gates update(). */
+  private roundsActive = false;
+  /** ms accumulated toward the current round's interval (advanced in update()). */
+  private roundClock = 0;
+  /** Did anything move the round just decided (fish/push/fall)? Drives the
+   *  phase-locked slide vs. an idle one-cycle round. */
+  private moving = false;
+  /** Wall-clock length of the current round = `cyclesThisRound · CYCLE_MS`. */
+  private moveDurationMs = CYCLE_MS;
+  /** Fixed CYCLE_MS cycles the current round occupies (= phases when moving, 1
+   *  when idle) - passed to levelScript.tick() so dialog/voice timing stays
+   *  wall-clock-accurate under the variable round interval. */
+  private cyclesThisRound = 1;
   /** Mid-level save slots, shown as a row of clickable dots - see docs/026. */
   private saveSlotUI!: SaveSlotUI;
   /** Transient save/load confirmation text (top-right) - mirrors the
    *  original's displaySaveStatus() on-screen flash. See docs/026. */
   private feedbackText!: Phaser.GameObjects.Text;
   private feedbackTimer?: Phaser.Time.TimerEvent;
+  /** Always-on step counter, top-right corner - legacy StepDecor (font_console
+   *  size 20, outlined; orange normally, blue when the powerful/big fish is
+   *  active). The original gates it behind a show_steps toggle; here it's
+   *  always visible per the user's request. */
+  private stepCounterText!: Phaser.GameObjects.Text;
 
   constructor() {
     super("level");
@@ -227,6 +253,20 @@ export class LevelScene extends Phaser.Scene {
       .setOrigin(1, 0)
       .setDepth(1000)
       .setVisible(false);
+
+    // Step counter (legacy StepDecor): top-right corner (right edge at the room
+    // width, y=10), outlined console-style font at size 20, orange / blue by
+    // active-fish power. Always visible.
+    this.stepCounterText = this.add
+      .text(roomWidthPx, 10, "0", {
+        fontFamily: "monospace",
+        fontSize: "20px",
+        color: STEP_COLOR_NORMAL,
+        stroke: "#000000",
+        strokeThickness: 3,
+      })
+      .setOrigin(1, 0)
+      .setDepth(1000);
 
     this.saveSlotUI = new SaveSlotUI(
       this,
@@ -332,11 +372,66 @@ export class LevelScene extends Phaser.Scene {
       return;
     }
 
-    this.time.addEvent({
-      delay: ROUND_MS,
-      loop: true,
-      callback: () => this.tick(),
-    });
+    // Rounds are no longer a fixed timer - update() advances a shared clock and
+    // runs a round when the (variable, phase-locked) interval elapses (docs/046).
+    // buildAnimators() already reset the clock.
+    this.roundsActive = true;
+  }
+
+  /** Resets the shared animation clock - called whenever the engine/animators
+   *  are (re)built (startEngine, restart, a demo show's physics-only reset) so
+   *  fresh animators never inherit a stale mid-slide progress. See docs/046. */
+  private resetAnimationClock(): void {
+    this.roundClock = 0;
+    this.moving = false;
+    this.moveDurationMs = CYCLE_MS;
+    this.cyclesThisRound = 1;
+  }
+
+  /**
+   * Per-frame (Phaser) render + round driver (docs/046). Advances one shared
+   * `cellProgress` (0→1) and places every model from it - the source of
+   * lockstep movement, replacing the old per-model position tweens - then runs
+   * the next physics round when the round's interval elapses. A moving round
+   * lasts `phases · CYCLE_MS` (the slide fills it exactly, no zip-wait); an idle
+   * round is one cycle so input stays responsive.
+   */
+  update(_time: number, delta: number): void {
+    if (!this.roundsActive) return;
+    this.roundClock += delta;
+
+    const progress = this.moving ? Math.min(1, this.roundClock / this.moveDurationMs) : 1;
+    for (const animator of this.animators.values()) animator.render(progress);
+
+    const interval = this.moving ? this.moveDurationMs : IDLE_ROUND_MS;
+    if (this.roundClock >= interval) {
+      this.roundClock -= interval; // keep the remainder so pacing doesn't drift
+      this.tick();
+    }
+  }
+
+  /** Sets the current round's pacing from the moves it just decided - legacy
+   *  PhaseLocker/Controls::getNeededPhases (docs/046). Phase count comes from
+   *  the ACTIVE fish alone (turn = turn-frame count; else swam/2,/3,/6 by its
+   *  speedup), so a fish and everything it pushes share one slide duration.
+   *  Falls/pushes with no active-fish move default to 3 phases. */
+  private updateRoundPacing(renderModels: RenderModel[]): void {
+    this.moving = this.engine.anyModelMoving();
+    if (!this.moving) {
+      this.cyclesThisRound = 1;
+      this.moveDurationMs = CYCLE_MS;
+      return;
+    }
+    const info = this.engine.getActiveInfo();
+    let phases = 3;
+    if (info) {
+      const active = renderModels[info.index];
+      const anims = this.levelData.models[info.index]?.anims ?? {};
+      const side = active && !active.isLeft ? "right" : "left";
+      phases = movePhases(anims, side, info.action, info.speedup);
+    }
+    this.cyclesThisRound = phases;
+    this.moveDurationMs = phases * CYCLE_MS;
   }
 
   /** (Re)starts the room. With no arguments, matches R/a plain restart -
@@ -500,6 +595,9 @@ export class LevelScene extends Phaser.Scene {
       animator.sync(model);
       this.animators.set(model.index, animator);
     }
+    // Fresh animators start from a clean shared clock (docs/046) - matters for a
+    // mid-tick demo restart/load, which rebuilds animators at new positions.
+    this.resetAnimationClock();
   }
 
   /** level_action_save() during a "show" (docs/031, Phase 2): saves into a
@@ -665,6 +763,12 @@ export class LevelScene extends Phaser.Scene {
   }
 
   private tick(): void {
+    // Fixed CYCLE_MS cycles the interval that just elapsed occupied (set at the
+    // end of the previous round) - fed to Lua so dialog/voice timing tracks
+    // wall-clock, and used to step the win/lose countdowns, under the variable
+    // round interval (docs/046).
+    const cyclesElapsed = this.cyclesThisRound;
+
     // The round loop keeps running even after the level is unwinnable, so
     // e.g. a dead fish's corpse still disintegrates and drops whatever was
     // resting on it (see docs/011) - only the status text/flag latch once.
@@ -707,7 +811,7 @@ export class LevelScene extends Phaser.Scene {
     // command may then move/restart/load the engine inside this call.
     const preStepModels = this.engine.getRenderModels();
     try {
-      this.levelScript?.tick(preStepModels);
+      this.levelScript?.tick(preStepModels, cyclesElapsed);
     } catch (error) {
       // A show command (or item-anim script) threw - if a show was running,
       // end it and hand control back; otherwise re-surface the error.
@@ -760,6 +864,18 @@ export class LevelScene extends Phaser.Scene {
       this.animators.get(model.index)?.sync(model, scriptAnim, isTalking);
     }
 
+    // Phase-lock the round the moves above just decided: how long the shared
+    // slide lasts, from the ACTIVE fish's speed only (docs/046) - so a fish and
+    // everything it pushes share one duration and stay in lockstep.
+    this.updateRoundPacing(renderModels);
+
+    // Step counter (legacy StepDecor) - the recorded move count, colored by
+    // whether the active fish is the powerful (big) one.
+    const activeInfo = this.engine.getActiveInfo();
+    this.stepCounterText
+      .setText(String(this.engine.getStepCount()))
+      .setColor(activeInfo?.powerful ? STEP_COLOR_POWERFUL : STEP_COLOR_NORMAL);
+
     // No win/lose evaluation during the auto-play show - the demo deliberately
     // dies and restarts to demonstrate mechanics, and "solving" mid-show must
     // not trigger the return-to-map countdown.
@@ -788,7 +904,7 @@ export class LevelScene extends Phaser.Scene {
           ? SOLVED_RETURN_ROUNDS_DIALOG
           : SOLVED_RETURN_ROUNDS;
       } else if (this.solvedCountdown > 0) {
-        this.solvedCountdown -= 1;
+        this.solvedCountdown -= cyclesElapsed;
       } else {
         this.solvedCountdown = -1; // one-shot: don't re-trigger after start()
         this.scene.start("worldmap");
@@ -809,7 +925,7 @@ export class LevelScene extends Phaser.Scene {
         this.wrongCountdown = WRONG_RESTART_ROUNDS;
         this.statusText.setText("Both fish are stuck - restarting...").setVisible(true);
       } else if (this.wrongCountdown > 0) {
-        this.wrongCountdown -= 1;
+        this.wrongCountdown -= cyclesElapsed;
       } else {
         this.wrongCountdown = -1; // one-shot: restart() resets it anyway
         this.restart();
