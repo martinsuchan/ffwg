@@ -4,7 +4,7 @@ import { GRID_SCALE, type LevelData } from "../lua/levelLoader";
 import { createLevelScript, type LevelScript, type EngineControl } from "../lua/levelScript";
 import { GameEngine, type RenderModel } from "../game/GameEngine";
 import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
-import { ModelAnimator, collectAtlasKeys, preloadAtlases, movePhases } from "./ModelAnimator";
+import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
 import { isFishKind, resolveInitialFrame } from "./sceneUtils";
 import { pictureToAtlas } from "./atlas";
@@ -45,6 +45,12 @@ export class ReplayScene extends Phaser.Scene {
    *  is used when replay was launched directly from the map (a solved
    *  level was never actually entered interactively this session). */
   private returnTo: "level" | "worldmap" = "level";
+  /** The replayed level's recap poster (a demo_poster.lua path) or null. When a
+   *  world-final level's replay reaches solved and returnTo === "worldmap" (the
+   *  Pedometer path), the poster plays before returning to the map - faithful to
+   *  the original, where a Pedometer replay drives the room to solved and the
+   *  same finishLevel -> createPoster path runs (docs/050). */
+  private poster: string | null = null;
 
   private engine!: GameEngine;
   private animators = new Map<number, ModelAnimator>();
@@ -82,10 +88,16 @@ export class ReplayScene extends Phaser.Scene {
     super("replay");
   }
 
-  init(data: { levelData: LevelData; moves: string; returnTo?: "level" | "worldmap" }): void {
+  init(data: {
+    levelData: LevelData;
+    moves: string;
+    returnTo?: "level" | "worldmap";
+    poster?: string | null;
+  }): void {
     this.levelData = data.levelData;
     this.moves = data.moves;
     this.returnTo = data.returnTo ?? "level";
+    this.poster = data.poster ?? null;
   }
 
   preload(): void {
@@ -344,6 +356,18 @@ export class ReplayScene extends Phaser.Scene {
 
     if (this.engine.isSolved()) {
       this.gameOver = true;
+      // Faithful to the original: a Pedometer (worldmap) replay of a world-final
+      // level ends in its recap poster before returning to the map (docs/050).
+      // An in-level (P) replay stays a review tool - pause and wait for Esc/R.
+      if (this.returnTo === "worldmap" && this.poster) {
+        this.scene.start("demo", {
+          demoFile: this.poster,
+          levelName: this.levelData.levelName,
+          mode: "poster",
+          returnTo: "worldmap",
+        });
+        return;
+      }
       this.setPlayState("paused");
       this.statusText.setText(`Solved! (R = restart replay, Esc = ${this.escLabel()})`);
     } else if (!this.engine.isSolvable()) {
@@ -357,8 +381,8 @@ export class ReplayScene extends Phaser.Scene {
     }
   }
 
-  /** Current round's phase-locked pacing from the active fish's speed - same as
-   *  LevelScene.updateRoundPacing (docs/046). */
+  /** Current round's phase-locked pacing - same as LevelScene.updateRoundPacing
+   *  (docs/046, refined docs/049: pure falls run at 1 cycle/cell). */
   private updateRoundPacing(renderModels: RenderModel[]): void {
     this.moving = this.engine.anyModelMoving();
     if (!this.moving) {
@@ -366,14 +390,7 @@ export class ReplayScene extends Phaser.Scene {
       this.moveDurationMs = CYCLE_MS;
       return;
     }
-    const info = this.engine.getActiveInfo();
-    let phases = 3;
-    if (info) {
-      const active = renderModels[info.index];
-      const anims = this.levelData.models[info.index]?.anims ?? {};
-      const side = active && !active.isLeft ? "right" : "left";
-      phases = movePhases(anims, side, info.action, info.speedup);
-    }
+    const phases = roundPhases(this.engine.getActiveInfo(), renderModels, this.levelData.models);
     this.cyclesThisRound = phases;
     this.moveDurationMs = phases * CYCLE_MS;
   }

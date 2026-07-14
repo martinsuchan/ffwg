@@ -100,6 +100,44 @@ export function movePhases(
   return 3; // a non-move active state (rest/busy) while items push/fall elsewhere
 }
 
+/** Whether an action is one the active fish drives under its own move - a swim
+ *  in any direction, or a turn. Mirrors legacy Unit::isMoving (which also treats
+ *  a falling fish, action "move_down", as moving). */
+function isDriveAction(action: string): boolean {
+  return action === "turn" || MOVE_OFFSETS[action] !== undefined;
+}
+
+/**
+ * Cycles (fixed CYCLE_MS phases) the whole physics round should occupy - the
+ * single shared phase-lock every co-moving model rides (docs/046). Faithful to
+ * the original's `PhaseLocker` (`Room::finishRound`/`fallout`/`Level::own_update`):
+ *
+ * - Active fish driving a move (or itself falling, action "move_down"): its
+ *   `getNeededPhases` governs the round (`movePhases`, base 3 = 300ms/cell,
+ *   accelerating to 200/100ms) - and everything it pushes shares that duration.
+ * - No fish driving, a model leaving the room: `fallout` ensures 3 phases, so
+ *   the go-out slide is 300ms (detected via the "goout" state).
+ * - No fish driving, pure gravity: `falldown` ensures *nothing*, so
+ *   `getLocked()==0` and the View draws the cell in a single 100ms cycle - a
+ *   released/unsupported item falls ~3x faster than a fish's base swim. This is
+ *   the case docs/046 got wrong (returned 3, so falls looked as slow as swims);
+ *   see docs/049.
+ */
+export function roundPhases(
+  activeInfo: { index: number; action: string; speedup: number } | null,
+  renderModels: RenderModel[],
+  models: LevelModel[],
+): number {
+  if (activeInfo && isDriveAction(activeInfo.action)) {
+    const active = renderModels[activeInfo.index];
+    const anims = models[activeInfo.index]?.anims ?? {};
+    const side = active && !active.isLeft ? "right" : "left";
+    return movePhases(anims, side, activeInfo.action, activeInfo.speedup);
+  }
+  if (renderModels.some((m) => m.state === "goout")) return 3;
+  return 1; // pure fall: one cycle per cell (fast)
+}
+
 /** Resolves an (anim, side, phase) triple to its atlas key + frame name (docs/042). */
 export function resolveFrame(
   anims: Record<string, AnimFrames>,

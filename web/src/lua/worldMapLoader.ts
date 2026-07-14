@@ -7,15 +7,24 @@ import { fetchLegacyFile } from "./levelLoader";
 export const MAP_LANG = "cs";
 
 /** One entry from legacy/script/worldmap.lua's branch_addNode() calls -
- *  `datafile`/`poster` are dropped: this port's loadLevelModels() already
- *  assumes the `script/<codename>/` convention directly, and posters
- *  (branch-ending recap cutscenes) are out of scope for now. */
+ *  `datafile` is dropped (this port's loadLevelModels() assumes the
+ *  `script/<codename>/` convention directly). The `poster` (7th arg) is a
+ *  final level's recap cutscene, captured separately in WorldMapData.posters
+ *  (docs/050). */
 export interface WorldMapNode {
   codename: string;
   x: number;
   y: number;
   hidden: boolean;
   parent: string | null;
+}
+
+/** The special ending node (branch_setEnding) - a real playable level
+ *  ("both fish at home") with no map position, auto-run once every other
+ *  level is solved (docs/050). */
+export interface EndingNode {
+  codename: string;
+  poster: string | null;
 }
 
 export interface BestSolution {
@@ -39,6 +48,13 @@ export interface WorldMapData {
    *  See LevelScene / WorldMapScene document.title handling. */
   sections: Map<string, string>;
   bestSolutions: Map<string, BestSolution>;
+  /** codename -> that level's poster cutscene (a `demo_poster.lua` DemoMode
+   *  script, legacy-relative path). Only the 9 world-final levels + the
+   *  ending have one; absent for the rest. See docs/050. */
+  posters: Map<string, string>;
+  /** The ending node (branch_setEnding), or null. Not part of `nodes` (it has
+   *  no map position); auto-launched when everything else is solved. */
+  ending: EndingNode | null;
   /** legacy Pedometer's SolverDrawer strings from script/labels.lua, keyed
    *  `<name>:<lang>` (name = solver_better/solver_equals/solver_worse). Only
    *  these 3 labels are captured. `%1`/`%2` placeholders are filled at render
@@ -60,12 +76,11 @@ const SOLVER_LABELS = new Set(["solver_better", "solver_equals", "solver_worse"]
  * instead of a reentrant host callback" approach docs/008 established.
  *
  * The "ending" node (branch_setEnding()) is real in the original but is
- * never a drawable/clickable map dot there either - it has no x/y
- * position at all in worldmap.lua, and WorldMap.cpp keeps it out of the
- * regular node tree entirely, auto-triggering it only once every other
- * node is solved (LevelNode::areAllSolved()). That auto-trigger is out of
- * scope for this sandbox pass, so the ending node is parsed (to keep the
- * host binding real/complete) but simply not added to `nodes`.
+ * never a drawable/clickable map dot there - it has no x/y position in
+ * worldmap.lua, and WorldMap.cpp keeps it out of the regular node tree,
+ * auto-triggering it only once every other node is solved
+ * (LevelNode::areAllSolved()). It's captured here as `ending` (not added to
+ * `nodes`); WorldMapScene decides when to run it (docs/050).
  */
 export async function loadWorldMap(): Promise<WorldMapData> {
   const mapSource = await fetchLegacyFile("script/worldmap.lua");
@@ -81,6 +96,8 @@ export async function loadWorldMap(): Promise<WorldMapData> {
   const names = new Map<string, string>();
   const sections = new Map<string, string>();
   const bestSolutions = new Map<string, BestSolution>();
+  const posters = new Map<string, string>();
+  let ending: EndingNode | null = null;
   const solverLabels = new Map<string, string>();
 
   try {
@@ -93,14 +110,21 @@ export async function loadWorldMap(): Promise<WorldMapData> {
         x: number,
         y: number,
         hidden?: boolean | null,
-        _poster?: string | null,
+        poster?: string | null,
       ) => {
         if (!parent) rootCodename = codename;
         nodes.push({ codename, x, y, hidden: hidden ?? false, parent: parent || null });
+        if (poster) posters.set(codename, poster);
       },
     );
-    // See doc comment - deliberately not added to `nodes`.
-    lua.global.set("branch_setEnding", () => {});
+    // The ending node has no map position - captured, not added to `nodes`.
+    lua.global.set(
+      "branch_setEnding",
+      (codename: string, _datafile: string, poster?: string | null) => {
+        ending = { codename, poster: poster || null };
+        if (poster) posters.set(codename, poster);
+      },
+    );
     lua.global.set(
       "worldmap_addDesc",
       (codename: string, lang: string, name: string, desc: string) => {
@@ -128,5 +152,5 @@ export async function loadWorldMap(): Promise<WorldMapData> {
     lua.global.close();
   }
 
-  return { nodes, rootCodename, names, sections, bestSolutions, solverLabels };
+  return { nodes, rootCodename, names, sections, bestSolutions, posters, ending, solverLabels };
 }

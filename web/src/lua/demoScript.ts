@@ -130,20 +130,35 @@ export class DemoScript {
  * Boots a demo movie script. Mirrors levelScript.ts's persistent-engine
  * pattern but with a minimal binding set (no models/physics). `demoFile` is a
  * legacy-relative path like "script/briefcase/demo_briefcase.lua"; `levelName`
- * ("briefcase") locates its brief_ dialog file and voice pool.
+ * ("briefcase") locates its dialog file and voice pool.
+ *
+ * `opts` distinguishes the two DemoMode uses (docs/031, docs/050):
+ * - briefcase movie: `dialogPrefix "brief_"`, no prog_demo.
+ * - final-level/ending poster: `dialogPrefix "demo_"` (its
+ *   `demo_dialogs_<lang>.lua`), and `includeProgDemo` since a `demo_poster.lua`
+ *   `file_include`s `prog_demo.lua` (which defines planTalk/planStop/planDelay
+ *   over the game_planAction/model_talk this engine already binds).
  */
-export async function createDemoScript(demoFile: string, levelName: string): Promise<DemoScript> {
+export async function createDemoScript(
+  demoFile: string,
+  levelName: string,
+  opts: { dialogPrefix?: string; includeProgDemo?: boolean } = {},
+): Promise<DemoScript> {
+  const { dialogPrefix = "brief_", includeProgDemo = false } = opts;
   // The demo movie's voice/subtitle language follows the player's setting
   // (cs/nl), same as levelScript.ts (docs/038).
   const DIALOG_LANG = loadSettings().lang;
   const compatSource = await fetchText("/lua/lua50-compat.lua");
   const levelDialogSource = await fetchLegacyFile("script/share/level_dialog.lua");
+  const progDemoSource = includeProgDemo
+    ? await fetchLegacyFile("script/share/prog_demo.lua")
+    : null;
   // dialogLoad() is bypassed (would enumerate ~15 languages via select_lang and
-  // risk the docs/008 reentrancy bug) - the demo's own brief_dialogs_<lang>.lua
+  // risk the docs/008 reentrancy bug) - the demo's own <prefix>dialogs_<lang>.lua
   // is fetched and run directly, exactly like levelScript.ts does for a level's
   // dialogs_<lang>.lua (docs/015).
-  const briefDialogsSource = await fetchLegacyFile(
-    `script/${levelName}/brief_dialogs_${DIALOG_LANG}.lua`,
+  const demoDialogsSource = await fetchLegacyFile(
+    `script/${levelName}/${dialogPrefix}dialogs_${DIALOG_LANG}.lua`,
   );
   const demoSource = await fetchLegacyFile(demoFile);
   const audioManifest = await getAudioManifest();
@@ -238,10 +253,14 @@ export async function createDemoScript(demoFile: string, levelName: string): Pro
     await lua.doString(compatSource);
     await lua.doString("text = {}");
     await lua.doString(levelDialogSource);
+    // prog_demo.lua defines planTalk/planStop/planDelay (used by demo_poster.lua)
+    // in terms of the game_planAction/model_talk bindings above, and registers a
+    // "dlg-x-SPACE" filler dialog + poster fonts - all safe to run here.
+    if (progDemoSource) await lua.doString(progDemoSource);
     // Override the just-defined Lua dialogLoad() with a no-op - the demo calls
-    // it, but we've pre-loaded the dialogs ourselves (see briefDialogsSource).
+    // it, but we've pre-loaded the dialogs ourselves (see demoDialogsSource).
     lua.global.set("dialogLoad", () => {});
-    await lua.doString(briefDialogsSource);
+    await lua.doString(demoDialogsSource);
     // Running the demo script queues its whole plan (game_planAction) up front;
     // DemoScript.tick() then drains one command per cycle.
     await lua.doString(demoSource);

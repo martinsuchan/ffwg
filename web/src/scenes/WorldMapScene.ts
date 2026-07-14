@@ -153,6 +153,7 @@ export class WorldMapScene extends Phaser.Scene {
 
     this.drawEdges();
     this.drawNodes();
+    this.setupEnding(solved);
 
     this.pulseTimer = this.time.addEvent({
       delay: PULSE_FRAME_MS,
@@ -460,6 +461,73 @@ export class WorldMapScene extends Phaser.Scene {
    *  node click and the Pedometer's "Run" button (identical in effect,
    *  matching the original: Pedometer::runLevel() plays interactively
    *  from scratch exactly like an unsolved node would). */
+  /** The ending node ("both fish at home") has no map position (docs/050).
+   *  Legacy WorldMap auto-runs it the moment you return to the map after
+   *  solving the final leaf that completes the game (checkEnding: wasRunning +
+   *  isComplete + areAllSolved). We reproduce that in standard mode; in
+   *  sandbox nothing is genuinely "solved", so it's reachable via a small
+   *  explicit button instead so it (and its final poster) stays testable. */
+  private setupEnding(solved: Set<string>): void {
+    const ending = this.mapData.ending;
+    if (!ending) return;
+
+    if (this.sandbox) {
+      // Sandbox-only affordance: a small top-centre button (corners are taken
+      // by Intro/Exit/Credits/Options).
+      this.add
+        .text(MAP_WIDTH / 2, 6, `▶ ${this.mapData.names.get(ending.codename) ?? "Ending"}`, {
+          fontFamily: "sans-serif",
+          fontSize: "14px",
+          color: "#ffffcc",
+          backgroundColor: "#000000a0",
+          padding: { x: 6, y: 3 },
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(1000)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerdown", () => this.launchEnding());
+      return;
+    }
+
+    // Standard mode: auto-run once every real level is solved, but only right
+    // after a solve returned us here (not on a fresh boot), and not if the
+    // ending itself is already solved.
+    const data = this.scene.settings.data as { fromLevel?: boolean } | undefined;
+    if (!data?.fromLevel) return;
+    // The ending isn't a map node, so it's not in `solved` (built from
+    // mapData.nodes) - check its own storage, or it would re-trigger every
+    // return after the game is complete (an ending -> poster -> map -> ending loop).
+    if (loadSolvedMoves(ending.codename) !== null) return;
+    if (!this.mapData.nodes.every((n) => solved.has(n.codename))) return;
+    // Defer to the next tick so create() fully finishes first - the original
+    // also triggers the ending from its update loop (WorldMap::own_updateState),
+    // not scene init, and launching mid-create() is fragile (Phaser Text/render
+    // isn't ready yet).
+    this.time.delayedCall(0, () => this.launchEnding());
+  }
+
+  /** Loads and starts the ending level (a normal 2-fish level) with its final
+   *  poster. Solving it plays that poster, then returns to the map. */
+  private launchEnding(): void {
+    const ending = this.mapData.ending;
+    if (!ending || this.loadingCodename) return;
+    this.loadingCodename = ending.codename;
+    this.showFeedback(`Loading "${ending.codename}"...`);
+    loadLevelModels(ending.codename)
+      .then((levelData) => {
+        document.title = this.titleFor(ending.codename);
+        pushSubView();
+        this.scene.start("level", { levelData, poster: ending.poster });
+      })
+      .catch((error: unknown) => {
+        console.error(`Failed to load the ending level`, error);
+        this.showFeedback(`Failed to load the ending`);
+      })
+      .finally(() => {
+        this.loadingCodename = null;
+      });
+  }
+
   private async launchLevel(codename: string): Promise<void> {
     if (this.loadingCodename) return;
     this.loadingCodename = codename;
@@ -468,7 +536,7 @@ export class WorldMapScene extends Phaser.Scene {
       const levelData = await loadLevelModels(codename);
       document.title = this.titleFor(codename);
       pushSubView();
-      this.scene.start("level", { levelData });
+      this.scene.start("level", { levelData, poster: this.mapData.posters.get(codename) ?? null });
     } catch (error) {
       console.error(`Failed to load level "${codename}"`, error);
       this.showFeedback(`Failed to load "${codename}"`);
@@ -493,7 +561,12 @@ export class WorldMapScene extends Phaser.Scene {
       .then((levelData) => {
         document.title = this.titleFor(codename);
         pushSubView();
-        this.scene.start("replay", { levelData, moves, returnTo: "worldmap" });
+        this.scene.start("replay", {
+          levelData,
+          moves,
+          returnTo: "worldmap",
+          poster: this.mapData.posters.get(codename) ?? null,
+        });
       })
       .catch((error: unknown) => {
         console.error(`Failed to load level "${codename}" for replay`, error);

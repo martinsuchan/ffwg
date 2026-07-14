@@ -13,7 +13,7 @@ import { GameEngine, type RenderModel } from "../game/GameEngine";
 import { V2 } from "../game/V2";
 import { Weight } from "../game/Cube";
 import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
-import { ModelAnimator, collectAtlasKeys, preloadAtlases, movePhases } from "./ModelAnimator";
+import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager, type MusicCommand } from "./AudioManager";
 import { isFishKind, resolveInitialFrame } from "./sceneUtils";
 import { pictureToAtlas } from "./atlas";
@@ -113,6 +113,10 @@ export class LevelScene extends Phaser.Scene {
    *  that design instead of only polling held state. */
   private queuedKey: string | null = null;
   private gameOver = false;
+  /** This level's recap poster (a demo_poster.lua path), or null - only the 9
+   *  world-final levels + the ending have one. Played after solving, before
+   *  returning to the map (legacy Level::finishLevel -> createPoster, docs/050). */
+  private poster: string | null = null;
   /** Countdown (in rounds) from a solved room to the auto-return to the
    *  world map - see SOLVED_RETURN_ROUNDS and tick(). -1 = not counting. */
   private solvedCountdown = -1;
@@ -195,8 +199,9 @@ export class LevelScene extends Phaser.Scene {
    *  runtime, so `levelData` can no longer be known when this scene is
    *  constructed (it used to be, back when `main.ts` always booted into
    *  one hardcoded level). Same pattern `ReplayScene` already used. */
-  init(data: { levelData: LevelData }): void {
+  init(data: { levelData: LevelData; poster?: string | null }): void {
     this.levelData = data.levelData;
+    this.poster = data.poster ?? null;
   }
 
   preload(): void {
@@ -411,10 +416,10 @@ export class LevelScene extends Phaser.Scene {
   }
 
   /** Sets the current round's pacing from the moves it just decided - legacy
-   *  PhaseLocker/Controls::getNeededPhases (docs/046). Phase count comes from
-   *  the ACTIVE fish alone (turn = turn-frame count; else swam/2,/3,/6 by its
-   *  speedup), so a fish and everything it pushes share one slide duration.
-   *  Falls/pushes with no active-fish move default to 3 phases. */
+   *  PhaseLocker/Controls::getNeededPhases (docs/046, refined docs/049). Phase
+   *  count comes from the ACTIVE fish when it drives the move (turn/swam ratios),
+   *  else a model leaving the room = 3 phases and a pure gravity fall = 1 phase
+   *  (100ms/cell, ~3x faster than a swim - see roundPhases). */
   private updateRoundPacing(renderModels: RenderModel[]): void {
     this.moving = this.engine.anyModelMoving();
     if (!this.moving) {
@@ -422,14 +427,7 @@ export class LevelScene extends Phaser.Scene {
       this.moveDurationMs = CYCLE_MS;
       return;
     }
-    const info = this.engine.getActiveInfo();
-    let phases = 3;
-    if (info) {
-      const active = renderModels[info.index];
-      const anims = this.levelData.models[info.index]?.anims ?? {};
-      const side = active && !active.isLeft ? "right" : "left";
-      phases = movePhases(anims, side, info.action, info.speedup);
-    }
+    const phases = roundPhases(this.engine.getActiveInfo(), renderModels, this.levelData.models);
     this.cyclesThisRound = phases;
     this.moveDurationMs = phases * CYCLE_MS;
   }
@@ -665,6 +663,24 @@ export class LevelScene extends Phaser.Scene {
     if (this.helpOverlay.isShowing) return;
     if (this.levelScript?.isShowing()) return;
     action();
+  }
+
+  /** Leaves a just-solved level for the world map. A world-final level (or the
+   *  ending) first plays its recap poster (legacy Level::finishLevel ->
+   *  createPoster -> a DemoMode, docs/050); other levels go straight back.
+   *  `fromLevel` lets the map run its post-solve ending check (docs/050). */
+  private leaveToMapAfterSolve(): void {
+    if (this.poster) {
+      this.scene.start("demo", {
+        demoFile: this.poster,
+        levelName: this.levelData.levelName,
+        mode: "poster",
+        returnTo: "worldmap",
+        returnData: { fromLevel: true },
+      });
+    } else {
+      this.scene.start("worldmap", { fromLevel: true });
+    }
   }
 
   /** F2 or the save row's dim "add" dot: captures the current position
@@ -907,7 +923,7 @@ export class LevelScene extends Phaser.Scene {
         this.solvedCountdown -= cyclesElapsed;
       } else {
         this.solvedCountdown = -1; // one-shot: don't re-trigger after start()
-        this.scene.start("worldmap");
+        this.leaveToMapAfterSolve();
         return;
       }
     } else if (this.engine.cannotMove() && this.engine.isFresh()) {

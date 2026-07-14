@@ -62,13 +62,24 @@ async function loadSprite(source, relPath) {
   const fullPath = path.join(source, relPath);
 
   const meta = await sharp(fullPath).metadata();
-  // sharp's .trim() throws on anything smaller than 3x3 (e.g. the extra fish's
-  // 1x1 placeholder head sprites - windoze's "old couple", effectively
-  // invisible). Pack those untrimmed at full size rather than failing the whole
-  // atlas; the old per-file conversion handled them the same way.
-  const canTrim = meta.width >= 3 && meta.height >= 3;
+  // Only trim *transparent* padding, never a solid-colour border. sharp's
+  // default .trim() trims edges matching the top-left pixel, which for an
+  // opaque image (a level background, or a bordered rectangle like 4-ocel.png /
+  // cedule.png whose corner pixel is the black border colour) strips the real
+  // border/edge as if it were padding - cropping the sprite (e.g. submarine's
+  // 555px background packed as 507px). Forcing the trim background to fully
+  // transparent means opaque images keep every pixel, while sprites with an
+  // alpha border still get their transparent padding removed. Semi-transparent
+  // edges are preserved (threshold 0 - only exactly-transparent pixels trim).
+  // Also: sharp's .trim() throws on anything smaller than 3x3 (the extra fish's
+  // tiny placeholder heads), and an image with no alpha channel can't be
+  // trimmed against transparency at all - pack both untrimmed at full size,
+  // matching the old per-file conversion.
+  const canTrim = meta.width >= 3 && meta.height >= 3 && meta.hasAlpha;
   const { data, info } = canTrim
-    ? await sharp(fullPath).trim().toBuffer({ resolveWithObject: true })
+    ? await sharp(fullPath)
+        .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 }, threshold: 0 })
+        .toBuffer({ resolveWithObject: true })
     : await sharp(fullPath).toBuffer({ resolveWithObject: true });
 
   return {

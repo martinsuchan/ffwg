@@ -751,6 +751,48 @@ reasoning; check for later numbered entries too — decisions here can change):
   `GameEngine.getActiveInfo()` gained a `powerful` flag; `LevelScene` draws the Text and updates
   it each round from `getStepCount()`. Always on (the original gates it behind a `show_steps`
   toggle). Verified in a real browser (position/size/colors, increment, orange→blue on fish switch).
+- Atlas trim cropping opaque images (`docs/048-2026-07-14-atlas-trim-opaque-crop-fix.md`): the
+  docs/042 atlas packer (`scripts/asset-tools/build-atlas.mjs`) cropped level backgrounds and
+  opaque bordered sprites - submarine's 555px background packed as 507px, `briefcase/cedule.png`
+  and steel assets like `4-ocel.png` lost their border. Cause: `sharp(f).trim()` with no args
+  trims edges matching the **top-left pixel's colour**; correct for a transparent-cornered sprite
+  (only padding removed), but for an opaque image the corner is a solid colour so trim stripped the
+  real border/edge as padding (the removed pixels were content, not padding, so recording
+  `sourceSize`/`spriteSourceSize` couldn't restore them). Fix: trim only against transparency -
+  `.trim({ background: {r:0,g:0,b:0,alpha:0}, threshold:0 })`, gated on `meta.hasAlpha` (no-alpha
+  images pack untrimmed at full size). Transparent sprites still get padding trimmed (36/66 fish
+  frames), so atlas efficiency is unchanged - only opaque images differ. Regenerated all level +
+  fish atlases. Verified in a real browser (submarine full-width bg, briefcase warning-sign border
+  intact).
+- Falling items too slow (`docs/049-2026-07-14-fast-falling-speed-fix.md`): after docs/046, a pure
+  gravity fall took 3 cycles (300ms/cell), same as a base swim - but the original drops a released
+  item ~3x faster. docs/046 derived every moving round's phase count from the active fish's
+  `movePhases()`, which hit its `return 3` fallback when the fish was at rest while items fell. The
+  original's `PhaseLocker` instead: fish driving → `getNeededPhases` (3 base); `fallout` (leaving
+  the room) → `ensurePhases(3)`; **pure `falldown` ensures nothing → `getLocked()==0` → `View`
+  draws the cell in a single 100ms cycle**. Fixed with a shared `roundPhases()` in `ModelAnimator.ts`
+  (used by both `LevelScene`/`ReplayScene` `updateRoundPacing`): fish drives (`move_*`/`turn`) →
+  `movePhases`; a model with state `"goout"` → 3; else (pure fall) → 1 cycle. A *driven* `move_down`
+  (fish swimming down) stays 300ms; only gravity is fast. Physics untouched. Verified in a real
+  browser (falls 100ms/cell, swims 300ms/cell) + e2e 7/7 (80/81 replay).
+- Final-level posters + the ending level (`docs/050-2026-07-15-final-level-posters-and-ending.md`):
+  two originally-deferred features (BACKLOG #11). In FF NG, finishing a world-final level shows a
+  fullscreen recap **poster** (a `DemoMode` cutscene = `script/<level>/demo_poster.lua`, 9 levels),
+  and once every level is solved a special **ending** level ("both fish at home",
+  `branch_setEnding`) auto-runs. Both reuse the docs/031 DemoScene machinery. `worldMapLoader.ts`
+  now captures the per-node poster (7th `branch_addNode` arg) + the ending node;
+  `createDemoScript` takes opts (`demo_`/`brief_` dialog prefix, prog_demo include); `DemoScene`
+  gained `mode:"movie"|"poster"` (poster = 640x480, single frame loaded from the level atlas since
+  docs/042, `returnTo:"worldmap"`). `LevelScene` plays the poster after the solved-countdown
+  (`leaveToMapAfterSolve`), then returns to the map with `{fromLevel:true}`; `ReplayScene` plays it
+  after a Pedometer (worldmap) replay reaches solved - faithful to the original, where a replay
+  drives the room to solved and the same `finishLevel->createPoster` path runs. `WorldMapScene.
+  setupEnding` auto-runs the ending in standard mode when all real nodes are solved AND we arrived
+  via `{fromLevel:true}` AND the ending isn't already solved (checked via its own storage - it's
+  not in the node-derived `solved` set, else it'd loop), deferred one tick (launching mid-`create()`
+  crashes Phaser Text); in sandbox it's a small top-centre button so it stays testable. Verified in
+  a real browser (linux/gods posters render + play, gods replay->poster, ending level both-fish +
+  auto-trigger gating) + e2e 7/7.
 
 Commands (from repo root):
 
