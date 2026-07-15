@@ -7,7 +7,7 @@ import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
 import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
 import { isFishKind, resolveInitialFrame } from "./sceneUtils";
-import { pictureToAtlas } from "./atlas";
+import { WavyBackground } from "./WavyBackground";
 
 type PlayState = "paused" | "play" | "fast";
 
@@ -51,6 +51,10 @@ export class ReplayScene extends Phaser.Scene {
    *  the original, where a Pedometer replay drives the room to solved and the
    *  same finishLevel -> createPoster path runs (docs/050). */
   private poster: string | null = null;
+  /** LevelNode::m_depth for level_getDepth() - see docs/054. */
+  private depth = 1;
+  /** Room background + its underwater ripple (docs/056). */
+  private background!: WavyBackground;
 
   private engine!: GameEngine;
   private animators = new Map<number, ModelAnimator>();
@@ -64,6 +68,8 @@ export class ReplayScene extends Phaser.Scene {
     setBusy: (index, busy) => this.engine.setBusy(index, busy),
     checkActive: () => this.engine.checkActive(),
     setFastFalling: (value) => this.engine.setFastFalling(value),
+    askFieldIndex: (x, y) => this.engine.askFieldIndex(x, y),
+    isSolved: () => this.engine.isSolved(),
   };
   /** Guards against a superseded startReplay()'s createLevelScript() call
    *  resolving after a newer restart already happened - same pattern as
@@ -93,11 +99,13 @@ export class ReplayScene extends Phaser.Scene {
     moves: string;
     returnTo?: "level" | "worldmap";
     poster?: string | null;
+    depth?: number;
   }): void {
     this.levelData = data.levelData;
     this.moves = data.moves;
     this.returnTo = data.returnTo ?? "level";
     this.poster = data.poster ?? null;
+    this.depth = data.depth ?? 1;
   }
 
   preload(): void {
@@ -115,8 +123,14 @@ export class ReplayScene extends Phaser.Scene {
       this.levelData.roomWidth * GRID_SCALE,
       this.levelData.roomHeight * GRID_SCALE,
     );
-    const bg = pictureToAtlas(this.levelData.bgPicture);
-    this.add.image(0, 0, bg.atlasKey, bg.frame).setOrigin(0, 0);
+    this.background = new WavyBackground(
+      this,
+      this.levelData.levelName,
+      this.levelData.bgPicture,
+      this.levelData.roomWidth * GRID_SCALE,
+      this.levelData.roomHeight * GRID_SCALE,
+      this.levelData.waves,
+    );
 
     const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
 
@@ -144,7 +158,14 @@ export class ReplayScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-R", () => this.startReplay());
     this.input.keyboard!.on("keydown-ESC", () => {
       if (this.returnTo === "worldmap") this.scene.start("worldmap");
-      else this.scene.start("level", { levelData: this.levelData });
+      // Hand poster/depth back so the level it returns to is fully restored
+      // (otherwise solving it afterwards would skip its recap poster).
+      else
+        this.scene.start("level", {
+          levelData: this.levelData,
+          poster: this.poster,
+          depth: this.depth,
+        });
     });
 
     this.audioManager = new AudioManager(this);
@@ -157,6 +178,7 @@ export class ReplayScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.audioManager.destroy();
       this.levelScript?.destroy();
+      this.background.destroy(); // frees the bg's extracted canvas (docs/056)
     });
   }
 
@@ -218,6 +240,7 @@ export class ReplayScene extends Phaser.Scene {
       generation,
       undefined,
       this.engineControl,
+      this.depth,
     )
       .then((script) => {
         if (generation !== this.scriptGeneration) {
@@ -302,7 +325,8 @@ export class ReplayScene extends Phaser.Scene {
    * LevelScene (docs/046). The media buttons become a speed factor on the
    * clock: play = 1×, fast = FAST_MULTIPLIER×, pause = frozen.
    */
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
+    this.background.update(time); // background ripple, docs/056
     if (!this.roundsActive) return;
     const factor = this.playState === "fast" ? FAST_MULTIPLIER : this.playState === "play" ? 1 : 0;
     if (factor > 0) this.roundClock += delta * factor;

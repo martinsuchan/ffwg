@@ -5,7 +5,7 @@ import type { LevelModel } from "../lua/levelLoader";
 import type { RenderModel } from "../game/GameEngine";
 import { CYCLE_MS } from "../game/timing";
 import { computeBodyAnim, computeHeadAnim } from "../game/UnitAnimator";
-import type { ScriptAnim } from "../lua/levelScript";
+import type { ScriptAnim, ViewShift } from "../lua/levelScript";
 import { pictureToAtlas, atlasWebpUrl, atlasJsonUrl, type AtlasFrame } from "./atlas";
 
 type Side = "left" | "right";
@@ -232,7 +232,24 @@ export class ModelAnimator {
    *  `scriptAnim` is the level's Lua-driven (name, phase) override for non-fish
    *  models only (docs/014); `isTalking` (fish only, docs/029) drives the
    *  head_talking mouth. Actual on-screen placement happens in render(). */
-  sync(model: RenderModel, scriptAnim: ScriptAnim | null = null, isTalking = false): void {
+  sync(
+    model: RenderModel,
+    scriptAnim: ScriptAnim | null = null,
+    isTalking = false,
+    viewShift: ViewShift | null = null,
+    effect: string | null = null,
+  ): void {
+    // legacy Anim::setEffect - "invisible" draws nothing at all (gods keeps its
+    // sunk-ship wreck hidden this way until a ship actually sinks); "reverse"
+    // flips the sprite left/right. mirror/zx are per-pixel screen effects this
+    // port doesn't reproduce, so they just draw normally (docs/051).
+    if (effect === "invisible") {
+      this.bodySprite.setVisible(false);
+      this.headSprite?.setVisible(false);
+      return;
+    }
+    this.bodySprite.setFlipX(effect === "reverse");
+
     if (model.isLost) {
       // Stays where it was; only fade its alpha out (position is frozen).
       this.moveDx = 0;
@@ -261,8 +278,10 @@ export class ModelAnimator {
     // A multi-cell fast-settle (windoze) just lands base at the settled cell
     // with no offset, so the sprite snaps there rather than smearing - the
     // "snap guard" falls out for free (docs/046).
-    this.baseX = model.x * GRID_SCALE;
-    this.baseY = model.y * GRID_SCALE;
+    // legacy View::getScreenPos(): `(location + viewShift) * SCALE + moveShift`
+    // - the Lua-driven view shift is in grid cells and applies before scaling.
+    this.baseX = (model.x + (viewShift?.x ?? 0)) * GRID_SCALE;
+    this.baseY = (model.y + (viewShift?.y ?? 0)) * GRID_SCALE;
     const offset = MOVE_OFFSETS[model.action];
     this.moveDx = offset ? offset.dx : 0;
     this.moveDy = offset ? offset.dy : 0;
@@ -307,11 +326,22 @@ export class ModelAnimator {
   /** Places the sprite for this frame from the ONE shared cell-progress
    *  (0→1) the scene passes to every animator - the source of lockstep
    *  movement (docs/046). A resting model (moveDir 0) sits at its cell. */
-  render(cellProgress: number): void {
-    const px = this.baseX + this.moveDx * cellProgress * GRID_SCALE;
-    const py = this.baseY + this.moveDy * cellProgress * GRID_SCALE;
+  /** `shiftX/shiftY` = game_setScreenShift()'s whole-view pixel offset, added
+   *  last exactly like legacy View::getScreenPos() (`… + m_screenShift`). It
+   *  moves every model but never the background - see docs/055. */
+  render(cellProgress: number, shiftX = 0, shiftY = 0): void {
+    const px = this.baseX + this.moveDx * cellProgress * GRID_SCALE + shiftX;
+    const py = this.baseY + this.moveDy * cellProgress * GRID_SCALE + shiftY;
     this.bodySprite.setPosition(px, py);
     this.headSprite?.setPosition(px, py);
+  }
+
+  /** This model's current top-left screen position - the port's equivalent of
+   *  legacy View::getScreenPos() (slide + viewShift + screenShift all applied).
+   *  Sprites use origin (0,0), so the sprite's own position is exactly it.
+   *  Used to anchor rope decor (docs/055). */
+  getScreenPos(): { x: number; y: number } {
+    return { x: this.bodySprite.x, y: this.bodySprite.y };
   }
 
   private advanceBody(): void {

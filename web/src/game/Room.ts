@@ -196,7 +196,11 @@ export class Room {
       throw new Error(`invalid move: "${symbol}"`);
     }
     this.lastAction = Action.MOVE;
-    this.updateMoveStreaks();
+    // No updateMoveStreaks(): legacy loadMove() passes NO_INTERACTIVE to
+    // finishRound(), so lockPhases()/m_speedup never runs here either. Matters
+    // for save-resume (docs/026), which replays a whole move string through
+    // this - a leftover streak would make the resumed fish start out looking
+    // mid-sprint. Visual-only, no physics impact. See docs/052.
   }
 
   /** Settles any pending falls with nothing left to drive - call once
@@ -206,28 +210,31 @@ export class Room {
     this.fastForwardSettle();
   }
 
-  /** One round of *watchable* replay - same physics shape as nextRound()
-   *  (settle, then only accept new input once fresh), but sourced from a
-   *  recorded move string instead of live keyboard/mouse. Unlike
-   *  loadMove(), does not fast-forward through pending falls - each call
-   *  is exactly one round, so a caller ticking this on a real-time timer
-   *  sees the same falling/sliding animation live play would. Doesn't
-   *  consume `symbol` unless the round is actually fresh, matching how it
-   *  was originally recorded (docs/021: a symbol is only ever captured
-   *  when isFresh()). See docs/025.
+  /** One round of *watchable* replay, sourced from a recorded move string
+   *  instead of live input - one driven move per call, so a caller ticking
+   *  this on a real-time timer watches the fish swim cell by cell.
+   *
+   *  Faithful to how the original replays (docs/052): `LevelLoading::
+   *  nextLoadAction()` drives the room through `Room::loadMove()`, which
+   *  (a) settles every pending fall inside the move ("let object to fall
+   *  fast" - so falls are INSTANT, never animated cell by cell), and
+   *  (b) passes NO_INTERACTIVE to finishRound(), so `Controls::lockPhases()`
+   *  never runs - meaning `m_speedup` never accumulates and the fish never
+   *  accelerates during a replay. Hence fastForwardSettle() below and no
+   *  updateMoveStreaks() call (the port's per-Cube equivalent of m_speedup,
+   *  visual-only - see Rules.updateMoveStreak).
+   *
+   *  Doesn't consume `symbol` unless the round is actually fresh, matching
+   *  how it was recorded (docs/021: a symbol is only captured when isFresh()).
    *  @return whether `symbol` was consumed this round. */
   replayRound(symbol: string | null): boolean {
-    if (this.fastFalling) {
-      this.fastForwardSettle();
-    } else {
-      this.beginFall();
-    }
+    // Subsumes the fastFalling branch - this always settles fully anyway.
+    this.fastForwardSettle();
     let consumed = false;
     if (this.isFresh() && symbol !== null) {
       consumed = this.controls.makeMove(symbol);
       if (consumed) this.lastAction = Action.MOVE;
     }
-    this.updateMoveStreaks();
     return consumed;
   }
 

@@ -11,6 +11,67 @@ here is a known crash in normal `cs` play.
 
 ---
 
+## 0. Lua host-API audit (2026-07-15)
+
+Full sweep of every `lua.global.set()` across the four binding surfaces
+(`levelScript.ts` 59, `levelLoader.ts` 26, `demoScript.ts` 15,
+`worldMapLoader.ts` 6), cross-checked against every host-style name the legacy
+Lua corpus actually calls. **5 names are unbound; the rest below are no-ops or
+constants that are genuine gaps.** Everything not listed here is either real or a
+correct-by-design no-op (see the end of this section).
+
+### Genuine gaps in the LIVE engine (`levelScript.ts`)
+
+| Binding | Now | Impact |
+|---|---|---|
+| `level_getDepth` | ~~`0`~~ **DONE (docs/054)** | Real depth from the map tree (1..15). |
+| `model_equals` | ~~approximation~~ **DONE (docs/054)** | Real, via `GameEngine.askFieldIndex` on the EngineControl bridge - multi-cell mask + border-isn't-water rule. |
+| `level_isSolved` | ~~`false`~~ **DONE (docs/054)** | `engineControl.isSolved()`. |
+| `options_getParam` | ~~`""`~~ **DONE (docs/054)** | `lang`/`speech` return the real setting. |
+| `game_setRoomWaves` | ~~no-op~~ **DONE (docs/056)** | The underwater background ripple, as a fragment shader (`WavyBackground.ts`). Params captured statically in `LevelData.waves`. |
+| `game_addDecor` | ~~no-op~~ **DONE (docs/055)** | `"rope"` is the only decor the original implements; elevator1/2's double cable now draws. |
+| `game_setScreenShift` | ~~no-op~~ **DONE (docs/055)** | Real pixel offset on every model (never the bg), + the getFieldPos inverse. engine's motor shake / cabin1's wall-shove jolt. |
+| `model_setEffect` | partial | `invisible`/`reverse`/`none` are real (docs/051); `mirror` (submarine's per-pixel screen reflection) and `zx` (emulator gag) are recorded but drawn normally. |
+
+### Not bound anywhere (5) — the C++ save/**undo** path
+
+`level_save`, `level_load`, `model_change_setLocation`,
+`model_change_setExtraParams`, `model_getExtraParams`. All are reachable **only**
+from `prog_save.lua`'s `script_save` / `script_load` / `script_saveUndo` /
+`script_loadUndo` / `script_loadFinalUndo`, none of which this port ever calls —
+it drives save/load via its own move-string replay + pickle (docs/026), and the
+one `script_*` it does call (`script_loadState`, via `ffwg_restoreModelState`)
+only touches `unpickle_table`/`getModelsTable`. **Genuinely dead today, but a
+latent freeze risk** (the docs/033 "unbound host fn kills the round loop" class)
+the moment undo (§B3) is attempted.
+
+### Demo/poster engine (`demoScript.ts`)
+- `dialog_addFont` no-op → poster/movie subtitles all render in one white style
+  (per-font colours ignored) — noted in docs/050.
+- `dialogLoad` no-op and `file_include` no-op are deliberate (docs/015/031).
+
+### Correct-by-design (NOT gaps — do not "fix")
+- `levelScript.ts`'s `file_exists` → real for `sound/`, false for `images/`.
+  Verified: the Lua only calls it from `level_creation.lua`'s addAnim/addFishAnim
+  frame-discovery loops, `level_dialog.lua`'s sound gate + (bypassed) dialogLoad,
+  `init.lua` (solutions, unused here) and `demo_briefcase.lua`. The live engine
+  *does* run `models.lua`, so the discovery loop executes — returning false just
+  makes it exit immediately, which is right: frame lists are owned by
+  `levelLoader.ts`'s static pass and consumed by `ModelAnimator` (docs/009/042).
+- `levelScript.ts`: `level_createRoom`, `model_addAnim`, `model_setGoal`,
+  `model_change_turnSide` — the room/anims/goals/facing are built by
+  `levelLoader.ts` into the `GameEngine`; the live engine re-runs the same
+  bootstrap and must not duplicate them. (Verified: no `code.lua` calls
+  `change_turnSide` at runtime, and `setGoal` only from `prog_init`.)
+  `level_isNewRound` → `true` is correct: the port ticks exactly once per round.
+- `levelLoader.ts`'s many no-ops (`sound_*`, `dialog_addFont`, `game_planAction`,
+  `level_planShow`, `game_addDecor`, `model_setBusy/setEffect`, `file_include`,
+  `getRestartCount`→1, `options_getParam`→"") are correct **for that pass**, which
+  only extracts room/models/anims/goals (docs/006/024).
+- `worldMapLoader.ts`: all 6 bindings are real.
+
+---
+
 ## A. Input methods (target set per CLAUDE.md: keyboard, mouse, gamepad, touch)
 
 1. **Gamepad support — not implemented at all.** No `input.gamepad` handling
@@ -33,8 +94,13 @@ here is a known crash in normal `cs` play.
 5. **Swim speed-up is visual-only** (anim frame-rate + slide), it does *not*
    shorten real grid traversal like the original `PhaseLocker` does — a
    deliberate consequence of the fixed `CYCLE_MS` clock. (docs/017, docs/046)
-6. **`model_equals` is approximated** as a single-anchor-position match, since
-   this engine has no access to the real multi-cell `Field` grid. (docs/028)
+6. **Unimplemented/partial Lua host functions** — see §0 above. Only the
+   **`mirror`/`zx`** per-pixel draw effects remain (1 level each — submarine's
+   screen reflection, emulator's colour-clash gag), plus the 5 unbound
+   undo-path names. Everything else in that table is done: docs/054
+   (`level_getDepth`/`model_equals`/`level_isSolved`/`options_getParam`),
+   docs/055 (`game_addDecor` ropes, `game_setScreenShift`), docs/056
+   (`game_setRoomWaves`).
 7. **Item decorative animation advances once per round**, not per fixed cycle, so
    at variable round durations it tracks movement speed slightly. Cosmetic. A
    fixed-cycle Lua pass is a possible refinement. (docs/046)

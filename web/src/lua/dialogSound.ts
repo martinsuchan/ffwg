@@ -1,5 +1,31 @@
 import { fetchText } from "./levelLoader";
 
+/**
+ * legacy DialogStack::actorTalk() splits a talk() name on '@' into the real
+ * dialog name plus format arguments: `"b2-g@5"` = dialog `"b2-g"` with `%1`=5.
+ * The dialog AND its voice clip are both looked up by args[0]; only the
+ * subtitle TEXT is formatted. gods' two gods announce their battleship
+ * coordinates this way ("G5."), and the ending level reports its play time
+ * (`"z-c-hodin@"..room.cas` -> "it took you %1 hours!"). See docs/052.
+ */
+export function splitDialogName(name: string): { name: string; args: string[] } {
+  const parts = name.split("@");
+  return { name: parts[0], args: parts.slice(1) };
+}
+
+/**
+ * legacy Dialog::getFormatedSubtitle(): replace %1, %2, ... with the args
+ * (every occurrence, matching StringTool::replace's loop). %0 is never
+ * expanded. Returns the subtitle unchanged when there are no args.
+ */
+export function formatSubtitle(subtitle: string, args: string[]): string {
+  let out = subtitle;
+  for (let i = 0; i < args.length; i++) {
+    out = out.split(`%${i + 1}`).join(args[i]);
+  }
+  return out;
+}
+
 /** A resolved playable sound: which built sprite file, and which region
  *  inside it. Works uniformly for built-in sounds (impact/death), Lua-driven
  *  one-shots (sound_playSound), and dialog/NPC voice (model_talk) - see

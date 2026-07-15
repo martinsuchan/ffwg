@@ -793,6 +793,120 @@ reasoning; check for later numbered entries too — decisions here can change):
   crashes Phaser Text); in sandbox it's a small top-centre button so it stays testable. Verified in
   a real browser (linux/gods posters render + play, gods replay->poster, ending level both-fish +
   auto-trigger gating) + e2e 7/7.
+- gods' battleships easter egg (`docs/051-2026-07-15-gods-battleships-easter-egg.md`): the two gods
+  in `gods` are really playing **battleships** - `legacy/script/gods/prog_ships.lua` is a complete
+  10x10 engine in pure Lua (7 ships, random legal placement, per-player AI where player 2 *cheats*),
+  their dialogs are the coordinates, and on a sink a wreck falls through the background. The engine
+  **was already running** in this port (prog_ships.lua loads via the docs/008 file_include pre-scan);
+  only the visual was missing because the two host fns it needs were no-op stubs. Both are real now
+  (`levelScript.ts`, stored per model + `getViewShift`/`getEffect`): **`model_setViewShift`** is a
+  cosmetic offset in **grid cells** applied as legacy `View::getScreenPos()` does - `(location +
+  viewShift) * SCALE + moveShift`, i.e. before scaling (`model_getViewShift` returns it now instead
+  of a hardcoded (0,0), docs/033); **`model_setEffect`** (legacy `Anim::setEffect`) implements the
+  two plain draw rules - `invisible` (draw nothing) and `reverse` (flip L/R -> `setFlipX`), while
+  `mirror` (submarine's per-pixel screen reflection) and `zx` (emulator gag) are recorded but drawn
+  normally. Both gated to non-fish models, matching docs/014's scriptAnim ownership split (no level
+  sets an effect on a fish). `setEffect` being a no-op meant gods' wreck sat **permanently visible
+  at (0,0)** - and this also fixes 5 more levels wrongly drawing hidden decorations (party1/party2/
+  rotate/windoze/corridor). Verified in a real browser (engine live: 7 ships each + board built;
+  wreck hidden at start, then falls (13,2)->(47,36) and auto-hides at the floor) + e2e 7/7.
+- Dialog format args `name@arg` (`docs/052-2026-07-15-dialog-format-args.md`): follow-up to
+  docs/051 - the gods' spoken battleship **coordinates** ("G5.") showed no subtitle and no audio.
+  `gods/code.lua` talks `"b2-g@5"`, but the dialog is registered as `dialogId("b2-g", "font_cyan",
+  "G%1.")`. Legacy `DialogStack::actorTalk()` **splits the talk name on `@`** into the real dialog
+  name + format args: the dialog AND its voice clip are found by `args[0]`, and only the subtitle is
+  formatted via `Dialog::getFormatedSubtitle()` (`%1`,`%2`... -> args[1..], every occurrence, `%0`
+  never expanded). This port looked the **raw** `"b2-g@5"` up in its registry, missed, and returned
+  early - hence silence. Fixed with shared `splitDialogName`/`formatSubtitle` in `dialogSound.ts`,
+  used by `model_talk` in BOTH `levelScript.ts` and `demoScript.ts`. `getMinTime()` measures the raw
+  subtitle, so the no-sound fallback is unchanged. `@` is used by exactly 2 levels: **gods** (both
+  gods' coordinates) and **ending** (`"z-c-hodin@"..room.cas` -> "it took you %1 hours!"), so this
+  also fixes docs/050's ending. Verified in a real browser ("G5." cyan / "C10." yellow, each god's
+  own font colour; voice regions resolve to the base name, never a raw `@`) + e2e 7/7.
+- Replay: no fish acceleration, instant falls (`docs/053-2026-07-15-replay-no-accel-instant-falls.md`):
+  user reported the fish accelerating and falls animating cell-by-cell during replay. The original
+  drives replay via `LevelLoading::nextLoadAction()` -> **`Room::loadMove()`** ("let object to fall
+  fast"), whose `while (falling)` loop settles **every** pending fall inside the move (falls instant)
+  and whose `finishRound(NO_INTERACTIVE)` **skips `Controls::lockPhases()`** - so `m_speedup` never
+  increments and `getLocked()` stays 0 (no acceleration). The port's `Room.replayRound()` (docs/025)
+  instead mirrored `nextRound()`: one `beginFall()` per round + `updateMoveStreaks()` - and that
+  streak is the port's per-Cube `m_speedup` equivalent (docs/017, **visual-only**) whose own comment
+  says it mirrors the very `finishRound()->lockPhases()` the original skips. Fixed: `replayRound()`
+  now uses `fastForwardSettle()` (already the port of loadMove's fall-fast loop) and drops
+  `updateMoveStreaks()`; still exactly one driven move per call, so the fish is still watched swimming
+  cell by cell - only gravity is instant. `loadMove()` dropped its streak update too (same
+  NO_INTERACTIVE reasoning) - it matters for **save-resume** (docs/026), which replays a move string
+  through it and left the resumed fish looking mid-sprint. Verified in a real browser (airplane +
+  warcraft replays: duration **always 300ms**, never 200/100; **0** animated gravity-fall rounds;
+  interactive play still accelerates 300->200->100; a full 533-move gods watchable replay still
+  reaches Solved + its poster) + e2e 7/7.
+- Lua host-API audit + part 1 (`docs/054-2026-07-15-lua-host-gaps-part1.md`, audit in
+  `docs/BACKLOG.md` §0): swept all 106 `lua.global.set()` bindings across the 4 surfaces vs. every
+  host-style name the legacy Lua calls. Only **5 are unbound** (`level_save`/`level_load`/
+  `model_change_setLocation`/`model_change_setExtraParams`/`model_getExtraParams`) - all reachable
+  only via `prog_save.lua`'s `script_save`/`script_load`/`script_*Undo`, which this port never calls
+  (dead today, latent freeze risk if undo is built). Fixed 4 real gaps: **`level_getDepth`** (was 0)
+  is real `LevelNode::m_depth` now - 1 at the root, parent+1 per child, ending -1, range **1..15**
+  (new `computeDepths()` in `worldMapLoader.ts` -> `WorldMapData.depths`, plumbed via launch data
+  into `createLevelScript(...,depth)`); this matters a lot because `blackjokes.lua` picks its
+  death-joke tier with `switch(level_getDepth())` over `joke_table[1..15]`, so depth 0 matched
+  **nothing** and the whole depth-varied death-joke system was dead on all 80 levels.
+  **`model_equals`** (was an anchor-only match) is real via new `GameEngine.askFieldIndex()` on the
+  docs/035 `EngineControl` bridge - honours each model's **multi-cell mask** and the original's
+  border-isn't-water rule (out-of-bounds returns the border Cube, so `model_equals(-1,...)` is false
+  there); it backs `prog_compatible`'s `isWater()`/`modelEquals()` + `prog_finder`'s `isFreePlace()`
+  which test against `room` (the whole wall shape), so creatures/cancan/turtle were reading every
+  wall cell as free. **`level_isSolved`** and **`options_getParam`** (`lang`/`speech`) are real too.
+  `file_exists` was **reclassified as correct-by-design** (images intentionally read as missing in
+  the live engine - the discovery loop must exit; frame lists belong to `levelLoader`). Verified in a
+  real browser + e2e 7/7 - and the docs/044 sweep earned its keep by catching the hand-rolled mock
+  `engineControl` in case 05 drifting from the interface (plain JS, so tsc can't see it).
+  **Still open**: `game_setRoomWaves` (81 levels; per-scanline sine bg ripple - user chose a custom
+  shader when we get to it), `game_addDecor("rope")` (elevator cables = a 1px `0x30404e` line between
+  two models' screen positions), `game_setScreenShift` (engine/cabin1 shake), `mirror`/`zx`.
+- Rope decor + screen shift (`docs/055-2026-07-15-rope-decor-and-screen-shift.md`): part 2 of the
+  §0 audit. **`game_addDecor`** is real - `"rope"` is the only decor the original implements
+  (anything else just LOG_WARNINGs), and `RopeDecor::drawOnScreen()` is a 1px `0x30404e` steel line
+  between the two models' `getScreenPos()+shift`; only elevator1/2 register any (a "double rope"
+  lift->machine, once in `prog_init`). `LevelScene.drawRopes()` redraws them each frame on one
+  `Graphics` at depth 5, anchored via new `ModelAnimator.getScreenPos()` (sprites use origin (0,0),
+  so a sprite's position *is* getScreenPos - slide+viewShift+screenShift included); drawn after the
+  models, matching `View::drawOn()`. **`game_setScreenShift`** is real - a **pixel** offset added
+  last in `getScreenPos()` and subtracted in `getFieldPos()`; `ModelAnimator.render(progress,
+  shiftX, shiftY)` applies it and `LevelScene.toFieldPos()` inverts it (else clicks miss by the
+  shift while jolting). Used by engine (circular motor shake) and cabin1 (big fish shoves a wall ->
+  jolt one full cell (15px) via `getTouchDir`, then spring back `shift -= shift/10`). **Key
+  source detail**: `Room::drawOn()` draws the bg FIRST at a fixed (0,0) and only `m_view` carries
+  the shift - so the **backdrop never moves, every model does**; it still reads as "the whole level
+  moves" because the walls are a model too (`room = addModel("item_fixed",...)`). Values `Math.trunc`
+  to match `luaL_checkint` (both callers pass floats). LevelScene only (ReplayScene keeps docs/025's
+  scope). Verified in a real browser (elevator1's 2 ropes at the real 43/46 shifts + screenshot;
+  cabin1 shift moves a model +30/-20 while `bgImage` stays at (0,0); field-pos inverse; 7.9->7) +
+  e2e 7/7. **Only `game_setRoomWaves` + `mirror`/`zx` remain** from the audit.
+- Room waves (`docs/056-2026-07-15-room-waves.md`): the last real gap from the §0 audit -
+  `game_setRoomWaves` (**all 81 levels call it**), the animated underwater background ripple.
+  Legacy `WavyPicture::drawOn()` blits the bg **one scanline at a time**, each row shifted
+  horizontally with wrap: `shiftX = (Sint16)(0.5 + amp*sin(py/periode + getCycles()*speed))`;
+  `amp == 0` short-circuits to a plain blit. **The Lua wrapper matters**: `level_creation.lua`'s
+  `setRoomWaves(double_amp, periode, inv_speed)` calls `game_setRoomWaves(double_amp/2, periode,
+  1/inv_speed)`, so the ubiquitous `setRoomWaves(5,10,5)` is really `(2.5, 10, 0.2)` - a +-2.5px
+  ripple at 2 rad/s (68 of 81 levels use exactly that; 2 use amp 0). **Params are static** (only
+  ever set from models.lua), so `levelLoader.ts` captures them into `LevelData.waves` - no live
+  engine needed and ReplayScene gets it free; `levelScript.ts`'s binding stays a no-op. New
+  `web/src/scenes/WavyBackground.ts` renders it as a **fragment shader** (per-scanline shift with
+  wrap IS a one-liner: `fract(uv.x + shiftX/w)`), one draw call instead of ~555 blits + a per-frame
+  upload - Phaser's Shader docs name this exact case. Two wrinkles: a Shader samples a whole
+  texture, so the bg atlas frame (docs/042) is copied once into a standalone canvas texture at
+  create (docs/048 guarantees opaque bg frames are untrimmed/full-size); and `outTexCoord` is
+  **bottom-left origin**, so the scanline is `(1-v)*h`. Phase uses continuous scene time (same rate,
+  smoother than the original's 10Hz stepping). Falls back to a plain Image for `amp==0` or non-WebGL.
+  **Two traps worth remembering**: `textures.remove()`ing the extracted canvas in `destroy()` during
+  SHUTDOWN silently **wedges the scene transition** (use one shared `"wavy-bg"` key instead - only
+  one bg is alive at a time, capped at 1 texture, verified); and launching headless Chromium with
+  `--use-gl=angle --use-angle=swiftshader` hangs - plain headless already gives WebGL
+  (`renderer.type === 2`). Verified in a real browser (amp 2.5/10/0.2; phase rate exactly
+  0.00200 rad/ms = 2 rad/s; pixels animate; emulator amp-0 falls back; gods' sunken ship renders
+  upright/undistorted) + e2e 7/7. **Only `mirror`/`zx` now remain from the audit.**
 
 Commands (from repo root):
 

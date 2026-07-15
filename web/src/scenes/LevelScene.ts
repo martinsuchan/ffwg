@@ -20,6 +20,7 @@ import { pictureToAtlas } from "./atlas";
 import { SaveSlotUI } from "./SaveSlotUI";
 import { HelpOverlay } from "./HelpOverlay";
 import { SubtitleStack } from "./SubtitleStack";
+import { WavyBackground } from "./WavyBackground";
 import {
   loadSavedGames,
   addSavedGame,
@@ -93,9 +94,13 @@ export class LevelScene extends Phaser.Scene {
   private levelData!: LevelData;
   private engine!: GameEngine;
   private animators = new Map<number, ModelAnimator>();
-  /** The room background image - swapped at runtime by game_changeBg()
-   *  (corridor/rotate/steel), see applyBgChange() and docs/033. */
-  private bgImage!: Phaser.GameObjects.Image;
+  /** The room background + its underwater ripple (setRoomWaves, docs/056);
+   *  swapped at runtime by game_changeBg() (corridor/rotate/steel), see
+   *  applyBgChange() and docs/033. */
+  private background!: WavyBackground;
+  /** Lazily created on the first level that registers a rope decor - see
+   *  drawRopes() and docs/055. */
+  private ropeGraphics?: Phaser.GameObjects.Graphics;
   private statusText!: Phaser.GameObjects.Text;
   /** Stacking, colored, self-dismissing subtitles at the bottom of the screen -
    *  a port of the original's SubTitleAgent, replacing docs/015's single white
@@ -117,6 +122,10 @@ export class LevelScene extends Phaser.Scene {
    *  world-final levels + the ending have one. Played after solving, before
    *  returning to the map (legacy Level::finishLevel -> createPoster, docs/050). */
   private poster: string | null = null;
+  /** LevelNode::m_depth - this level's 1-based distance from the world-map
+   *  root (ending = -1), passed to the Lua engine for level_getDepth(). Drives
+   *  blackjokes.lua's death-joke tier. See docs/054. */
+  private depth = 1;
   /** Countdown (in rounds) from a solved room to the auto-return to the
    *  world map - see SOLVED_RETURN_ROUNDS and tick(). -1 = not counting. */
   private solvedCountdown = -1;
@@ -161,6 +170,8 @@ export class LevelScene extends Phaser.Scene {
     setBusy: (index, busy) => this.engine.setBusy(index, busy),
     checkActive: () => this.engine.checkActive(),
     setFastFalling: (value) => this.engine.setFastFalling(value),
+    askFieldIndex: (x, y) => this.engine.askFieldIndex(x, y),
+    isSolved: () => this.engine.isSolved(),
   };
   /** Guards keydown-P against double-firing while the reference-solution
    *  fetch for launchReplay() is still in flight - see docs/025. */
@@ -199,9 +210,14 @@ export class LevelScene extends Phaser.Scene {
    *  runtime, so `levelData` can no longer be known when this scene is
    *  constructed (it used to be, back when `main.ts` always booted into
    *  one hardcoded level). Same pattern `ReplayScene` already used. */
-  init(data: { levelData: LevelData; poster?: string | null }): void {
+  init(data: { levelData: LevelData; poster?: string | null; depth?: number }): void {
     this.levelData = data.levelData;
     this.poster = data.poster ?? null;
+    this.depth = data.depth ?? 1;
+    // Phaser reuses the scene instance across scene.start(), but SHUTDOWN
+    // destroys its GameObjects - drop the stale handle so drawRopes() builds a
+    // fresh one instead of touching a destroyed Graphics (cf. docs/012).
+    this.ropeGraphics = undefined;
   }
 
   preload(): void {
@@ -226,8 +242,14 @@ export class LevelScene extends Phaser.Scene {
       this.levelData.roomWidth * GRID_SCALE,
       this.levelData.roomHeight * GRID_SCALE,
     );
-    const bg = pictureToAtlas(this.levelData.bgPicture);
-    this.bgImage = this.add.image(0, 0, bg.atlasKey, bg.frame).setOrigin(0, 0);
+    this.background = new WavyBackground(
+      this,
+      this.levelData.levelName,
+      this.levelData.bgPicture,
+      this.levelData.roomWidth * GRID_SCALE,
+      this.levelData.roomHeight * GRID_SCALE,
+      this.levelData.waves,
+    );
 
     // Hidden while empty - an empty Text with a background + padding still
     // renders its little padding box (the stray top-left smudge), so it's
@@ -352,6 +374,9 @@ export class LevelScene extends Phaser.Scene {
     // before startEngine() runs (not after) so it's still in place even if
     // that throws below.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      // Frees the bg's extracted canvas texture (docs/056) - one ~1MB canvas
+      // per level otherwise accumulates across a session.
+      this.background.destroy();
       this.audioManager.destroy();
       this.levelScript?.destroy();
       this.subtitleStack.destroy();
@@ -401,12 +426,24 @@ export class LevelScene extends Phaser.Scene {
    * lasts `phases · CYCLE_MS` (the slide fills it exactly, no zip-wait); an idle
    * round is one cycle so input stays responsive.
    */
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
+    // The background ripple runs on its own wall-clock phase, independent of
+    // the physics round loop (the original drives it off TimerAgent's global
+    // cycle counter the same way) - so it keeps waving even before the first
+    // round or while the room is settling. See docs/056.
+    this.background.update(time);
     if (!this.roundsActive) return;
     this.roundClock += delta;
 
     const progress = this.moving ? Math.min(1, this.roundClock / this.moveDurationMs) : 1;
-    for (const animator of this.animators.values()) animator.render(progress);
+    // game_setScreenShift()'s whole-view offset (engine's motor shake, cabin1's
+    // wall-shove jolt) - applied to every model, never the background, exactly
+    // like legacy View::getScreenPos()/Room::drawOn(). See docs/055.
+    const shift = this.levelScript?.getScreenShift() ?? { x: 0, y: 0 };
+    for (const animator of this.animators.values()) animator.render(progress, shift.x, shift.y);
+    // Ropes anchor to the models' just-rendered screen positions, and legacy
+    // View::drawOn() draws decors after the models, so they sit on top.
+    this.drawRopes();
 
     const interval = this.moving ? this.moveDurationMs : IDLE_ROUND_MS;
     if (this.roundClock >= interval) {
@@ -491,6 +528,7 @@ export class LevelScene extends Phaser.Scene {
       generation,
       this.hostActions,
       this.engineControl,
+      this.depth,
     )
       .then(async (script) => {
         if (generation !== this.scriptGeneration) {
@@ -548,7 +586,7 @@ export class LevelScene extends Phaser.Scene {
   private applyBgChange(picture: string): void {
     const { atlasKey, frame } = pictureToAtlas(picture);
     if (this.textures.exists(atlasKey) && this.textures.get(atlasKey).has(frame)) {
-      if (this.bgImage.active) this.bgImage.setTexture(atlasKey, frame);
+      this.background.setPicture(picture);
     } else {
       console.warn(
         `game_changeBg: frame "${frame}" not in atlas "${atlasKey}" for "${this.levelData.levelName}"`,
@@ -759,7 +797,15 @@ export class LevelScene extends Phaser.Scene {
         this.showFeedback("No solution to replay");
         return;
       }
-      this.scene.start("replay", { levelData: this.levelData, moves });
+      // Carry poster/depth so Esc back from the replay restores this level
+      // fully. returnTo defaults to "level", and ReplayScene only plays a
+      // poster for the worldmap (Pedometer) path, so passing it is safe here.
+      this.scene.start("replay", {
+        levelData: this.levelData,
+        moves,
+        poster: this.poster,
+        depth: this.depth,
+      });
     } catch (error) {
       console.error(
         `Failed to load a solution to replay for "${this.levelData.levelName}"`,
@@ -772,10 +818,37 @@ export class LevelScene extends Phaser.Scene {
 
   /** Converts a pointer's world position (already zoom/scroll-adjusted by
    *  Phaser) to a field cell, the same GRID_SCALE mapping sprites use -
-   *  legacy's View::getFieldPos(), simplified since this project never
-   *  scrolls the camera. */
+   *  legacy's View::getFieldPos(): `(cursor - m_screenShift) / SCALE`. The
+   *  screen shift has to come back off, or clicking a fish would miss it by
+   *  exactly the shift while engine/cabin1 are jolting the view (docs/055). */
   private toFieldPos(pointer: Phaser.Input.Pointer): V2 {
-    return new V2(Math.floor(pointer.worldX / GRID_SCALE), Math.floor(pointer.worldY / GRID_SCALE));
+    const shift = this.levelScript?.getScreenShift() ?? { x: 0, y: 0 };
+    return new V2(
+      Math.floor((pointer.worldX - shift.x) / GRID_SCALE),
+      Math.floor((pointer.worldY - shift.y) / GRID_SCALE),
+    );
+  }
+
+  /** legacy RopeDecor::drawOnScreen(): for each game_addDecor("rope", ...), a
+   *  line between the two models' screen positions plus each end's pixel shift,
+   *  in the original's steel colour (0x30404e). Redrawn every frame so it
+   *  follows the lift - only elevator1/elevator2 have any. See docs/055. */
+  private drawRopes(): void {
+    const decors = this.levelScript?.getRopeDecors();
+    if (!decors?.length) return;
+    if (!this.ropeGraphics) {
+      // Above the models (View::drawOn draws decors last), below the UI.
+      this.ropeGraphics = this.add.graphics().setDepth(5);
+    }
+    const g = this.ropeGraphics;
+    g.clear();
+    g.lineStyle(1, 0x30404e, 1);
+    for (const rope of decors) {
+      const a = this.animators.get(rope.index1)?.getScreenPos();
+      const b = this.animators.get(rope.index2)?.getScreenPos();
+      if (!a || !b) continue; // an anim-less model has no sprite to anchor to
+      g.lineBetween(a.x + rope.shift1.x, a.y + rope.shift1.y, b.x + rope.shift2.x, b.y + rope.shift2.y);
+    }
   }
 
   private tick(): void {
@@ -877,7 +950,11 @@ export class LevelScene extends Phaser.Scene {
       const isFish = isFishKind(model.kind);
       const scriptAnim = isFish ? null : (this.levelScript?.getScriptAnim(model.index) ?? null);
       const isTalking = isFish && (this.levelScript?.isModelTalking(model.index) ?? false);
-      this.animators.get(model.index)?.sync(model, scriptAnim, isTalking);
+      // Lua-driven cosmetic render offset + draw effect (docs/051) - items only,
+      // same ownership split as scriptAnim.
+      const viewShift = isFish ? null : (this.levelScript?.getViewShift(model.index) ?? null);
+      const effect = isFish ? null : (this.levelScript?.getEffect(model.index) ?? null);
+      this.animators.get(model.index)?.sync(model, scriptAnim, isTalking, viewShift, effect);
     }
 
     // Phase-lock the round the moves above just decided: how long the shared

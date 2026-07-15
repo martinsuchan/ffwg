@@ -55,6 +55,10 @@ export interface WorldMapData {
   /** The ending node (branch_setEnding), or null. Not part of `nodes` (it has
    *  no map position); auto-launched when everything else is solved. */
   ending: EndingNode | null;
+  /** codename -> LevelNode::m_depth: 1 at the root, parent+1 for each child
+   *  (real range here is 1..15); the ending is -1. blackjokes.lua picks its
+   *  death-joke tier with `switch(level_getDepth())`. See docs/054. */
+  depths: Map<string, number>;
   /** legacy Pedometer's SolverDrawer strings from script/labels.lua, keyed
    *  `<name>:<lang>` (name = solver_better/solver_equals/solver_worse). Only
    *  these 3 labels are captured. `%1`/`%2` placeholders are filled at render
@@ -152,5 +156,36 @@ export async function loadWorldMap(): Promise<WorldMapData> {
     lua.global.close();
   }
 
-  return { nodes, rootCodename, names, sections, bestSolutions, posters, ending, solverLabels };
+  return {
+    nodes,
+    rootCodename,
+    names,
+    sections,
+    bestSolutions,
+    posters,
+    ending,
+    depths: computeDepths(nodes, ending),
+    solverLabels,
+  };
+}
+
+/** legacy LevelNode: `m_depth = 1` at construction and `addChild()` sets each
+ *  child to parent+1, so a node's depth is its 1-based distance from the root.
+ *  WorldBranch gives the ending -1. See docs/054. */
+function computeDepths(nodes: WorldMapNode[], ending: EndingNode | null): Map<string, number> {
+  const parents = new Map(nodes.map((n) => [n.codename, n.parent]));
+  const depths = new Map<string, number>();
+  const depthOf = (codename: string, seen = new Set<string>()): number => {
+    const cached = depths.get(codename);
+    if (cached !== undefined) return cached;
+    const parent = parents.get(codename);
+    // A missing/cyclic parent can't happen in the real map ("cycles in graph
+    // are not supported"), but don't hang if the data ever changes.
+    const d = !parent || seen.has(codename) ? 1 : 1 + depthOf(parent, seen.add(codename));
+    depths.set(codename, d);
+    return d;
+  };
+  for (const node of nodes) depthOf(node.codename);
+  if (ending) depths.set(ending.codename, -1);
+  return depths;
 }

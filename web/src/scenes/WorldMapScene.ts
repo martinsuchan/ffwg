@@ -517,7 +517,11 @@ export class WorldMapScene extends Phaser.Scene {
       .then((levelData) => {
         document.title = this.titleFor(ending.codename);
         pushSubView();
-        this.scene.start("level", { levelData, poster: ending.poster });
+        this.scene.start("level", {
+          levelData,
+          poster: ending.poster,
+          depth: this.mapData.depths.get(ending.codename) ?? -1,
+        });
       })
       .catch((error: unknown) => {
         console.error(`Failed to load the ending level`, error);
@@ -536,7 +540,11 @@ export class WorldMapScene extends Phaser.Scene {
       const levelData = await loadLevelModels(codename);
       document.title = this.titleFor(codename);
       pushSubView();
-      this.scene.start("level", { levelData, poster: this.mapData.posters.get(codename) ?? null });
+      this.scene.start("level", {
+        levelData,
+        poster: this.mapData.posters.get(codename) ?? null,
+        depth: this.mapData.depths.get(codename) ?? 1,
+      });
     } catch (error) {
       console.error(`Failed to load level "${codename}"`, error);
       this.showFeedback(`Failed to load "${codename}"`);
@@ -566,6 +574,7 @@ export class WorldMapScene extends Phaser.Scene {
           moves,
           returnTo: "worldmap",
           poster: this.mapData.posters.get(codename) ?? null,
+          depth: this.mapData.depths.get(codename) ?? 1,
         });
       })
       .catch((error: unknown) => {

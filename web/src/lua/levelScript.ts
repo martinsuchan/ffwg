@@ -10,7 +10,13 @@ import {
   extractRuntimeIncludes,
   getAudioManifest,
 } from "./levelLoader";
-import { resolveSoundPath, fetchSoundDurations, type ResolvedSound } from "./dialogSound";
+import {
+  resolveSoundPath,
+  fetchSoundDurations,
+  splitDialogName,
+  formatSubtitle,
+  type ResolvedSound,
+} from "./dialogSound";
 import { loadSettings } from "../storage/settingsStorage";
 
 /** Dialog language for both text and voice audio - Czech by default (docs/018:
@@ -105,12 +111,37 @@ export interface EngineControl {
   checkActive(): void;
   /** game_setFastFalling(value): settle all falls in one round while set. */
   setFastFalling(value: boolean): void;
+  /** model_equals(): which model occupies (x,y) via the real multi-cell Field -
+   *  index, -1 for the border/wall, or null for empty water. See docs/054. */
+  askFieldIndex(x: number, y: number): number | null;
+  /** level_isSolved(): legacy Room::isSolved(). */
+  isSolved(): boolean;
 }
 
 /** One level's Lua-driven animation override for a single model this round. */
 export interface ScriptAnim {
   name: string;
   phase: number;
+}
+
+/** model_setViewShift(): a purely cosmetic render offset in GRID CELLS, added
+ *  to the model's location *before* scaling - legacy View::getScreenPos():
+ *  `(location + viewShift) * SCALE + moveShift`. gods' sunk-ship easter egg
+ *  flies its wreck across the room with this (docs/051). */
+export interface ViewShift {
+  x: number;
+  y: number;
+}
+
+/** game_addDecor("rope", i1, i2, x1,y1, x2,y2) - legacy RopeDecor: a line drawn
+ *  every frame between two models' screen positions plus a per-end pixel shift.
+ *  Only elevator1/elevator2 use it (a "double rope" from the lift to its
+ *  machine). Registered once at bootstrap, never removed. See docs/055. */
+export interface RopeDecor {
+  index1: number;
+  index2: number;
+  shift1: ViewShift;
+  shift2: ViewShift;
 }
 
 /** A registered dialogId()'s font+text+derived sound path, keyed by dialog
@@ -164,6 +195,16 @@ type MusicCommand = { type: "play"; track: string } | { type: "stop" };
 interface LevelScriptState {
   renderModels: RenderModel[];
   scriptAnims: Map<number, ScriptAnim>;
+  /** model_setViewShift() per model - a cosmetic render offset in grid cells. */
+  viewShifts: Map<number, ViewShift>;
+  /** model_setEffect() per model (legacy Anim::setEffect): "none" | "invisible"
+   *  | "reverse" | "mirror" | "zx". Absent = never set = "none". */
+  effects: Map<number, string>;
+  /** game_addDecor("rope", ...) - built once at bootstrap (docs/055). */
+  decors: RopeDecor[];
+  /** game_setScreenShift(x, y) - a whole-view pixel offset applied to every
+   *  model (and decor), but NOT the background (docs/055). */
+  screenShift: ViewShift;
   cycles: number;
   dialogRegistry: Map<string, DialogEntry>;
   /** All running dialog voices (DialogStack m_running + m_cycling merged, the
@@ -346,6 +387,28 @@ export class LevelScript {
    *  though those calls still land in this same map. */
   getScriptAnim(index: number): ScriptAnim | null {
     return this.state.scriptAnims.get(index) ?? null;
+  }
+
+  /** model_setViewShift()'s latest cosmetic render offset (grid cells) for a
+   *  model, or null if the level never set one. See docs/051. */
+  getViewShift(index: number): ViewShift | null {
+    return this.state.viewShifts.get(index) ?? null;
+  }
+
+  /** model_setEffect()'s latest draw effect for a model, or null if never set
+   *  (= legacy's default "none"). See docs/051. */
+  getEffect(index: number): string | null {
+    return this.state.effects.get(index) ?? null;
+  }
+
+  /** Every game_addDecor("rope", ...) this level registered - see docs/055. */
+  getRopeDecors(): RopeDecor[] {
+    return this.state.decors;
+  }
+
+  /** game_setScreenShift()'s current whole-view pixel offset (docs/055). */
+  getScreenShift(): ViewShift {
+    return this.state.screenShift;
   }
 
   /** Whether model `index` should show its talking-mouth head overlay -
@@ -548,6 +611,10 @@ export async function createLevelScript(
   restartCount: number,
   hostActions?: HostActions,
   engineControl?: EngineControl,
+  /** LevelNode::m_depth - this level's 1-based distance from the world-map
+   *  root (ending = -1). Drives blackjokes.lua's death-joke tier. Defaults to
+   *  1 for callers with no map context (sweeps/tests). See docs/054. */
+  depth = 1,
 ): Promise<LevelScript> {
   // Snapshot the language for the whole load (fetch paths, sound prefixes, etc.
   // below all use it) - the Options setting, read once here so this level loads
@@ -642,6 +709,10 @@ export async function createLevelScript(
     // before the first real tick() - an empty snapshot would crash that.
     renderModels: initialRenderModels,
     scriptAnims: new Map<number, ScriptAnim>(),
+    viewShifts: new Map<number, ViewShift>(),
+    effects: new Map<number, string>(),
+    decors: [],
+    screenShift: { x: 0, y: 0 },
     cycles: 0,
     dialogRegistry: new Map<string, DialogEntry>(),
     talkers: [],
@@ -783,26 +854,43 @@ export async function createLevelScript(
     // call a nil value" mid-round and froze the loop (docs/033). The Dir enum
     // values match the Lua dir_* constants exactly (NO=0..RIGHT=4).
     lua.global.set("model_getTouchDir", (index: number) => state.renderModels[index].touchDir);
-    // game-script.cpp's model_equals(index, x, y): does *this* model occupy
-    // field cell (x,y)? Backs isWater()/isFreePlace()-style pathfinding
-    // helpers a handful of "programmed"/scripted-unit levels use (prog_
-    // compatible.lua, prog_finder.lua). Approximated from the same
-    // RenderModel[] snapshot every other binding here already uses (this
-    // engine deliberately has no access to the real Field/Room, see this
-    // file's own doc comment) - matches a model's single anchor position,
-    // not its full multi-cell shape mask, and doesn't distinguish "empty
-    // water" from "room border" the way the original's Field sentinel does.
-    // A documented simplification, not a crash fix pretending to be exact -
-    // affects only a few non-final levels' scripted-unit pathfinding.
+    // game-script.cpp's model_equals(index, x, y): "is the model occupying cell
+    // (x,y) the one with this index?", where index -1 asks "is it empty water?".
+    // Real now (docs/054), resolved through the engine's actual Field via the
+    // EngineControl bridge - so it honours each model's full multi-cell mask,
+    // not just its anchor. That matters: prog_compatible.lua's isWater()/
+    // modelEquals() and prog_finder.lua's isFreePlace() (which scans a model's
+    // whole W*H) drive creatures/cancan/turtle's scripted NPCs, and they test
+    // against `room` - the level's entire wall shape - so an anchor-only match
+    // reported every wall cell as free.
+    //
+    // Note the original's exact branch order (border is a wall, not water):
+    // an out-of-bounds probe returns the border Cube, which is non-null, so
+    // model_equals(-1, ...) is FALSE there even though the border's own index
+    // is also -1. askFieldIndex() reports null only for genuinely empty water.
     lua.global.set("model_equals", (index: number, x: number, y: number) => {
-      const occupant = state.renderModels.find((m) => !m.isLost && m.x === x && m.y === y);
-      return occupant ? occupant.index === index : index === -1;
+      const other = engineControl?.askFieldIndex(x, y) ?? null;
+      if (other === null) return index === -1; // empty water
+      return index === -1 ? false : index === other;
     });
-    // Per-model/per-screen view-shift (model_setViewShift/game_setScreenShift)
-    // are purely cosmetic camera/render-offset effects (View::getScreenPos()
-    // only) with no gameplay/goal state - safe no-ops. See docs/028.
-    lua.global.set("model_setViewShift", () => {});
-    lua.global.set("game_setScreenShift", () => {});
+    // model_setViewShift(index, x, y): a cosmetic per-model render offset in
+    // GRID CELLS, added to the location before scaling (View::getScreenPos).
+    // Real now - gods' sunk-ship easter egg flies its wreck across the room
+    // purely with this (docs/051). ModelAnimator applies it.
+    lua.global.set("model_setViewShift", (index: number, x: number, y: number) => {
+      state.viewShifts.set(index, { x: Math.round(x), y: Math.round(y) });
+    });
+    // game_setScreenShift(x, y): a whole-view pixel offset - legacy
+    // View::m_screenShift, added in getScreenPos() (and subtracted in
+    // getFieldPos() for the mouse). Real now (docs/055). Note Room::drawOn()
+    // draws the background FIRST at a fixed (0,0) and only m_view carries the
+    // shift - so the backdrop stays put while every model moves. The walls are
+    // a model too (`room = addModel("item_fixed", ...)`), so walls + items +
+    // fish jolt together against the static backdrop. Truncated like the
+    // original's luaL_checkint - cabin1/engine both pass floats.
+    lua.global.set("game_setScreenShift", (x: number, y: number) => {
+      state.screenShift = { x: Math.trunc(x), y: Math.trunc(y) };
+    });
     // game_setFastFalling(value): real physics pacing, wired to the engine for
     // windoze (settle the main room fast while the bonus is solved) - docs/035.
     lua.global.set("game_setFastFalling", (value: boolean) =>
@@ -811,13 +899,13 @@ export async function createLevelScript(
     // game_checkActive(): switch player control away from a now-busy fish -
     // windoze uses it when swapping control to the extra couple (docs/035).
     lua.global.set("game_checkActive", () => engineControl?.checkActive());
-    // model_getViewShift(index): the getter paired with the no-op
-    // model_setViewShift. View shift is a cosmetic per-model render offset this
-    // port doesn't apply, so it's always (0,0) - but pyramid/code.lua *reads*
-    // it every round, so leaving it unbound (unlike the stubbed setter) threw
-    // "attempt to call a nil value" and froze the loop (docs/033). Returns
-    // (0,0), consistent with the setter being a no-op.
-    lua.global.set("model_getViewShift", () => LuaMultiReturn.of(0, 0));
+    // model_getViewShift(index): the getter paired with model_setViewShift -
+    // returns whatever was last set (pyramid's parallax reads it every round;
+    // leaving it unbound once froze that level - docs/033).
+    lua.global.set("model_getViewShift", (index: number) => {
+      const shift = state.viewShifts.get(index);
+      return LuaMultiReturn.of(shift?.x ?? 0, shift?.y ?? 0);
+    });
     // game_changeBg(picture): swaps the whole room background at runtime -
     // corridor/rotate/steel do this as the puzzle progresses (darken, phase
     // change). Unbound, it froze those levels' loops mid-play (docs/033, same
@@ -863,10 +951,31 @@ export async function createLevelScript(
     lua.global.set("model_setBusy", (index: number, value: boolean) =>
       engineControl?.setBusy(index, Boolean(value)),
     );
-    lua.global.set("model_setEffect", () => {});
-    // game_addDecor (purely visual) - real no-op stub, proven safe in
-    // levelLoader.ts's static pass (docs/024). See docs/028.
-    lua.global.set("game_addDecor", () => {});
+    // model_setEffect(index, name): legacy Anim::setEffect - "none" (draw
+    // normally), "invisible" (draw nothing), "reverse" (flip left/right),
+    // "mirror" (submarine's per-pixel screen reflection) and "zx" (emulator's
+    // colour-clash gag). Real now for the two that are plain draw rules -
+    // "invisible" (39 uses across levels; gods' wreck is hidden until a ship
+    // sinks) and "reverse" (party1/party2) - see ModelAnimator. mirror/zx are
+    // recorded but drawn normally (per-pixel screen effects, docs/051).
+    lua.global.set("model_setEffect", (index: number, name: string) => {
+      state.effects.set(index, name);
+    });
+    // game_addDecor(name, ...): legacy only implements "rope" (RopeDecor) and
+    // LOG_WARNINGs anything else. Real now (docs/055) - elevator1/elevator2
+    // hang a "double rope" from the lift to its machine. LevelScene draws them.
+    lua.global.set(
+      "game_addDecor",
+      (name: string, i1: number, i2: number, x1: number, y1: number, x2: number, y2: number) => {
+        if (name !== "rope") return; // unknown decor - the original just warns
+        state.decors.push({
+          index1: i1,
+          index2: i2,
+          shift1: { x: x1, y: y1 },
+          shift2: { x: x2, y: y2 },
+        });
+      },
+    );
     // Level::planShow(func): queue one show command (CommandQueue m_show).
     // Real now (docs/031, Phase 2) - only briefcase's demo_help.lua queues
     // any, and only at its runtime trigger (never at bootstrap, since
@@ -908,12 +1017,22 @@ export async function createLevelScript(
         loops?: number | null,
         dialogFlag?: boolean,
       ) => {
-        const entry = state.dialogRegistry.get(dialogName);
+        // legacy DialogStack::actorTalk splits the name on '@' into the real
+        // dialog name + format args - gods announces battleship coordinates as
+        // "b2-g@5" (dialog "b2-g", subtitle "G%1." -> "G5."), and the ending
+        // reports its time as "z-c-hodin@<n>". Both the dialog and its voice
+        // clip are found by args[0]; only the subtitle text is formatted.
+        // Looking up the raw "b2-g@5" found nothing, so those lines showed no
+        // subtitle and played no audio at all (docs/052).
+        const { name: baseName, args } = splitDialogName(dialogName);
+        const entry = state.dialogRegistry.get(baseName);
         if (!entry) return;
         const sound = entry.soundPath ? resolveSoundPath(entry.soundPath) : null;
         const durationSeconds = entry.soundPath
           ? state.soundDurations.get(entry.soundPath)
           : undefined;
+        // Dialog::getMinTime() measures the RAW subtitle (m_subtitle), not the
+        // formatted one - kept faithful; a real clip's length still wins.
         const minTime =
           durationSeconds !== undefined
             ? Math.ceil((durationSeconds * 1000) / CYCLE_MS)
@@ -940,9 +1059,10 @@ export async function createLevelScript(
         // talking-state above), matching the original's SubTitleAgent. Empty-
         // subtitle "sound only" dialogs (viking d1-z-*) add nothing. See
         // docs/037.
-        if (entry.subtitle) {
+        const text = formatSubtitle(entry.subtitle, args);
+        if (text) {
           state.pendingSubtitles.push({
-            text: entry.subtitle,
+            text,
             color: colorForFont(state, entry.font),
           });
         }
@@ -973,11 +1093,18 @@ export async function createLevelScript(
     // script_update() is called exactly once per physics round, always -
     // there's no separate render-vs-logic distinction to detect here.
     lua.global.set("level_isNewRound", () => true);
-    lua.global.set("level_isSolved", () => false);
+    // Real now (docs/054) - legacy Room::isSolved(). bordershout.lua gates its
+    // shout lines on `getState()=="goout" or level_isSolved()`.
+    lua.global.set("level_isSolved", () => engineControl?.isSolved() ?? false);
     // The level's static position in the world-map campaign tree
-    // (LevelNode::m_depth), not a stuck/death counter - we have no
-    // world-map system, so this stays a constant (docs/015).
-    lua.global.set("level_getDepth", () => 0);
+    // (LevelNode::m_depth): 1 at the root, parent+1 for each child, -1 for the
+    // ending. Real now that the world map exists (docs/027) - it used to be a
+    // constant 0 (docs/015), which silently killed a lot of content:
+    // blackjokes.lua picks its death-joke tier with `switch(level_getDepth())`
+    // over joke_table[1..15] (real depths run 1..15), so depth 0 matched
+    // nothing at all, and its `level_getDepth() == 2` early-return (briefcase,
+    // the tutorial, gets no black jokes) never fired either. See docs/054.
+    lua.global.set("level_getDepth", () => depth);
     // Real now (docs/015): Level::m_restartCounter starts at 1 and
     // increments once per restart, nothing fancier - restartCount is
     // LevelScene's own matching counter, passed straight through.
@@ -993,11 +1120,15 @@ export async function createLevelScript(
       if (run) state.pendingIncludes.push(run);
     });
     lua.global.set("codename", levelName);
-    // OptionAgent config lookup (language/subtitle settings etc.) - this
-    // port has no options UI yet (docs/027's "Follow-up"). Returning ""
-    // (not null/undefined - both crash/misbehave in wasmoon, docs/024)
-    // matches levelLoader.ts's existing static-pass stub exactly.
-    lua.global.set("options_getParam", () => "");
+    // OptionAgent config lookup. The Lua only ever asks for "lang", "speech",
+    // "package" and "version"; the Options screen exists now (docs/038), so
+    // "lang"/"speech" answer with the real setting (this port ties voice to the
+    // text language - there's no separate speech selector). Anything else
+    // returns "" - never null/undefined, both of which crash or misbehave in
+    // wasmoon (docs/024). See docs/054.
+    lua.global.set("options_getParam", (name: string) =>
+      name === "lang" || name === "speech" ? DIALOG_LANG : "",
+    );
 
     await lua.doString(compatSource);
     await lua.doString("text = {}");

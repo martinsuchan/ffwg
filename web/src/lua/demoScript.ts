@@ -1,7 +1,13 @@
 import { LuaFactory, type LuaEngine } from "wasmoon";
 
 import { fetchText, fetchLegacyFile, getAudioManifest } from "./levelLoader";
-import { resolveSoundPath, fetchSoundDurations, type ResolvedSound } from "./dialogSound";
+import {
+  resolveSoundPath,
+  fetchSoundDurations,
+  splitDialogName,
+  formatSubtitle,
+  type ResolvedSound,
+} from "./dialogSound";
 import { loadSettings } from "../storage/settingsStorage";
 
 /** One movie cycle - the rate DemoScene ticks demoScript at, matching the
@@ -217,7 +223,10 @@ export async function createDemoScript(
     lua.global.set(
       "model_talk",
       (index: number, dialogName: string, volume?: number | null, loops?: number | null) => {
-        const entry = state.dialogRegistry.get(dialogName);
+        // Same '@' name/args split as levelScript.ts (DialogStack::actorTalk) -
+        // one shared rule for every model_talk in the port. See docs/052.
+        const { name: baseName, args } = splitDialogName(dialogName);
+        const entry = state.dialogRegistry.get(baseName);
         if (!entry) return;
         const sound = entry.soundPath ? resolveSoundPath(entry.soundPath) : null;
         const durationSeconds = entry.soundPath
@@ -232,7 +241,7 @@ export async function createDemoScript(
         const repeats = (loops ?? 0) + 1;
         state.activeDialog = {
           actorIndex: index,
-          text: entry.subtitle,
+          text: formatSubtitle(entry.subtitle, args),
           endCycle: state.cycles + minTime * repeats,
           sound,
           volume: volume ?? 75,

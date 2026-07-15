@@ -121,6 +121,19 @@ export class GameEngine {
     return this.room.isSolved();
   }
 
+  /** Which model occupies grid cell (x, y) - legacy's Room::askField()/
+   *  Field::getModel(), i.e. resolved through each model's real multi-cell
+   *  mask, not just its anchor. Returns the model's index, `-1` for the shared
+   *  border Cube (any out-of-bounds probe - "border is as wall"), or null for
+   *  empty water. Backs the model_equals() binding - see docs/054. */
+  askFieldIndex(x: number, y: number): number | null {
+    const cube = this.room.askField(new V2(x, y));
+    if (!cube) return null;
+    // indexOf() is -1 for the border Cube, which isn't in `models` - exactly
+    // the index the original's border reports (Cube::getIndex() == -1).
+    return this.room.models.indexOf(cube);
+  }
+
   isSolvable(): boolean {
     return this.room.isSolvable();
   }

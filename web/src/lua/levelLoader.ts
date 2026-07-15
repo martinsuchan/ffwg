@@ -27,12 +27,26 @@ export interface LevelModel {
   isLeft: boolean;
 }
 
+/** setRoomWaves()'s underwater ripple for this room - legacy WavyPicture:
+ *  each background scanline is shifted horizontally (with wrap) by
+ *  `amp * sin(y/periode + cycles*speed)`. Static per level (only ever set from
+ *  models.lua, never at runtime), so it's captured here rather than via the
+ *  live engine. Note level_creation.lua's wrapper halves the amplitude and
+ *  inverts the speed: setRoomWaves(5,10,5) -> game_setRoomWaves(2.5, 10, 0.2),
+ *  which is what 68 of the 81 levels use. `amp: 0` = no waves. See docs/056. */
+export interface RoomWaves {
+  amp: number;
+  periode: number;
+  speed: number;
+}
+
 export interface LevelData {
   levelName: string;
   roomWidth: number;
   roomHeight: number;
   bgPicture: string;
   models: LevelModel[];
+  waves: RoomWaves;
 }
 
 interface HostModel {
@@ -302,6 +316,8 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
 
   const hostModels: HostModel[] = [];
   let room: { width: number; height: number; picture: string } | null = null;
+  // Default = WavyPicture's own constructor default: no waves (amp 0).
+  let waves: RoomWaves = { amp: 0, periode: 1, speed: 0 };
 
   try {
     lua.global.set(
@@ -310,7 +326,10 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
         room = { width, height, picture };
       },
     );
-    lua.global.set("game_setRoomWaves", () => {});
+    // Real (docs/056) - the room's underwater ripple, captured statically.
+    lua.global.set("game_setRoomWaves", (amp: number, periode: number, speed: number) => {
+      waves = { amp, periode, speed };
+    });
     lua.global.set("sound_addSound", () => {});
     // Real lookup (docs/009, docs/018) - imgList() in level_creation.lua
     // uses this to discover every numbered frame ("_00", "_01", ...) of an
@@ -471,6 +490,7 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     roomWidth: loadedRoom.width,
     roomHeight: loadedRoom.height,
     bgPicture: loadedRoom.picture,
+    waves,
     models: hostModels.map((model) => ({
       kind: model.kind,
       x: model.x,
