@@ -8,10 +8,15 @@ import { DemoScene } from "./scenes/DemoScene";
 import { CreditsScene } from "./scenes/CreditsScene";
 import { IntroScene } from "./scenes/IntroScene";
 import { initHistoryNav } from "./navigation";
+import { initPlaytimeTracking } from "./storage/playtime";
 
 const ZOOM = 1.5;
 
 async function boot(): Promise<void> {
+  // Start accumulating total play time (persisted across sessions) from app
+  // boot - the ending reports it as hours (docs/061).
+  initPlaytimeTracking();
+
   const worldMapData = await loadWorldMap();
 
   const game = new Phaser.Game({

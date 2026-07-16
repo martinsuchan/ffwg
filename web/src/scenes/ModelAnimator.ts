@@ -138,7 +138,16 @@ export function roundPhases(
   return 1; // pure fall: one cycle per cell (fast)
 }
 
-/** Resolves an (anim, side, phase) triple to its atlas key + frame name (docs/042). */
+/** Resolves an (anim, side, phase) triple to its atlas key + frame name (docs/042).
+ *
+ *  A *negative* phase resolves to frame 0, matching legacy ResourcePack::getRes(),
+ *  whose "advance to rank" loop (`for (i = 0; i < rank && ...)`) simply never runs
+ *  for a negative rank, so it returns the first frame. Levels rely on this: a
+ *  negative `afaze` is the scripts' idiom for "not started yet" (gods' sunken
+ *  wreck parks at -1; fdto's seahorse counts up from `-random(100)`), and it
+ *  reaches setAnim() live via updateAnim(). Without the guard, JS's `%` keeps the
+ *  sign (`-37 % 3 === -1`), indexing off the front of the array and handing
+ *  `undefined` to pictureToAtlas(). See docs/058. */
 export function resolveFrame(
   anims: Record<string, AnimFrames>,
   name: string,
@@ -148,8 +157,10 @@ export function resolveFrame(
   const frames = anims[name];
   if (!frames) return null;
   const usableSide = frames[side].length > 0 ? side : side === "left" ? "right" : "left";
-  if (frames[usableSide].length === 0) return null;
-  return pictureToAtlas(frames[usableSide][phase % frames[usableSide].length]);
+  const sideFrames = frames[usableSide];
+  if (sideFrames.length === 0) return null;
+  const index = phase < 0 ? 0 : phase % sideFrames.length;
+  return pictureToAtlas(sideFrames[index]);
 }
 
 /**
@@ -183,6 +194,9 @@ export class ModelAnimator {
   private lastIsAlive = true;
   private lastState = "normal";
   private lastIsTalking = false;
+  /** Rules.getAction() from the last sync() - the real action, needed by
+   *  computeHeadAnim's busy branch (the body anim name isn't the action). */
+  private lastAction = "rest";
   /** Which of the 3 head_talking frames is showing - null when not talking
    *  (legacy's talk_phase), so talking re-rolls fresh rather than resuming
    *  mid-cycle. Owned here, not read from Lua (docs/009/013). */
@@ -295,6 +309,7 @@ export class ModelAnimator {
     this.lastIsAlive = model.isAlive;
     this.lastState = model.state;
     this.lastIsTalking = isTalking;
+    this.lastAction = model.action;
 
     if (!model.isAlive) {
       // Dead: permanently show the skeleton pose, delayed by ~one cell so the
@@ -311,10 +326,13 @@ export class ModelAnimator {
       return;
     }
 
-    const body = computeBodyAnim(model);
+    // isTalking + talkPhase let computeBodyAnim pick the busy "talk" body pose
+    // (the fish faces the player while speaking in a scripted conversation) -
+    // its frame is then kept in sync with talk_phase by checkHead().
+    const body = computeBodyAnim(model, isTalking, this.talkPhase ?? 0);
     if (body.name !== this.bodyAnim) {
       this.bodyAnim = body.name;
-      this.bodyPhase = 0;
+      this.bodyPhase = body.phase ?? 0;
       this.applyBodyTexture();
     }
     this.bodyRunning = body.running;
@@ -382,8 +400,19 @@ export class ModelAnimator {
       this.talkPhase = null;
     }
 
+    // Busy "talk" body pose: its frame follows talk_phase (a held pose, so
+    // advanceBody() never cycles it) - drive it here on the same head timer that
+    // cycles talk_phase, so the front-facing talking body animates. See docs/061.
+    if (this.bodyAnim === "talk") {
+      const phase = this.talkPhase ?? 0;
+      if (phase !== this.bodyPhase) {
+        this.bodyPhase = phase;
+        this.applyBodyTexture();
+      }
+    }
+
     const head = computeHeadAnim(
-      { isAlive: this.lastIsAlive, action: this.bodyAnim, state: this.lastState },
+      { isAlive: this.lastIsAlive, action: this.lastAction, state: this.lastState },
       this.lastIsTalking,
       this.talkPhase ?? 0,
       () => Math.floor(Math.random() * 100),

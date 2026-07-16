@@ -7,24 +7,40 @@ import { pictureToAtlas } from "./atlas";
 /**
  * The room background, with legacy `WavyPicture`'s underwater ripple
  * (`game_setRoomWaves`, docs/056). The original blits the background one
- * scanline at a time, each row shifted horizontally with wrap-around:
+ * scanline at a time, each row shifted horizontally:
  *
  *     shift  = TimerAgent::getCycles() * m_speed
  *     shiftX = (Sint16)(0.5 + m_amp * sin(py / m_periode + shift))
  *
- * ...which is exactly one fragment shader: sample the row at `x + shiftX`,
- * wrapped. That's one draw call for the whole effect instead of ~555 blits +
- * a per-frame texture upload. Phaser's own Shader docs call this out as the
- * intended use ("for background or special masking effects, they are extremely
- * effective").
+ * ...which is exactly one fragment shader: sample the row at `x + shiftX`.
+ * That's one draw call for the whole effect instead of ~555 blits + a per-frame
+ * texture upload. Phaser's own Shader docs call this out as the intended use
+ * ("for background or special masking effects, they are extremely effective").
+ * See FRAG_SOURCE for the edge handling, which is NOT a wrap (docs/057).
  *
  * `amp: 0` means no waves (WavyPicture short-circuits to a plain blit) - 2 of
  * the 81 levels - and if WebGL/shader creation isn't available we fall back to
  * a plain Image too, so the background always renders.
  */
 
-/** outTexCoord is bottom-left origin (Phaser 4 note), so the scanline number
- *  counted from the TOP is `(1 - v) * height` - matching the original's `py`. */
+/**
+ * Per-scanline horizontal shift, matching WavyPicture::drawOn() exactly.
+ *
+ * The edge behaviour is the subtle part. The original blits the whole row from
+ * `src.x = shiftX` (SDL_BlitSurface clips the source rect, so one edge strip of
+ * the destination is left uncovered), then "pads" precisely that strip:
+ *
+ *     pad.x = (shiftX < 0) ? 0 : w - shiftX;   pad.w = abs(shiftX);
+ *     dest.x = m_loc.x + pad.x;                // == pad.x, i.e. the SAME x
+ *
+ * so the uncovered columns are filled with the source's pixels at *that same x*
+ * - they simply don't get shifted. It is **not** a wrap-around: wrapping would
+ * drag the opposite edge into view (visibly so on `start`, whose background has
+ * a pure white left edge and an orange right one). See docs/057.
+ *
+ * Note `outTexCoord` is bottom-left origin (a Phaser 4 quirk), so the scanline
+ * counted from the top - the original's `py` - is `(1 - v) * height`.
+ */
 const FRAG_SOURCE = `
 precision mediump float;
 
@@ -38,9 +54,20 @@ varying vec2 outTexCoord;
 
 void main() {
     float rowFromTop = (1.0 - outTexCoord.y) * uSize.y;
-    float shiftX = floor(0.5 + uAmp * sin(rowFromTop / uPeriode + uPhase));
-    float u = fract(outTexCoord.x + shiftX / uSize.x);
-    gl_FragColor = texture2D(uMainSampler, vec2(u, outTexCoord.y));
+
+    // legacy: (Sint16)(0.5 + amp * sin(...)) - a C cast, i.e. truncation TOWARD
+    // ZERO, not floor (-1.8 -> -1, where floor gives -2). WebGL1 has no trunc().
+    float t = 0.5 + uAmp * sin(rowFromTop / uPeriode + uPhase);
+    float shiftX = t < 0.0 ? -floor(-t) : floor(t);
+
+    float x = floor(outTexCoord.x * uSize.x);
+    float srcX = x + shiftX;
+    // Off the edge => this column is in the strip the original "pads" with the
+    // same-position pixel, so leave it unshifted rather than wrapping.
+    if (srcX < 0.0 || srcX > uSize.x - 1.0) {
+        srcX = x;
+    }
+    gl_FragColor = texture2D(uMainSampler, vec2((srcX + 0.5) / uSize.x, outTexCoord.y));
 }
 `;
 

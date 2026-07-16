@@ -1,6 +1,8 @@
 import Phaser from "phaser";
 
 import { loadLevelModels } from "../lua/levelLoader";
+import { createLevelScript, type EngineControl } from "../lua/levelScript";
+import { GameEngine } from "../game/GameEngine";
 import type { WorldMapData, WorldMapNode } from "../lua/worldMapLoader";
 import { computeNodeStates, type NodeState } from "../game/worldMapState";
 import { isSandboxMode } from "../game/appMode";
@@ -41,6 +43,11 @@ interface NodeSprites {
   far: Phaser.GameObjects.Image;
   overlay?: Phaser.GameObjects.Image;
 }
+
+/** Where the sandbox's synthetic ending node sits (top centre). The ending has
+ *  no position in worldmap.lua - it's not a map node at all (docs/050) - so
+ *  this is the port's own choice, clear of the real graph and the corners. */
+const ENDING_NODE_Y = 18;
 
 type CornerAction = "intro" | "exit" | "credits" | "options";
 
@@ -462,74 +469,97 @@ export class WorldMapScene extends Phaser.Scene {
    *  matching the original: Pedometer::runLevel() plays interactively
    *  from scratch exactly like an unsolved node would). */
   /** The ending node ("both fish at home") has no map position (docs/050).
-   *  Legacy WorldMap auto-runs it the moment you return to the map after
-   *  solving the final leaf that completes the game (checkEnding: wasRunning +
-   *  isComplete + areAllSolved). We reproduce that in standard mode; in
-   *  sandbox nothing is genuinely "solved", so it's reachable via a small
-   *  explicit button instead so it (and its final poster) stays testable. */
+   *  Legacy `WorldMap::own_resumeState`/`runSelected` presents it the moment you
+   *  return to the map after finishing a *final* level once the whole game is
+   *  complete: as its **Pedometer** if it's already been solved (Run/Replay/
+   *  Cancel), or played straight through the first time. We reproduce that in
+   *  standard mode; in sandbox it's a top-centre node so it (and its pedometer/
+   *  poster) stay testable without completing the game. See docs/061. */
   private setupEnding(solved: Set<string>): void {
     const ending = this.mapData.ending;
     if (!ending) return;
 
     if (this.sandbox) {
-      // Sandbox-only affordance: a small top-centre button (corners are taken
-      // by Intro/Exit/Credits/Options).
-      this.add
-        .text(MAP_WIDTH / 2, 6, `▶ ${this.mapData.names.get(ending.codename) ?? "Ending"}`, {
-          fontFamily: "sans-serif",
-          fontSize: "14px",
-          color: "#ffffcc",
-          backgroundColor: "#000000a0",
-          padding: { x: 6, y: 3 },
-        })
-        .setOrigin(0.5, 0)
-        .setDepth(1000)
-        .setInteractive({ useHandCursor: true })
-        .on("pointerdown", () => this.launchEnding());
+      // Sandbox-only affordance: an extra map node at top centre (the corners
+      // are taken by Intro/Exit/Credits/Options). Drawn and registered exactly
+      // like a real node - a synthetic WorldMapNode carrying the position - so
+      // it hovers/labels like one, is hidden by setNodesVisible() with the rest
+      // of the graph while the pedometer is up, and (once solved) opens its
+      // pedometer on click just like any solved node.
+      this.drawEndingNode({
+        codename: ending.codename,
+        x: MAP_WIDTH / 2,
+        y: ENDING_NODE_Y,
+        hidden: false,
+        parent: null,
+      });
       return;
     }
 
-    // Standard mode: auto-run once every real level is solved, but only right
-    // after a solve returned us here (not on a fresh boot), and not if the
-    // ending itself is already solved.
-    const data = this.scene.settings.data as { fromLevel?: boolean } | undefined;
-    if (!data?.fromLevel) return;
-    // The ending isn't a map node, so it's not in `solved` (built from
-    // mapData.nodes) - check its own storage, or it would re-trigger every
-    // return after the game is complete (an ending -> poster -> map -> ending loop).
-    if (loadSolvedMoves(ending.codename) !== null) return;
+    // Standard mode (legacy checkEnding): present the ending only right after
+    // finishing a FINAL level (poster path, `fromFinal`) with every level
+    // solved - never on a fresh boot, never after a non-final level, and never
+    // straight back from the ending itself (`endingDone`, the port's equivalent
+    // of legacy's `m_selected != m_ending` guard against an ending->poster->
+    // ending loop).
+    const data = this.scene.settings.data as
+      | { fromFinal?: boolean; endingDone?: boolean }
+      | undefined;
+    if (data?.endingDone || !data?.fromFinal) return;
     if (!this.mapData.nodes.every((n) => solved.has(n.codename))) return;
     // Defer to the next tick so create() fully finishes first - the original
-    // also triggers the ending from its update loop (WorldMap::own_updateState),
-    // not scene init, and launching mid-create() is fragile (Phaser Text/render
-    // isn't ready yet).
-    this.time.delayedCall(0, () => this.launchEnding());
+    // also triggers this from its update loop (WorldMap::own_updateState), not
+    // scene init, and launching mid-create() is fragile (Phaser render isn't
+    // ready yet).
+    this.time.delayedCall(0, () => this.presentEnding());
   }
 
-  /** Loads and starts the ending level (a normal 2-fish level) with its final
-   *  poster. Solving it plays that poster, then returns to the map. */
-  private launchEnding(): void {
+  /** Presents the ending like legacy runSelected(): its Pedometer if already
+   *  solved (Run/Replay/Cancel), else played straight through (first time). */
+  private presentEnding(): void {
     const ending = this.mapData.ending;
-    if (!ending || this.loadingCodename) return;
-    this.loadingCodename = ending.codename;
-    this.showFeedback(`Loading "${ending.codename}"...`);
-    loadLevelModels(ending.codename)
-      .then((levelData) => {
-        document.title = this.titleFor(ending.codename);
-        pushSubView();
-        this.scene.start("level", {
-          levelData,
-          poster: ending.poster,
-          depth: this.mapData.depths.get(ending.codename) ?? -1,
-        });
+    if (!ending) return;
+    if (loadSolvedMoves(ending.codename) !== null) this.showPedometer(ending.codename);
+    else void this.launchLevel(ending.codename);
+  }
+
+  /** Draws the sandbox's synthetic ending node - styled solved (with its
+   *  pedometer on click) once it's been beaten, open/pulsing otherwise, exactly
+   *  like a real node. */
+  private drawEndingNode(node: WorldMapNode): void {
+    const isSolved = loadSolvedMoves(node.codename) !== null;
+    const far = this.add.image(node.x, node.y, "node-far").setOrigin(0.5).setDepth(2);
+    const overlay = this.add
+      .image(node.x, node.y, isSolved ? "node-solved" : "node-open-1")
+      .setOrigin(0.5)
+      .setDepth(3);
+    if (!isSolved) this.openOverlays.push(overlay);
+
+    far
+      .setInteractive({
+        // Texture-local hit area, as in drawNodes() - see the note there.
+        hitArea: new Phaser.Geom.Circle(far.width / 2, far.height / 2, NODE_HIT_RADIUS),
+        hitAreaCallback: Phaser.Geom.Circle.Contains,
+        useHandCursor: true,
       })
-      .catch((error: unknown) => {
-        console.error(`Failed to load the ending level`, error);
-        this.showFeedback(`Failed to load the ending`);
-      })
-      .finally(() => {
-        this.loadingCodename = null;
+      .on("pointerover", () => this.selectNode(node))
+      .on("pointerout", () => this.deselectNode())
+      .on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+        if (pointer.leftButtonDown()) this.presentEnding();
       });
+
+    this.nodeSprites.set(node.codename, { far, overlay });
+  }
+
+  private isEndingCodename(codename: string): boolean {
+    return codename === this.mapData.ending?.codename;
+  }
+
+  /** A level's recap poster - the ending carries its own (docs/050), other
+   *  final levels have theirs in `posters`, ordinary levels have none. */
+  private posterFor(codename: string): string | null {
+    if (this.isEndingCodename(codename)) return this.mapData.ending?.poster ?? null;
+    return this.mapData.posters.get(codename) ?? null;
   }
 
   private async launchLevel(codename: string): Promise<void> {
@@ -538,12 +568,36 @@ export class WorldMapScene extends Phaser.Scene {
     this.showFeedback(`Loading "${codename}"...`);
     try {
       const levelData = await loadLevelModels(codename);
+      const depth = this.mapData.depths.get(codename) ?? 1;
+      // Prewarm the live Lua engine *during* this "Loading" phase so its
+      // bootstrap init-state (each item's opening anim phase / setEffect) is on
+      // screen from LevelScene's first frame, instead of appearing ~380ms-1s
+      // into play once an in-scene boot finished (docs/058's flash - docs/059).
+      // The engine is built here too, not just in the scene: the bootstrap
+      // seeds from its render models and reads it back via engineControl
+      // (creatures/cancan/turtle query model_equals in prog_init), and
+      // LevelScene adopts this exact engine so the two never disagree. The
+      // callbacks are temporary - LevelScene swaps in its own this-closured
+      // ones on adoption (setEngineControl/setHostActions).
+      const engine = new GameEngine(levelData);
+      const engineControl = this.makeEngineControl(engine);
+      const script = await createLevelScript(
+        codename,
+        engine.getRenderModels(),
+        1,
+        undefined,
+        engineControl,
+        depth,
+      );
       document.title = this.titleFor(codename);
       pushSubView();
       this.scene.start("level", {
         levelData,
-        poster: this.mapData.posters.get(codename) ?? null,
-        depth: this.mapData.depths.get(codename) ?? 1,
+        poster: this.posterFor(codename),
+        depth,
+        engine,
+        script: Promise.resolve(script),
+        isEnding: this.isEndingCodename(codename),
       });
     } catch (error) {
       console.error(`Failed to load level "${codename}"`, error);
@@ -551,6 +605,20 @@ export class WorldMapScene extends Phaser.Scene {
     } finally {
       this.loadingCodename = null;
     }
+  }
+
+  /** A temporary EngineControl over a specific engine, for prewarming a level's
+   *  script before LevelScene exists (docs/059). LevelScene replaces it with its
+   *  own this-closured version - which follows this.engine across restarts - the
+   *  moment it adopts the script, so this one only ever serves the bootstrap. */
+  private makeEngineControl(engine: GameEngine): EngineControl {
+    return {
+      setBusy: (index, busy) => engine.setBusy(index, busy),
+      checkActive: () => engine.checkActive(),
+      setFastFalling: (value) => engine.setFastFalling(value),
+      askFieldIndex: (x, y) => engine.askFieldIndex(x, y),
+      isSolved: () => engine.isSolved(),
+    };
   }
 
   /** Pedometer's "Replay" button - watches the saved solution auto-play,
@@ -573,8 +641,9 @@ export class WorldMapScene extends Phaser.Scene {
           levelData,
           moves,
           returnTo: "worldmap",
-          poster: this.mapData.posters.get(codename) ?? null,
+          poster: this.posterFor(codename),
           depth: this.mapData.depths.get(codename) ?? 1,
+          isEnding: this.isEndingCodename(codename),
         });
       })
       .catch((error: unknown) => {

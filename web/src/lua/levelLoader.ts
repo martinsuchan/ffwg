@@ -24,6 +24,10 @@ export interface LevelModel {
   /** Anim/phase/facing the script left this model in at load time (e.g. addItemAnim's "default" phase 0) - the animator's starting point. */
   initialAnim: string | null;
   initialPhase: number;
+  /** Draw effect the synchronous init (prog_init) left this model in - "invisible"
+   *  or "reverse" render differently, applied at build so a model hidden at init
+   *  doesn't flash before the live engine catches up (docs/058). Usually null. */
+  initialEffect: string | null;
   isLeft: boolean;
 }
 
@@ -64,6 +68,9 @@ interface HostModel {
   anims: Map<string, { left: string[]; right: string[] }>;
   currentAnim: string | null;
   currentPhase: number;
+  /** legacy Anim::setEffect, as left by the synchronous init (prog_init). Only
+   *  "invisible"/"reverse" render differently; others draw normally (docs/051). */
+  currentEffect: string | null;
   isLeft: boolean;
 }
 
@@ -90,8 +97,17 @@ export async function fetchText(url: string | URL): Promise<string> {
 // new URL(relativePath, LEGACY_ROOT) below appends instead of landing a dir up.
 export const LEGACY_ROOT = new URL(`${import.meta.env.BASE_URL}legacy/`, window.location.origin);
 
-export function fetchLegacyFile(relativePath: string): Promise<string> {
-  return fetchText(new URL(relativePath, LEGACY_ROOT));
+export async function fetchLegacyFile(relativePath: string): Promise<string> {
+  const source = await fetchText(new URL(relativePath, LEGACY_ROOT));
+  // Patch a Lua 5.0-ism wasmoon's Lua 5.4 rejects as an invalid escape: a
+  // backslash before a forward slash ("...naar \/etc om..." in warcraft's Dutch
+  // dialog). Lua 5.4 has no "\/" escape - a slash needs no escaping - and left
+  // as-is it's a hard parse error that crashes the whole level in nl (a content
+  // bug, only surfaced once Dutch became selectable). The intent is a literal
+  // "/". Same "fix a content incompatibility at load, never edit legacy/"
+  // approach as the Lua 5.0 compat shim (docs/005); a full-corpus scan finds
+  // this as the only genuinely parse-breaking invalid escape. See docs/060.
+  return source.replace(/\\\//g, "/");
 }
 
 /**
@@ -167,7 +183,10 @@ export function extractSavedMoves(source: string): string | null {
  * (inside its `local update_table = prog_init()`), so this loader only
  * needs code.lua's *synchronous* init to complete - its returned per-round
  * update closures (dialogs/hints/ambient animation) are never called,
- * since we never run the level's own script_update() loop.
+ * since we never run the level's own script_update() loop. (The one thing
+ * that loop would do which matters *here* is apply each model's opening
+ * `.afaze` to its sprite - reproduced on its own, without running any level
+ * closure, by APPLY_INITIAL_ANIMS_SOURCE below. See docs/058.)
  *
  * initModels() was originally stubbed as a no-op here, on the assumption
  * that nothing in a goal-setting prefix depends on its side effects - true
@@ -258,6 +277,56 @@ function initModels()
         end
         model.anim = ""
         resetanim(model)
+    end
+end
+`;
+
+/**
+ * Own glue, not legacy content. Applies each model's post-prog_init `.afaze`
+ * to its sprite, so `initialAnim`/`initialPhase` (this loader's only anim
+ * output) is the frame the level actually means to open on.
+ *
+ * Why it's needed: addItemAnim() ends with `model:setAnim("default", 0)`, so
+ * without this every model's recorded initial frame is phase 0. That's wrong
+ * for any level whose prog_init() picks a different opening phase - cabin2's
+ * live parrot is the visible case: `prog_init_papzivy()` sets `afaze = 9` (the
+ * parrot *skeleton*; frames 0-8 are the colourful live bird it only becomes
+ * when nobody is looking), but defers the `updateAnim()` that would apply it
+ * into its per-round closure. The original gets away with that because its
+ * script_update() runs on the very next 100ms cycle; this port's live engine
+ * (levelScript.ts) only goes live once an async Lua bootstrap + dialog-audio
+ * decode finish (~1s, docs/031), and until then the room renders phase 0 - so
+ * the parrot visibly sat there in full colour and then "died". See docs/058.
+ *
+ * This is the same `updateAnim()` (defined by initModels() above, or overridden
+ * by the level itself) the first script_update() would call, invoked at the
+ * same point in the sequence - not a guess at what the level wanted. It calls
+ * nothing but the already-bound model_setAnim; the level's own per-round
+ * closures are still never run here (they need the full live binding set this
+ * goal-extraction loader deliberately doesn't have - see this file's header).
+ * pcall'd per model so a level with a custom updateAnim that reaches for a
+ * binding this loader lacks degrades to phase 0 rather than failing the load.
+ *
+ * Fish are skipped, via level_creation.lua's own unit table (addFishAnim
+ * registers each fish there; it's a local, exposed by getUnitTable() - the
+ * same accessor level_update.lua uses to find the fish). They have
+ * no "default" anim at all: addFishAnim ends with `model:runAnim("rest")`, and
+ * initModels() hands out its `setAnim("default", afaze)` updateAnim to every
+ * model indiscriminately, so calling it on a fish would replace a real opening
+ * frame with an unresolvable one. The original never hits this because
+ * script_update() routes fish through animateFish/animateHead
+ * (level_update.lua) and only a level's own item closures call updateAnim().
+ * It also matches this port's split: fish animation is TS-owned (docs/009/013),
+ * script anim is non-fish only (docs/014).
+ */
+const APPLY_INITIAL_ANIMS_SOURCE = `
+function ffwg_applyInitialAnims()
+    local models = getModelsTable()
+    local units = getUnitTable()
+    for key, model in pairs(models) do
+        if model.updateAnim and not units[model.index] and ffwg_hasAnims(model.index) then
+            pcall(function() model:updateAnim() end)
+        end
     end
 end
 `;
@@ -356,6 +425,7 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
           anims: new Map(),
           currentAnim: null,
           currentPhase: 0,
+          currentEffect: null,
           isLeft: true, // Cube::Cube() default (Cube.cpp)
         });
         return hostModels.length - 1;
@@ -363,6 +433,14 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     );
     lua.global.set("model_getW", (modelIndex: number) => hostModels[modelIndex].w);
     lua.global.set("model_getH", (modelIndex: number) => hostModels[modelIndex].h);
+    // Own glue, not a legacy host function - used only by
+    // APPLY_INITIAL_ANIMS_SOURCE, so it never hands an opening frame to a model
+    // that has no pictures at all (windoze's invisible `spuntik` is the only
+    // one: no addItemAnim, so no "default" anim to point at). See docs/058.
+    lua.global.set(
+      "ffwg_hasAnims",
+      (modelIndex: number) => hostModels[modelIndex].anims.size > 0,
+    );
     lua.global.set(
       "model_addAnim",
       (
@@ -415,7 +493,14 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
       model.isLeft = !model.isLeft;
     });
     lua.global.set("model_setBusy", () => {});
-    lua.global.set("model_setEffect", () => {});
+    // Record the effect prog_init leaves each model in, so a model set
+    // invisible at init (party2's window limbs kuk/ruka/frkavec/hnat; gods'
+    // parked wreck) starts hidden instead of flashing over the room for the
+    // ~1s before the live engine (levelScript.ts) applies it. Same deferred-
+    // init-state class as APPLY_INITIAL_ANIMS_SOURCE / the parrot. See docs/058.
+    lua.global.set("model_setEffect", (modelIndex: number, effect: string) => {
+      hostModels[modelIndex].currentEffect = effect;
+    });
 
     // code.lua's top-level init prefix (sound_playMusic/getRestartCount,
     // occasionally dialog_addFont - see linux) - no-ops or fixed values,
@@ -433,7 +518,7 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     // legacy/src/level/level-script.cpp, legacy/src/gengine/
     // options-script.cpp) some levels' code.lua also calls synchronously
     // during prog_init() - safe no-ops here, same reasoning as
-    // model_setBusy/model_setEffect above: purely visual (game_addDecor),
+    // model_setBusy above: purely visual (game_addDecor),
     // schedules a callback this loader never runs the per-round loop to
     // fire (level_planShow), or reads a config value nothing in a
     // goal-setting prefix depends on (options_getParam - returns "", a
@@ -471,11 +556,17 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     lua.global.set("getRestartCount", () => 1);
     await lua.doString(goanimSource);
     await lua.doString(INIT_MODELS_SOURCE);
+    await lua.doString(APPLY_INITIAL_ANIMS_SOURCE);
     await lua.doString(modelsSource);
     for (const includedSource of includedSources) {
       await lua.doString(includedSource);
     }
     await lua.doString(codeSource);
+    // code.lua's top level runs prog_init(), which calls initModels() and then
+    // sets each model's opening .afaze - so this has to come after it (see
+    // APPLY_INITIAL_ANIMS_SOURCE). A level with no code.lua model setup is
+    // unaffected: .afaze is still initModels()'s 0, i.e. addItemAnim's frame.
+    await lua.doString("ffwg_applyInitialAnims()");
   } finally {
     lua.global.close();
   }
@@ -500,6 +591,7 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
       anims: Object.fromEntries(model.anims),
       initialAnim: model.currentAnim,
       initialPhase: model.currentPhase,
+      initialEffect: model.currentEffect,
       isLeft: model.isLeft,
     })),
   };

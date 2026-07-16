@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 
 import { type LevelModel } from "../lua/levelLoader";
-import { resolveFrame } from "./ModelAnimator";
+import { type RopeDecor } from "../lua/levelScript";
+import { resolveFrame, type ModelAnimator } from "./ModelAnimator";
 import { type AtlasFrame } from "./atlas";
 
 /** An offscreen-read RGBA pixel buffer of a loaded texture. */
@@ -94,6 +95,36 @@ export function pictureToAssetUrl(picture: string): string {
 
 export function isFishKind(kind: string): boolean {
   return kind.startsWith("fish_");
+}
+
+/**
+ * legacy RopeDecor::drawOnScreen(): for each game_addDecor("rope", ...), a 1px
+ * line in the original's steel colour (0x30404e) between the two models' screen
+ * positions plus each end's pixel shift. Redrawn every frame so it follows the
+ * lift - only elevator1/elevator2 register any.
+ *
+ * Shared by LevelScene and ReplayScene: the original hangs decors off the
+ * Room's View (Room::addDecor -> m_view->addDecor), and replay drives that same
+ * Room via Room::loadMove(), so both draw them identically. See docs/055.
+ */
+export function drawRopeDecors(
+  graphics: Phaser.GameObjects.Graphics,
+  decors: readonly RopeDecor[],
+  animators: ReadonlyMap<number, ModelAnimator>,
+): void {
+  graphics.clear();
+  graphics.lineStyle(1, 0x30404e, 1);
+  for (const rope of decors) {
+    const a = animators.get(rope.index1)?.getScreenPos();
+    const b = animators.get(rope.index2)?.getScreenPos();
+    if (!a || !b) continue; // an anim-less model has no sprite to anchor to
+    graphics.lineBetween(
+      a.x + rope.shift1.x,
+      a.y + rope.shift1.y,
+      b.x + rope.shift2.x,
+      b.y + rope.shift2.y,
+    );
+  }
 }
 
 export function resolveInitialFrame(levelModel: LevelModel): AtlasFrame | null {

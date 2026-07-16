@@ -8,6 +8,10 @@
 export interface BodyAnim {
   name: string;
   running: boolean;
+  /** A held pose whose frame is chosen by an externally-cycled phase rather than
+   *  the running loop - only the busy "talk" body pose (cycled by talk_phase).
+   *  Undefined = start at phase 0 / use the running loop. */
+  phase?: number;
 }
 
 /** A head overlay drawn on top of the body anim at the same position (Anim::useSpecialAnim). */
@@ -28,11 +32,19 @@ export interface AnimatableState {
 }
 
 /**
- * Port of animateFish(model) (level_update.lua). Takes the same inputs
- * Rules.getAction() (already a faithful port of Rules::getAction(),
- * docs/007) produces - no physics changes needed for this.
+ * Port of animateFish(model) + animateHead()'s body override (level_update.lua).
+ * Takes the same inputs Rules.getAction() produces (a faithful port of
+ * Rules::getAction(), docs/007), plus the fish's talking state - because the
+ * original decides the *body* for a busy fish inside animateHead(), not
+ * animateFish(): a fish held busy by a scripted conversation (planBusy) shows
+ * the front-facing `talk` body pose while it's talking, and a held `turn` frame
+ * while it isn't. `talkPhase` (0-2, cycled by the caller) picks the talk frame.
  */
-export function computeBodyAnim(model: AnimatableState): BodyAnim {
+export function computeBodyAnim(
+  model: AnimatableState,
+  isTalking = false,
+  talkPhase = 0,
+): BodyAnim {
   if (!model.isAlive) {
     return { name: "skeleton", running: true };
   }
@@ -47,28 +59,34 @@ export function computeBodyAnim(model: AnimatableState): BodyAnim {
       return { name: "swam", running: true };
     case "turn":
       return { name: "turn", running: true };
-    case "activate":
     case "busy":
-      // Original: setAnim("turn", 0) - a held pose, not the running turn
-      // loop. Currently unreachable (nothing in this port ever sets
-      // readyToActive/busy - no fish-switching, no dialogs busying a
-      // fish - see docs/007/docs/008's scope), kept for fidelity.
-      return { name: "turn", running: false };
+      // animateHead's `action=="busy"` branch: talking -> the front-facing
+      // `talk` body pose (cycling body_talk_* by talk_phase, no head overlay -
+      // see computeHeadAnim); otherwise a held `turn` frame. This is what makes
+      // a fish face the player while it speaks in a scripted conversation.
+      return isTalking
+        ? { name: "talk", running: false, phase: talkPhase }
+        : { name: "turn", running: false, phase: 0 };
+    case "activate":
+      // The greet flash (Space / fish switch, docs/016): setAnim("turn", 0) - a
+      // held pose. Not busy, so it still gets the normal head overlays below.
+      return { name: "turn", running: false, phase: 0 };
     default:
       return { name: "rest", running: true };
   }
 }
 
 /**
- * Port of animateHead(model) (level_update.lua). Talking now beats
- * pushing beats the occasional blink, matching the original's exact
- * priority order - ported once dialogs (docs/015) actually landed rather
- * than left half-done (see docs/029; the "busy" action branch that
- * overrides the *body* anim with a talk pose, `setAnim("talk", ...)`, is
- * still skipped - nothing in this port ever sets the "busy" action, same
- * as before). `talkPhase` (0-2, which of the 3 head_talking frames) is
- * owned and cycled by the caller (ModelAnimator) - this stays a pure
- * function, matching computeBodyAnim.
+ * Port of animateHead(model) (level_update.lua). Talking beats pushing beats
+ * the occasional blink, matching the original's exact priority order (docs/029).
+ * `talkPhase` (0-2, which of the 3 head_talking frames) is owned and cycled by
+ * the caller (ModelAnimator) - this stays a pure function, matching
+ * computeBodyAnim.
+ *
+ * A **busy** fish gets NO head overlay: the original's `action=="busy"` branch
+ * drives only the *body* (the front-facing `talk`/`turn` pose, see
+ * computeBodyAnim) and never reaches the head-overlay code - the talk body
+ * already includes the face, so a separate side-view head would double it up.
  */
 export function computeHeadAnim(
   model: AnimatableState,
@@ -77,6 +95,10 @@ export function computeHeadAnim(
   rollBlinkPercent: () => number,
 ): HeadAnim | null {
   if (!model.isAlive) {
+    return null;
+  }
+
+  if (model.action === "busy") {
     return null;
   }
 

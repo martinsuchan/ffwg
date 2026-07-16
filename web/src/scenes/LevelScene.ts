@@ -15,7 +15,7 @@ import { Weight } from "../game/Cube";
 import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
 import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager, type MusicCommand } from "./AudioManager";
-import { isFishKind, resolveInitialFrame } from "./sceneUtils";
+import { drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
 import { pictureToAtlas } from "./atlas";
 import { SaveSlotUI } from "./SaveSlotUI";
 import { HelpOverlay } from "./HelpOverlay";
@@ -74,6 +74,10 @@ const WRONG_RESTART_ROUNDS = 75;
 const STEP_COLOR_NORMAL = "#ffc566";
 const STEP_COLOR_POWERFUL = "#a2f4ff";
 
+/** Step-counter inset from the room's top-right corner, used for both axes so
+ *  the top and right margins match. */
+const STEP_MARGIN = 10;
+
 /**
  * Renders and plays a level's puzzle: background + every model, driven by
  * the real game-logic port (web/src/game/) on a fixed round tick, with
@@ -126,6 +130,9 @@ export class LevelScene extends Phaser.Scene {
    *  root (ending = -1), passed to the Lua engine for level_getDepth(). Drives
    *  blackjokes.lua's death-joke tier. See docs/054. */
   private depth = 1;
+  /** True only for the "ending" level (docs/061) - flagged back to the map on
+   *  solve so it doesn't re-present the ending in a loop. */
+  private isEnding = false;
   /** Countdown (in rounds) from a solved room to the auto-return to the
    *  world map - see SOLVED_RETURN_ROUNDS and tick(). -1 = not counting. */
   private solvedCountdown = -1;
@@ -142,6 +149,19 @@ export class LevelScene extends Phaser.Scene {
   /** Guards against a superseded startEngine()'s createLevelScript() call
    *  resolving *after* a newer restart already happened - see startEngine(). */
   private scriptGeneration = 0;
+  /** Engine + live script the world map booted during its "Loading" phase, so
+   *  the script's bootstrap init-state (item anim phase / setEffect) is on
+   *  screen from the first frame instead of ~380ms-1s into play (docs/059).
+   *  Consumed once, by the first startEngine(); a restart boots fresh. Absent
+   *  when the level was entered any other way (replay-return, ending, resume). */
+  private prewarmedEngine?: GameEngine;
+  private prewarmedScript?: Promise<LevelScript>;
+  /** Gates the live per-round script.tick() (dialogs/animation advance) on the
+   *  dialog voice sprite being decoded, so a first line never fires before its
+   *  audio (docs/031). Decoupled from `levelScript` being *assigned*: the script
+   *  is assigned as soon as it's booted so the render loop shows its bootstrap
+   *  init-state immediately, but it isn't ticked until this flips true. */
+  private scriptTicking = false;
   /** Music/sound-effect/dialog-voice playback - see docs/018, docs/043. */
   private audioManager!: AudioManager;
   /** Last background-music "play" command this level issued, so it can be
@@ -210,10 +230,24 @@ export class LevelScene extends Phaser.Scene {
    *  runtime, so `levelData` can no longer be known when this scene is
    *  constructed (it used to be, back when `main.ts` always booted into
    *  one hardcoded level). Same pattern `ReplayScene` already used. */
-  init(data: { levelData: LevelData; poster?: string | null; depth?: number }): void {
+  init(data: {
+    levelData: LevelData;
+    poster?: string | null;
+    depth?: number;
+    /** A GameEngine + in-flight/ready LevelScript the world map prewarmed
+     *  during "Loading" - see prewarmedEngine/docs/059. */
+    engine?: GameEngine;
+    script?: Promise<LevelScript>;
+    /** True for the "ending" level - so its post-solve return tells the map
+     *  "just came back from the ending" and it doesn't re-present it (docs/061). */
+    isEnding?: boolean;
+  }): void {
     this.levelData = data.levelData;
     this.poster = data.poster ?? null;
     this.depth = data.depth ?? 1;
+    this.isEnding = data.isEnding ?? false;
+    this.prewarmedEngine = data.engine;
+    this.prewarmedScript = data.script;
     // Phaser reuses the scene instance across scene.start(), but SHUTDOWN
     // destroys its GameObjects - drop the stale handle so drawRopes() builds a
     // fresh one instead of touching a destroyed Graphics (cf. docs/012).
@@ -281,11 +315,12 @@ export class LevelScene extends Phaser.Scene {
       .setDepth(1000)
       .setVisible(false);
 
-    // Step counter (legacy StepDecor): top-right corner (right edge at the room
-    // width, y=10), outlined console-style font at size 20, orange / blue by
-    // active-fish power. Always visible.
+    // Step counter (legacy StepDecor): top-right corner, outlined console-style
+    // font at size 20, orange / blue by active-fish power. Always visible.
+    // Inset from the right edge by the same margin as the top (STEP_MARGIN) so
+    // the corner reads as evenly spaced.
     this.stepCounterText = this.add
-      .text(roomWidthPx, 10, "0", {
+      .text(roomWidthPx - STEP_MARGIN, STEP_MARGIN, "0", {
         fontFamily: "monospace",
         fontSize: "20px",
         color: STEP_COLOR_NORMAL,
@@ -359,14 +394,12 @@ export class LevelScene extends Phaser.Scene {
 
     this.audioManager = new AudioManager(this);
     // Pre-decode this level's sound sprites now, so playback is instant instead
-    // of decoding on first use (docs/043). Includes the level's own voice + the
-    // shared pools, plus the `en` fallback dir (viking1's instrument clips live
-    // only there - docs/036). Non-blocking; the level's own voice dir is
-    // additionally gated on in startEngine() so the first line is in sync.
-    void this.audioManager.preloadAll([
-      ...levelSoundSpriteDirs(this.levelData.levelName),
-      `${this.levelData.levelName}/en`,
-    ]);
+    // of decoding on first use (docs/043). levelSoundSpriteDirs() includes the
+    // level's own voice + the shared pools + the English fallback pools (en-only
+    // dialogs like viking1's band, plus the per-line voice fallback - docs/036,
+    // docs/060). Non-blocking; the level's own voice dir is additionally gated
+    // on in startEngine() so the first line is in sync.
+    void this.audioManager.preloadAll(levelSoundSpriteDirs(this.levelData.levelName));
 
     // The Sound Manager is game-global, not scene-scoped (docs/025) - stop
     // this scene's music explicitly when leaving (e.g. P -> replay) so it
@@ -481,6 +514,7 @@ export class LevelScene extends Phaser.Scene {
   private startEngine(resumeMoves?: string, resumeModelState?: string): void {
     this.levelScript?.destroy();
     this.levelScript = null;
+    this.scriptTicking = false;
     this.scriptGeneration += 1;
     this.queuedKey = null;
     const generation = this.scriptGeneration;
@@ -490,7 +524,17 @@ export class LevelScene extends Phaser.Scene {
     // Clear any lingering subtitles from the previous attempt (docs/037).
     this.subtitleStack?.clear();
 
-    this.engine = new GameEngine(this.levelData);
+    // Adopt the engine + script the world map prewarmed during "Loading"
+    // (docs/059), but only on the very first start of a fresh launch - never a
+    // restart (R) or a save-resume, both of which must build fresh state. Read
+    // once and cleared so a later restart can't reuse a stale engine.
+    const prewarmEngine = this.prewarmedEngine;
+    const prewarmScript = this.prewarmedScript;
+    this.prewarmedEngine = undefined;
+    this.prewarmedScript = undefined;
+    const adopt = !resumeMoves && !!prewarmEngine && !!prewarmScript;
+
+    this.engine = adopt ? prewarmEngine! : new GameEngine(this.levelData);
     if (resumeMoves) {
       try {
         for (const symbol of resumeMoves) {
@@ -517,37 +561,37 @@ export class LevelScene extends Phaser.Scene {
     const initialRenderModels = this.engine.getRenderModels();
     this.buildAnimators(initialRenderModels);
 
-    // Fire-and-forget: physics/animators above already reset synchronously
-    // (no visible restart delay), and levelScript swaps in whenever the
-    // Lua bootstrap resolves - tick() just skips item-anim overrides until
-    // then. The generation check discards a superseded restart's result
-    // instead of resurrecting a stale engine (see docs/014).
-    createLevelScript(
-      this.levelData.levelName,
-      initialRenderModels,
-      generation,
-      this.hostActions,
-      this.engineControl,
-      this.depth,
-    )
-      .then(async (script) => {
+    // The prewarmed script was booted by the world map without this scene's
+    // this-closured host callbacks (it has no scene / engine-swap context), so
+    // adopt it and attach them below; otherwise boot fresh here (restart,
+    // resume, or a non-prewarmed entry like a replay/ending return).
+    // Fire-and-forget either way: physics/animators above already reset
+    // synchronously (no visible restart delay). The generation check discards a
+    // superseded restart's result instead of resurrecting a stale engine
+    // (docs/014).
+    const scriptPromise = adopt
+      ? prewarmScript!
+      : createLevelScript(
+          this.levelData.levelName,
+          initialRenderModels,
+          generation,
+          this.hostActions,
+          this.engineControl,
+          this.depth,
+        );
+    scriptPromise
+      .then((script) => {
         if (generation !== this.scriptGeneration) {
           script.destroy();
           return;
         }
-        // Hold the script from going live until this level's dialog voice
-        // sprite has finished decoding (it loaded in parallel with the Lua
-        // bootstrap above), so the first line's audio plays in sync with its
-        // subtitle instead of ~2s late while a big sprite is still decoding
-        // (docs/031 follow-up). Time-boxed so a stuck/failed load can never
-        // brick the level - worst case the first line is a touch late.
-        await Promise.race([
-          this.audioManager.whenLoaded(levelDialogVoiceDir(this.levelData.levelName)),
-          new Promise<void>((resolve) => this.time.delayedCall(4000, resolve)),
-        ]);
-        if (generation !== this.scriptGeneration) {
-          script.destroy();
-          return;
+        if (adopt) {
+          // Swap the world map's temporary callbacks for this scene's own
+          // this-closured versions, which follow this.engine across restarts /
+          // demo resets. Safe because the script hasn't been ticked yet
+          // (scriptTicking is still false), so neither has been invoked.
+          script.setEngineControl(this.engineControl);
+          script.setHostActions(this.hostActions);
         }
         if (resumeModelState) {
           try {
@@ -562,7 +606,23 @@ export class LevelScene extends Phaser.Scene {
             );
           }
         }
+        // Assign immediately so the render loop shows the script's bootstrap
+        // init-state (item anim phase / setEffect - cabin2's parrot, party2's
+        // limbs) from the next frame. Its live per-round update (script.tick:
+        // dialogs, animation) is gated separately, on the dialog audio below.
         this.levelScript = script;
+
+        // Release live ticking once this level's dialog voice sprite is decoded
+        // (loaded in parallel in create()), so the first line's audio plays in
+        // sync with its subtitle instead of ~2s late while a big sprite decodes
+        // (docs/031). Time-boxed so a stuck/failed load can't freeze the engine
+        // forever - worst case the first line is a touch late.
+        void Promise.race([
+          this.audioManager.whenLoaded(levelDialogVoiceDir(this.levelData.levelName)),
+          new Promise<void>((resolve) => this.time.delayedCall(4000, resolve)),
+        ]).then(() => {
+          if (generation === this.scriptGeneration) this.scriptTicking = true;
+        });
       })
       .catch((error: unknown) => {
         console.error(
@@ -628,7 +688,10 @@ export class LevelScene extends Phaser.Scene {
         model.y,
         model.isLeft,
       );
-      animator.sync(model);
+      // Apply the effect prog_init left the model in (usually null) so a model
+      // hidden at init - party2's window limbs - starts hidden, not flashing
+      // over the room until the live engine applies it. See docs/058.
+      animator.sync(model, null, false, null, levelModel.initialEffect);
       this.animators.set(model.index, animator);
     }
     // Fresh animators start from a clean shared clock (docs/046) - matters for a
@@ -709,12 +772,15 @@ export class LevelScene extends Phaser.Scene {
    *  `fromLevel` lets the map run its post-solve ending check (docs/050). */
   private leaveToMapAfterSolve(): void {
     if (this.poster) {
+      // A poster only plays for a *final* level (or the ending) - flag that
+      // (`fromFinal`) so the map presents the ending, and flag whether this WAS
+      // the ending (`endingDone`) so it doesn't re-present it (docs/061).
       this.scene.start("demo", {
         demoFile: this.poster,
         levelName: this.levelData.levelName,
         mode: "poster",
         returnTo: "worldmap",
-        returnData: { fromLevel: true },
+        returnData: { fromLevel: true, fromFinal: true, endingDone: this.isEnding },
       });
     } else {
       this.scene.start("worldmap", { fromLevel: true });
@@ -829,10 +895,7 @@ export class LevelScene extends Phaser.Scene {
     );
   }
 
-  /** legacy RopeDecor::drawOnScreen(): for each game_addDecor("rope", ...), a
-   *  line between the two models' screen positions plus each end's pixel shift,
-   *  in the original's steel colour (0x30404e). Redrawn every frame so it
-   *  follows the lift - only elevator1/elevator2 have any. See docs/055. */
+  /** Elevator cables - see drawRopeDecors() (shared with ReplayScene). */
   private drawRopes(): void {
     const decors = this.levelScript?.getRopeDecors();
     if (!decors?.length) return;
@@ -840,15 +903,7 @@ export class LevelScene extends Phaser.Scene {
       // Above the models (View::drawOn draws decors last), below the UI.
       this.ropeGraphics = this.add.graphics().setDepth(5);
     }
-    const g = this.ropeGraphics;
-    g.clear();
-    g.lineStyle(1, 0x30404e, 1);
-    for (const rope of decors) {
-      const a = this.animators.get(rope.index1)?.getScreenPos();
-      const b = this.animators.get(rope.index2)?.getScreenPos();
-      if (!a || !b) continue; // an anim-less model has no sprite to anchor to
-      g.lineBetween(a.x + rope.shift1.x, a.y + rope.shift1.y, b.x + rope.shift2.x, b.y + rope.shift2.y);
-    }
+    drawRopeDecors(this.ropeGraphics, decors, this.animators);
   }
 
   private tick(): void {
@@ -899,13 +954,20 @@ export class LevelScene extends Phaser.Scene {
     // here (moveXY -> model:getLoc()) to decide the next move, and a show
     // command may then move/restart/load the engine inside this call.
     const preStepModels = this.engine.getRenderModels();
-    try {
-      this.levelScript?.tick(preStepModels, cyclesElapsed);
-    } catch (error) {
-      // A show command (or item-anim script) threw - if a show was running,
-      // end it and hand control back; otherwise re-surface the error.
-      if (showing) this.abortShow(error);
-      else throw error;
+    // Only advance the live script once ticking is released (after the dialog
+    // audio is decoded - see startEngine). Before that, `levelScript` may
+    // already be assigned so the render loop shows its bootstrap init-state
+    // (docs/059), but its per-round update - dialogs, item animation - must not
+    // run yet, or a first line could fire before its voice.
+    if (this.scriptTicking) {
+      try {
+        this.levelScript?.tick(preStepModels, cyclesElapsed);
+      } catch (error) {
+        // A show command (or item-anim script) threw - if a show was running,
+        // end it and hand control back; otherwise re-surface the error.
+        if (showing) this.abortShow(error);
+        else throw error;
+      }
     }
 
     // level_newDemo (briefcase pushed down) requested a fullscreen movie
@@ -953,7 +1015,14 @@ export class LevelScene extends Phaser.Scene {
       // Lua-driven cosmetic render offset + draw effect (docs/051) - items only,
       // same ownership split as scriptAnim.
       const viewShift = isFish ? null : (this.levelScript?.getViewShift(model.index) ?? null);
-      const effect = isFish ? null : (this.levelScript?.getEffect(model.index) ?? null);
+      // Until the live engine is up (getEffect returns undefined), fall back to
+      // the effect prog_init left the model in, so a model hidden at init stays
+      // hidden this whole window instead of flashing (party2's limbs, docs/058).
+      // Once live, the live engine's own prog_init has re-set the same effect,
+      // so getEffect wins and this fallback no longer applies.
+      const effect = isFish
+        ? null
+        : (this.levelScript?.getEffect(model.index) ?? this.levelData.models[model.index].initialEffect);
       this.animators.get(model.index)?.sync(model, scriptAnim, isTalking, viewShift, effect);
     }
 

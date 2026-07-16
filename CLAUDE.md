@@ -907,6 +907,155 @@ reasoning; check for later numbered entries too — decisions here can change):
   (`renderer.type === 2`). Verified in a real browser (amp 2.5/10/0.2; phase rate exactly
   0.00200 rad/ms = 2 rad/s; pixels animate; emulator amp-0 falls back; gods' sunken ship renders
   upright/undistorted) + e2e 7/7. **Only `mirror`/`zx` now remain from the audit.**
+- Wavy bg edge fix (`docs/057-2026-07-15-wavy-bg-edge-fix.md`): docs/056 modelled the scanline
+  shift as a **wrap** (`fract`) - it isn't one, and the user saw it (a white sliver at `start`'s
+  right edge; backdrop showing at `ufo`'s edges). `WavyPicture::drawOn()` does TWO blits and
+  `SDL_BlitSurface` **clips the source rect**: the main blit leaves one edge strip uncovered, and
+  the `pad` blit then writes `dest[x] = src[x]` over exactly that strip - the **same x range**. So
+  the uncovered edge columns are simply **not shifted**; nothing is ever pulled in from the opposite
+  edge. (`start`'s bg has a pure white left edge and an orange right one, which is why the wrap was
+  so visible.) Shader now does `srcX = x + shiftX; if (srcX out of [0,w-1]) srcX = x;` in pixel
+  space. Also corrected the rounding: `(Sint16)(0.5 + amp*sin(...))` is a C cast = **truncation
+  toward zero**, not floor (-1.8 -> -1); WebGL1 has no `trunc()`, so
+  `t < 0.0 ? -floor(-t) : floor(t)`. Verified by `gl.readPixels` on `start`'s rightmost column over
+  40 frames: **0** near-white pixels - and confirmed the test discriminates by temporarily restoring
+  the wrap (24-30 white px every frame). Also swept all 81 levels for room-vs-bg size mismatches
+  (the other edge-gap candidate): only `linux`/`nowall`, both bg *larger* than the room, which the
+  original clips at the screen edge anyway - harmless.
+- Small-fixes batch (`docs/058-2026-07-16-small-fixes-batch.md`): five user-reported issues; one
+  surfaced a real latent crash, and a fifth was a second instance of the parrot's class. (1) **cabin2's parrot showed in full colour for ~1s then "died"**:
+  `papzivy` is the gag *live* parrot (frames 0-8 colourful, **9 = the skeleton** the fish deadpan
+  about), and `prog_init_papzivy()` sets `afaze = 9` but defers the `updateAnim()` that applies it
+  into its per-round closure. The original opens on frame 0 too (`addItemAnim` ends with
+  `setAnim("default", 0)`) - for one 100ms cycle. This port renders it until `levelScript` goes live:
+  measured **~990ms** (Lua bootstrap ~380ms, then docs/031's dialog-audio gate to ~805ms), and
+  frame-sampling confirmed the flip happens *exactly* at script-live. Fixed in `levelLoader.ts`
+  (which already records `setAnim` into `initialAnim`/`initialPhase` and already runs `code.lua`'s
+  synchronous `prog_init()`, docs/024): new `APPLY_INITIAL_ANIMS_SOURCE` runs one `updateAnim()` pass
+  per model right after `code.lua` - the *same* call the first `script_update()` would make, hitting
+  only the already-bound `model_setAnim` (running `script_update()` itself was rejected: the level's
+  per-round closures need the full live binding set this goal-extraction loader deliberately lacks).
+  Two guards, both caught by the all-81 sweep, not by inspection: **fish are skipped** (via
+  level_creation.lua's own `getUnitTable()`) - they have no `"default"` anim (`addFishAnim` ends with
+  `runAnim("rest")`) yet `initModels()` hands its `setAnim("default", afaze)` `updateAnim` to every
+  model, so without this all 164 fish opened on an unresolvable anim; and **models with no pictures
+  are skipped** (new `ffwg_hasAnims` glue - only windoze's invisible `spuntik`). Blast radius: 150
+  models across ~12 levels now open on their intended phase (gems/alibaba crystals, city/music crabs,
+  experiments bubbles, viking musicians). *The user's hunch that this began with the recent host-fn
+  work was right* - not a break, but the port only started applying `afaze` correctly then; before, the
+  parrot just stayed colourful with no transition to notice. (Do **not** try to A/B this by reverting
+  `levelScript.ts` alone - `LevelScene` at HEAD calls `getScreenShift()` from the same commit, so the
+  mixed tree crashes its render loop and the experiment is invalid.) (2) **Negative anim phases**
+  (found by the blast-radius sweep, not reported): a negative `afaze` is a real idiom for "not started
+  yet" (`gods`' parked wreck `= -1`; `fdto`'s seahorse `= -random(100)`), and legacy
+  `ResourcePack::getRes()`'s advance loop `for (i = 0; i < rank && ...)` never runs for a negative
+  rank -> **frame 0**. `resolveFrame` did `phase % length`, and JS's `%` keeps the sign
+  (`-37 % 3 === -1`), indexing off the front of the array and handing `undefined` to
+  `pictureToAtlas()` - a **pre-existing latent runtime crash** (`updateAnim()` sends negative phases
+  straight to `setAnim`), which (1) merely made load-time-reachable too. Fixed to match:
+  `phase < 0 ? 0 : phase % len`. (3) **Elevator rope missing in replay**: the original hangs decors on
+  the Room's View (`Room::addDecor` -> `m_view->addDecor`) and replay drives that same Room via
+  `Room::loadMove()`, so they draw in replay exactly as in play - drawing extracted to a shared
+  `drawRopeDecors()` in `sceneUtils.ts`, now called by `ReplayScene` too (which also clears its
+  `ropeGraphics` handle in `init()`, cf. docs/012). (4) **Ending node + step counter**: the sandbox's
+  ending affordance is a real map node (`node-far` + pulsing overlay) at top centre built from a
+  synthetic `WorldMapNode`, so it hovers/labels like any node and - being in `nodeSprites` - is hidden
+  by `setNodesVisible()` with the graph while the pedometer is up (the reported bug); step counter
+  insets by `STEP_MARGIN` on both axes. Verified in a real browser (cabin2 never renders a colourful
+  frame; `resolveFrame` -1/-37 -> 0 with the check proven to discriminate; gods+fdto 3s clean;
+  all-81 sweep: every level loads, all 164 fish open on `"rest"`, no model opens on an anim it lacks;
+  elevator1 replay draws both cables; ending node 7/7; margins 10==10) + e2e 7/7. **Still open**: the
+  ~380ms Lua-bootstrap window before `levelScript` goes live (closed in docs/059).
+  (5) **party2's window limbs (`kuk`/`ruka`/`frkavec`/`hnat`) flashed over the cabin at load** - a
+  second instance of the same deferred-init-state class as (1), via `setEffect` instead of `setAnim`.
+  Each `prog_init_*` calls `<limb>:setEffect("invisible")` at init, but `model_setEffect` was a no-op
+  in `levelLoader.ts` and `LevelModel` had no init-effect field, so the `hnat` image showed over the
+  cabin for ~1s until the live engine hid it. Fixed in two places (both needed): the loader records
+  the effect (`HostModel.currentEffect` -> `LevelModel.initialEffect`), and `LevelScene.tick()` falls
+  the effect back to `initialEffect` while `levelScript` is absent (`getEffect(i) ?? initialEffect`) -
+  the build-time `sync` alone wasn't enough because the round loop, running before the live engine,
+  passed `effect = null` and re-showed the sprite on the first tick (confirmed: build-time-only left
+  hnat visible in 22/27 pre-live frames). Once live, `getEffect` wins. ReplayScene keeps the *init*
+  effect (not the live one - it doesn't drive decorative effects, docs/025). Also tightens docs/051:
+  gods' parked wreck is now hidden pre-live too. Verified (party2 limbs hidden in all 29 pre-live
+  frames + clean-cabin screenshot; all-81 sweep + parrot + e2e 7/7 still green).
+- Prewarm the live engine during "Loading" (`docs/059-2026-07-16-prewarm-live-engine-during-loading.md`):
+  closes docs/058's open window - the ~380ms-1s after a room appears where no live engine exists and
+  it renders purely from the loader snapshot (what forced docs/058 to bake init-state in). The world
+  map now boots the live script *during its own "Loading" phase* (`WorldMapScene.launchLevel` builds
+  the `GameEngine` + `createLevelScript`, awaits it, hands both to `LevelScene`), matching the
+  original's one-engine "first script_update before first draw". `LevelScene` adopts them on the first
+  fresh start (never restart/save-resume) and attaches its own `this`-closured `hostActions`/
+  `engineControl` via new `LevelScript.setHostActions`/`setEngineControl` (both moved onto
+  `LevelScriptState`) - safe because neither fires between boot and first tick; the world map's
+  temporary `engineControl` (over its engine) only serves the bootstrap, where creatures/cancan/turtle
+  read `model_equals`. **Assignment decoupled from the audio gate**: `this.levelScript` is now assigned
+  as soon as booted (render reads its bootstrap init-state from frame 1); a new `scriptTicking` flag
+  gates only the live per-round `script.tick()` (dialogs/animation) on the dialog audio, preserving
+  docs/031 first-line sync. Assigning early surfaced a real coupling - the live engine, like the loader
+  pre-docs/058, doesn't apply a deferred `afaze` until its first `script_update()`, so
+  `getScriptAnim(parrot)` returned frame 0 in the assign->tick window; fixed by running the same
+  one-`updateAnim()`-pass at the end of `createLevelScript` bootstrap (`APPLY_INITIAL_ANIMS_SOURCE`, the
+  live twin of the loader's docs/058 pass). **Does NOT remove the docs/058 loader fix**: `buildAnimators`
+  runs synchronously before the script resolves (frame-0 source), and non-prewarmed entries
+  (replay->Esc->level, ending, save-resume) still boot in-scene - the two are belt-and-suspenders now.
+  **Does NOT change when anims/dialogs start** (still audio-gated ~900ms; ticking early would break
+  dialog cycle timing). Cost: node-click "Loading" ~380ms longer (world map awaits the boot; snappier
+  on repeat visits). Verified (script live at 110ms/0-frames vs ~990ms; parrot never colourful; party2
+  limbs hidden first 600ms; viking1 dialogs fire; windoze/briefcase/creatures/turtle/cabin1 adopt
+  clean; restart + F2/F3 resume + replay-return all live; all-81 sweep + e2e 7/7).
+- Localization: per-line English audio fallback (`docs/060-2026-07-16-localization-english-audio-fallback.md`):
+  from a cancan bug (piano music silent on first open, fine after restart). Three related fixes.
+  (1) **Decode race** - cancan's piano is a *cycling* en-only dialog voice (`kan-klavir-music`, in
+  `sound/cancan/en`, a dir the audio gate doesn't wait on); the talker fired (~251ms) before `cancan/en`
+  decoded (~510ms), `AudioEngine.play()` no-op'd on the missing buffer, and since a cycling talker never
+  expires (`isTalking()` stays true) the script never retried it - silent until a restart replays it
+  from cache. Fixed: `play()` now **defers the start until the dir finishes decoding** instead of
+  dropping it (pending plays tracked so stopGroup/stopAll can cancel one mid-decode); a never-queued dir
+  stays a silent no-op. (2) **Per-line en audio fallback** (the real feature the user asked for) - FF NG's
+  `ResDialogPack::findDialogSpeech` plays the en clip when the current language has a subtitle but no
+  localized voice (`isSpeechless()` → DEFAULT_LANG); the port only had text fallback + whole-dialog en-only
+  clips (docs/036), so a translated-but-unvoiced line played **silent**. Fixed in `dialog_addDialog`: when
+  the localized clip is absent, fall back to the en clip (keeping the localized subtitle), deriving the en
+  dir by swapping the trailing lang segment of `currentSoundPrefix` (works for level dialogs + shared
+  border/joke pools); `levelSoundSpriteDirs`/`fetchSoundDurations` now include the en fallback pools so
+  those clips are decoded + measured. This is the "targeted now, full later" scope the user chose -
+  reproduces findDialogSpeech for cs/nl without the deliberately-dropped `speech` selector (docs/038) or
+  prefix lang matching (`de_CH`→`de`→en); **follow-up** if country variants/speech are ever added: a
+  faithful per-`(name,lang)` `ResDialogPack` port. nl sweep (80 levels): **187 lines now play en audio**
+  (30 spoken, with nl subtitles - e.g. elk's Russian-accented moose), **0 left silent** while en has the
+  clip. (3) **Dutch parse crash** - nl testing surfaced `warcraft/dialogs_nl.lua:35`'s `\/etc`, a Lua
+  5.0-ism wasmoon's 5.4 rejects (invalid escape → whole level crashes in nl). A full-corpus scan found
+  it's the ONLY parse-breaking invalid escape (`\[ \] \?` also appear but only in a prog_goanim comment);
+  `fetchLegacyFile` now patches `\/`→`/` on load (never edit legacy/, same approach as docs/005's compat
+  shim). Verified: cancan music plays first-open; nl sweep 187 fallbacks/0 missed/warcraft loads; no cs
+  regression (e2e 7/7); tsc clean.
+- Ending flow + play-time + talking body pose (`docs/061-2026-07-16-ending-flow-playtime-talk-pose.md`):
+  three `ending`-level issues. (1) **Talking body pose** - when a fish speaks to the player in a
+  scripted conversation FF NG turns its BODY to a front-facing `talk` pose (cycling `body_talk_*`, NO
+  head overlay - the talk body has the face); the port kept the side pose. `animateHead`'s
+  `action=="busy"` branch (busy via `planBusy`->`setBusy`->`cube.busy`->`getAction()=="busy"`, reachable
+  for all levels since docs/035/054) does `setAnim("talk", talk_phase)` while talking / `setAnim("turn",0)`
+  idle; `computeBodyAnim` had this stubbed ("nothing ever sets busy"). Fixed: `computeBodyAnim(model,
+  isTalking, talkPhase)` returns talk/turn for busy, `computeHeadAnim` returns null for busy, and
+  `ModelAnimator` stores the real `lastAction` + drives the held talk body frame from `talk_phase` on the
+  head timer. (2) **Play-time counter** - the ending says "%1 hours" (`optionsGetAsInt("playtime")/3600`);
+  legacy keeps `playtime` as a persistent cumulative option (`GameAgent::own_shutdown` does `playtime +=
+  SDL_GetTicks()/1000`). Port's `options_getParam("playtime")` returned "" -> 0. New
+  `web/src/storage/playtime.ts` (localStorage cumulative seconds, `bootTotal + floor(sessionMs/1000)`,
+  flushed on 30s interval + `visibilitychange`/`pagehide`); `initPlaytimeTracking()` in `main.ts`;
+  `options_getParam("playtime")` returns it. (3) **Ending pedometer flow** (user corrected the FF NG
+  behavior): finish/replay a FINAL level once the game is complete -> that level's poster -> the ending's
+  **Pedometer** if already solved (legacy `runSelected` shows a Pedometer for a `STATE_SOLVED` node), else
+  play it straight through -> ending poster -> map. Reworked `setupEnding`: standard mode presents the
+  ending only after a final level (`fromFinal`, the poster path) with all solved and NOT straight back
+  from the ending (`endingDone` = legacy's `m_selected != m_ending` loop guard); `presentEnding()` shows
+  the pedometer if solved else launches. Sandbox: the top-centre ending node is now solved-aware
+  (pedometer on click once beaten, else launches). `launchLevel`/`launchReplay` are ending-aware (its own
+  poster/depth/`isEnding`); `LevelScene`/`ReplayScene` set `fromFinal`/`endingDone` in the poster return
+  data; `launchEnding` removed. Verified in a real browser (busy+talking -> `body_talk_*` + head hidden,
+  non-busy unchanged; playtime 10800s -> 3h; sandbox ending node open->solved->pedometer "Doma" +
+  Run/Replay/Cancel; standard present + loop guard) + e2e 7/7; tsc clean.
 
 Commands (from repo root):
 

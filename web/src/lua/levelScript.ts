@@ -18,6 +18,7 @@ import {
   type ResolvedSound,
 } from "./dialogSound";
 import { loadSettings } from "../storage/settingsStorage";
+import { getPlaytimeSeconds } from "../storage/playtime";
 
 /** Dialog language for both text and voice audio - Czech by default (docs/018:
  *  the original's home language with by far the most complete translation +
@@ -39,13 +40,27 @@ const TALK_INDEX_BOTH = -1;
  *  line plays without a network-fetch delay (docs/031). */
 export function levelSoundSpriteDirs(levelName: string): string[] {
   const lang = getDialogLang();
-  return [
+  const dirs = [
     levelDialogVoiceDir(levelName),
     "share",
     `share/border/${lang}`,
     `share/borejokes/${lang}`,
     `share/blackjokes/${lang}`,
   ];
+  // English fallback pools: a partially-voiced language plays en's clip for any
+  // line it has a subtitle but no localized voice for (dialog_addDialog's
+  // per-line fallback, legacy findDialogSpeech), so those en dirs must be
+  // decoded too. `<level>/en` also carries en-only dialogs - viking1's band,
+  // cancan's piano (docs/036). See docs/060.
+  if (lang !== "en") {
+    dirs.push(
+      `${levelName}/en`,
+      "share/border/en",
+      "share/borejokes/en",
+      "share/blackjokes/en",
+    );
+  }
+  return dirs;
 }
 
 /** The sprite dir holding a level's own dialog voice (`<level>/<lang>`) - the
@@ -76,6 +91,23 @@ end
 // (shared with the demo movie engine, demoScript.ts). Re-exported so existing
 // importers (LevelScene) keep resolving ResolvedSound from here.
 export type { ResolvedSound };
+
+/** Own glue (not legacy content): applies each non-fish model's post-prog_init
+ *  opening anim phase, run once at the end of bootstrap. See the call site for
+ *  why. The loader has its own copy (levelLoader.ts) with an extra ffwg_hasAnims
+ *  guard - unneeded here, where a picture-less model's setAnim just stores a
+ *  scriptAnim nothing ever reads. Fish are skipped via getUnitTable(). docs/059. */
+const APPLY_INITIAL_ANIMS_SOURCE = `
+function ffwg_applyInitialAnims()
+    local models = getModelsTable()
+    local units = getUnitTable()
+    for key, model in pairs(models) do
+        if model.updateAnim and not units[model.index] then
+            pcall(function() model:updateAnim() end)
+        end
+    end
+end
+`;
 
 /** Callbacks the live Lua engine invokes back into LevelScene for the special
  *  scripted-sequence host functions - the port's stand-in for the C++ Level's
@@ -265,6 +297,17 @@ interface LevelScriptState {
   pendingBgChange: string | null;
   /** Last background set via game_changeBg() (backs game_getBg()). */
   currentBg: string;
+  /** The briefcase level's special host callbacks (level_newDemo / the show's
+   *  move/save/load/restart) - see docs/031. Mutable so LevelScene can swap in
+   *  its own this-closured version after adopting a script the world map
+   *  prewarmed without one (docs/059). Not called during bootstrap. */
+  hostActions?: HostActions;
+  /** The live engine's only hook into physics (windoze busy/fast-fall,
+   *  model_equals' field lookup) - docs/035/054. Mutable for the same reason as
+   *  hostActions; unlike it, this CAN be read during bootstrap (creatures/
+   *  cancan/turtle's prog_init), so a prewarming caller must supply one over the
+   *  engine it hands to LevelScene. */
+  engineControl?: EngineControl;
 }
 
 /** Whether a *blocking* dialog is running - legacy DialogStack::isDialog()
@@ -346,6 +389,18 @@ export class LevelScript {
     private readonly captureModelStateFn: () => string,
     private readonly restoreModelStateFn: (serialized: string) => void,
   ) {}
+
+  /** Swap in the host callbacks after construction. Used when a script is
+   *  prewarmed by the world map (which has no scene) and then adopted by
+   *  LevelScene, which owns the this-closured versions that follow this.engine
+   *  across restarts/demo resets. Safe because neither is invoked between boot
+   *  and the first tick(). See docs/059. */
+  setHostActions(hostActions: HostActions): void {
+    this.state.hostActions = hostActions;
+  }
+  setEngineControl(engineControl: EngineControl): void {
+    this.state.engineControl = engineControl;
+  }
 
   /** Called once per physics round with the latest render state. `cyclesThisRound`
    *  is how many fixed CYCLE_MS cycles the round occupied (docs/046) - a moving
@@ -687,17 +742,12 @@ export async function createLevelScript(
   // Real clip lengths for the dialog sound pools this level actually loads
   // (docs/018) - tolerant of 404s (pool/level not in our converted set),
   // since model_talk() falls back to the text-length formula either way.
-  const soundDurations = await fetchSoundDurations([
-    `${levelName}/${DIALOG_LANG}`,
-    // English fallback clips (see levelDialogsFallbackSource) - needed so an
-    // en-only sound-dialog like viking1's d1-z-* gets a real clip duration, and
-    // model_talk()'s minTime is > 0 (with an empty subtitle the text-length
-    // fallback would be 0 and the "note" would never actually play). docs/036.
-    `${levelName}/en`,
-    `share/border/${DIALOG_LANG}`,
-    `share/borejokes/${DIALOG_LANG}`,
-    `share/blackjokes/${DIALOG_LANG}`,
-  ]);
+  // Same dirs the scene preloads for playback (levelSoundSpriteDirs), so every
+  // clip that can actually play - including the en fallback pools (docs/060) and
+  // en-only sound-dialogs like viking1's d1-z-* / cancan's piano (docs/036) - has
+  // a real duration for model_talk()'s minTime (an en-only note with an empty
+  // subtitle would otherwise get 0 from the text-length fallback and never play).
+  const soundDurations = await fetchSoundDurations(levelSoundSpriteDirs(levelName));
 
   const factory = new LuaFactory();
   const lua = await factory.createEngine();
@@ -733,6 +783,8 @@ export async function createLevelScript(
     pendingIncludes: [],
     pendingBgChange: null,
     currentBg: "",
+    hostActions,
+    engineControl,
   };
   const modelShapes: ScriptModel[] = [];
   // level_dialog.lua's own DialogState.lang is never actually set to
@@ -869,7 +921,7 @@ export async function createLevelScript(
     // model_equals(-1, ...) is FALSE there even though the border's own index
     // is also -1. askFieldIndex() reports null only for genuinely empty water.
     lua.global.set("model_equals", (index: number, x: number, y: number) => {
-      const other = engineControl?.askFieldIndex(x, y) ?? null;
+      const other = state.engineControl?.askFieldIndex(x, y) ?? null;
       if (other === null) return index === -1; // empty water
       return index === -1 ? false : index === other;
     });
@@ -894,11 +946,11 @@ export async function createLevelScript(
     // game_setFastFalling(value): real physics pacing, wired to the engine for
     // windoze (settle the main room fast while the bonus is solved) - docs/035.
     lua.global.set("game_setFastFalling", (value: boolean) =>
-      engineControl?.setFastFalling(Boolean(value)),
+      state.engineControl?.setFastFalling(Boolean(value)),
     );
     // game_checkActive(): switch player control away from a now-busy fish -
     // windoze uses it when swapping control to the extra couple (docs/035).
-    lua.global.set("game_checkActive", () => engineControl?.checkActive());
+    lua.global.set("game_checkActive", () => state.engineControl?.checkActive());
     // model_getViewShift(index): the getter paired with model_setViewShift -
     // returns whatever was last set (pyramid's parallax reads it every round;
     // leaving it unbound once froze that level - docs/033).
@@ -922,21 +974,21 @@ export async function createLevelScript(
     // Level::newDemo(): launch a fullscreen movie (briefcase pushes the
     // briefcase down -> demo_briefcase.lua). Delegated to LevelScene via
     // hostActions - see docs/031, Phase 1.
-    lua.global.set("level_newDemo", (demoFile: string) => hostActions?.newDemo(demoFile));
+    lua.global.set("level_newDemo", (demoFile: string) => state.hostActions?.newDemo(demoFile));
     // Level::action_move/save/load/restart() - the auto-play tutorial's
     // unattended actions, delegated to LevelScene (docs/031, Phase 2). Save/
     // load use an in-memory demo snapshot there, never a player save slot.
-    lua.global.set("level_action_move", (symbol: string) => hostActions?.move(symbol) ?? false);
+    lua.global.set("level_action_move", (symbol: string) => state.hostActions?.move(symbol) ?? false);
     lua.global.set("level_action_save", () => {
-      hostActions?.save();
+      state.hostActions?.save();
       return true;
     });
     lua.global.set("level_action_load", () => {
-      hostActions?.load();
+      state.hostActions?.load();
       return true;
     });
     lua.global.set("level_action_restart", () => {
-      hostActions?.restart();
+      state.hostActions?.restart();
       return true;
     });
 
@@ -949,7 +1001,7 @@ export async function createLevelScript(
     // model_setBusy(index, value): real for windoze - freezes/unfreezes a fish
     // for player control (docs/035). No-op elsewhere (no engineControl).
     lua.global.set("model_setBusy", (index: number, value: boolean) =>
-      engineControl?.setBusy(index, Boolean(value)),
+      state.engineControl?.setBusy(index, Boolean(value)),
     );
     // model_setEffect(index, name): legacy Anim::setEffect - "none" (draw
     // normally), "invisible" (draw nothing), "reverse" (flip left/right),
@@ -995,7 +1047,19 @@ export async function createLevelScript(
       "dialog_addDialog",
       (name: string, _lang: string, _soundPath: string, font: string, subtitle: string) => {
         const candidate = `${currentSoundPrefix}${name}.ogg`;
-        const soundPath = audioManifest.has(candidate) ? candidate : "";
+        let soundPath = audioManifest.has(candidate) ? candidate : "";
+        // Per-line voice fallback to English, matching legacy ResDialogPack::
+        // findDialogSpeech(): a dialog with a translated *subtitle* but no
+        // localized *voice clip* (dataPathSound returned "" -> isSpeechless())
+        // plays the DEFAULT_LANG ("en") clip rather than going silent. Without
+        // this, a partially-voiced language (nl especially) drops every
+        // audio-missing line even though en has the clip. The subtitle stays
+        // the localized one; only the audio falls back. Compute the en dir by
+        // swapping the trailing lang segment of currentSoundPrefix. See docs/060.
+        if (!soundPath && DIALOG_LANG !== "en") {
+          const enCandidate = `${currentSoundPrefix.replace(/\/[^/]+\/$/, "/en/")}${name}.ogg`;
+          if (audioManifest.has(enCandidate)) soundPath = enCandidate;
+        }
         state.dialogRegistry.set(name, { font, subtitle, soundPath });
       },
     );
@@ -1095,7 +1159,7 @@ export async function createLevelScript(
     lua.global.set("level_isNewRound", () => true);
     // Real now (docs/054) - legacy Room::isSolved(). bordershout.lua gates its
     // shout lines on `getState()=="goout" or level_isSolved()`.
-    lua.global.set("level_isSolved", () => engineControl?.isSolved() ?? false);
+    lua.global.set("level_isSolved", () => state.engineControl?.isSolved() ?? false);
     // The level's static position in the world-map campaign tree
     // (LevelNode::m_depth): 1 at the root, parent+1 for each child, -1 for the
     // ending. Real now that the world map exists (docs/027) - it used to be a
@@ -1126,9 +1190,14 @@ export async function createLevelScript(
     // text language - there's no separate speech selector). Anything else
     // returns "" - never null/undefined, both of which crash or misbehave in
     // wasmoon (docs/024). See docs/054.
-    lua.global.set("options_getParam", (name: string) =>
-      name === "lang" || name === "speech" ? DIALOG_LANG : "",
-    );
+    lua.global.set("options_getParam", (name: string) => {
+      if (name === "lang" || name === "speech") return DIALOG_LANG;
+      // Cumulative seconds played across all sessions - legacy's persistent
+      // `playtime` option (docs/061). The ending reads it to report how many
+      // hours the whole game took.
+      if (name === "playtime") return String(getPlaytimeSeconds());
+      return "";
+    });
 
     await lua.doString(compatSource);
     await lua.doString("text = {}");
@@ -1188,6 +1257,22 @@ export async function createLevelScript(
     // to call it, not the driver) - calling it again here would duplicate
     // borderShoutLoad()/stdBoreJokeLoad()/etc.'s side effects.
     await lua.doString(codeSource);
+
+    // Apply each non-fish model's opening anim phase (its post-prog_init
+    // `.afaze`) now, at the end of bootstrap, so the pre-tick scriptAnim this
+    // engine reports is already the frame the level means to open on - not
+    // addItemAnim's frame 0. Some levels defer the updateAnim() that applies
+    // `afaze` into a per-round closure (cabin2's parrot: afaze=9 = the
+    // skeleton), so without this the render loop would show the wrong frame in
+    // the window after this script is assigned but before its first tick()
+    // (which is audio-gated). This mirrors the original, whose first
+    // script_update() applies it before the first draw, and levelLoader.ts's
+    // own APPLY_INITIAL_ANIMS_SOURCE (docs/058/059). Fish are skipped (they
+    // have no "default" anim - addFishAnim ends with runAnim("rest") - and are
+    // TS-owned anyway); each is pcall'd so a custom updateAnim reaching for
+    // state it lacks pre-tick degrades to no-op rather than failing the boot.
+    await lua.doString(APPLY_INITIAL_ANIMS_SOURCE);
+    (lua.global.get("ffwg_applyInitialAnims") as () => void)();
 
     const scriptUpdate = lua.global.get("script_update") as () => unknown;
     const captureModelStateFn = lua.global.get("ffwg_captureModelState") as () => string;

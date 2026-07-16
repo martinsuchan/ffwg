@@ -31,6 +31,13 @@ export interface SoundHandle {
 
 const NOOP_HANDLE: SoundHandle = { stop() {} };
 
+/** A play() call waiting for its dir to finish decoding before it can start. */
+interface PendingPlay {
+  group: string | number | undefined;
+  cancelled: boolean;
+  started: SoundHandle | null;
+}
+
 /** Decoded buffers are cached **module-global**, not per-engine: Phaser's
  *  WebAudioSoundManager (and thus its AudioContext) is game-global, so an
  *  AudioBuffer decoded for one level stays valid for every later scene. This is
@@ -64,6 +71,10 @@ export class AudioEngine {
   private readonly groups = new Map<string | number, Set<AudioBufferSourceNode>>();
   /** Every live source (grouped or not), so stopAll() reaches ungrouped effects. */
   private readonly allSources = new Set<AudioBufferSourceNode>();
+  /** Plays deferred until their dir finishes decoding (see play()) - tracked so
+   *  stopGroup()/stopAll() can cancel one before it ever starts (a killSound or
+   *  a scene teardown landing inside the decode window). */
+  private readonly pending = new Set<PendingPlay>();
 
   constructor(scene: Phaser.Scene) {
     const mgr = scene.sound;
@@ -135,18 +146,59 @@ export class AudioEngine {
   ): SoundHandle {
     if (!this.ctx || !this.destination) return NOOP_HANDLE;
     const entry = dirBuffers.get(dir);
-    const clip = entry?.spritemap[region];
-    if (!entry || !clip) return NOOP_HANDLE;
+    if (entry) {
+      const clip = entry.spritemap[region];
+      if (!clip) return NOOP_HANDLE;
+      return this.startSource(entry, clip, volumePercent, opts);
+    }
 
+    // Buffer not decoded yet. If a load is in flight, start the sound once it
+    // lands rather than dropping it: a caller can request a clip during the
+    // brief per-level decode window, and a *cycling* voice (cancan's piano
+    // music - registered en-only, so it plays from the `<level>/en` fallback
+    // dir the audio gate doesn't wait on) would otherwise register as "talking"
+    // yet stay silent forever, since the level's script only re-triggers it
+    // when isTalking() is false. A dir that was never queued (truly missing /
+    // unconverted) stays a silent no-op. See docs/060.
+    const loading = dirLoads.get(dir);
+    if (!loading) return NOOP_HANDLE;
+    const pending: PendingPlay = { group: opts.group, cancelled: false, started: null };
+    this.pending.add(pending);
+    void loading.then(() => {
+      this.pending.delete(pending);
+      if (pending.cancelled) return;
+      const loaded = dirBuffers.get(dir);
+      const clip = loaded?.spritemap[region];
+      if (!loaded || !clip) return; // load failed, or no such region
+      pending.started = this.startSource(loaded, clip, volumePercent, opts);
+    });
+    return {
+      stop: () => {
+        this.pending.delete(pending);
+        pending.cancelled = true;
+        pending.started?.stop();
+      },
+    };
+  }
+
+  /** Create + start one source for an already-decoded buffer. */
+  private startSource(
+    entry: LoadedDir,
+    clip: Clip,
+    volumePercent: number,
+    opts: { loop?: boolean; group?: string | number },
+  ): SoundHandle {
+    // ctx/destination are non-null here: play() checked before ever reaching this.
+    const ctx = this.ctx!;
     // A gesture may not have unlocked the shared context yet - resume opportunistically.
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    if (ctx.state === "suspended") void ctx.resume();
 
-    const src = this.ctx.createBufferSource();
+    const src = ctx.createBufferSource();
     src.buffer = entry.buffer;
-    const gain = this.ctx.createGain();
+    const gain = ctx.createGain();
     gain.gain.value = globalSoundVolume() * (volumePercent / 100);
     src.connect(gain);
-    gain.connect(this.destination);
+    gain.connect(this.destination!);
 
     const duration = clip.end - clip.start;
     if (opts.loop) {
@@ -189,8 +241,16 @@ export class AudioEngine {
     this.allSources.delete(src);
   }
 
-  /** Stop every live source in `group` - DialogStack::killSound(actor). */
+  /** Stop every live source in `group` - DialogStack::killSound(actor). Also
+   *  cancels any of that group's plays still deferred behind a decode (so a
+   *  killed voice never starts once its buffer lands). */
   stopGroup(group: string | number): void {
+    for (const p of [...this.pending]) {
+      if (p.group === group) {
+        p.cancelled = true;
+        this.pending.delete(p);
+      }
+    }
     const set = this.groups.get(group);
     if (!set) return;
     for (const src of [...set]) this.stopSource(src);
@@ -200,6 +260,8 @@ export class AudioEngine {
   /** Stop everything currently playing (scene teardown/restart), grouped or not.
    *  Loaded buffers stay cached - only playback is stopped. */
   stopAll(): void {
+    for (const p of this.pending) p.cancelled = true;
+    this.pending.clear();
     for (const src of [...this.allSources]) this.stopSource(src);
     this.allSources.clear();
     for (const set of this.groups.values()) set.clear();

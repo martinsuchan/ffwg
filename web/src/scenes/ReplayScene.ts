@@ -6,7 +6,7 @@ import { GameEngine, type RenderModel } from "../game/GameEngine";
 import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
 import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
-import { isFishKind, resolveInitialFrame } from "./sceneUtils";
+import { drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
 import { WavyBackground } from "./WavyBackground";
 
 type PlayState = "paused" | "play" | "fast";
@@ -53,6 +53,8 @@ export class ReplayScene extends Phaser.Scene {
   private poster: string | null = null;
   /** LevelNode::m_depth for level_getDepth() - see docs/054. */
   private depth = 1;
+  /** True only when replaying the ending level (docs/061). */
+  private isEnding = false;
   /** Room background + its underwater ripple (docs/056). */
   private background!: WavyBackground;
 
@@ -60,6 +62,9 @@ export class ReplayScene extends Phaser.Scene {
   private animators = new Map<number, ModelAnimator>();
   private audioManager!: AudioManager;
   private levelScript: LevelScript | null = null;
+  /** Lazily created on the first level that actually registers a rope decor
+   *  (elevator1/elevator2 only) - see drawRopes() and docs/055. */
+  private ropeGraphics?: Phaser.GameObjects.Graphics;
   /** windoze's live-Lua control-swap/fast-fall hook, so the replay's engine
    *  tracks busy/fast-falling exactly as interactive play did (docs/035).
    *  Closes over `this` so a replay restart swapping `this.engine` stays
@@ -100,12 +105,20 @@ export class ReplayScene extends Phaser.Scene {
     returnTo?: "level" | "worldmap";
     poster?: string | null;
     depth?: number;
+    /** True when replaying the ending itself, so its post-poster return doesn't
+     *  make the map re-present the ending (docs/061). */
+    isEnding?: boolean;
   }): void {
     this.levelData = data.levelData;
     this.moves = data.moves;
     this.returnTo = data.returnTo ?? "level";
     this.poster = data.poster ?? null;
     this.depth = data.depth ?? 1;
+    this.isEnding = data.isEnding ?? false;
+    // Phaser reuses the scene instance across scene.start(), but SHUTDOWN
+    // destroys its GameObjects - drop the stale handle so drawRopes() builds a
+    // fresh one instead of touching a destroyed Graphics (cf. docs/012).
+    this.ropeGraphics = undefined;
   }
 
   preload(): void {
@@ -228,7 +241,9 @@ export class ReplayScene extends Phaser.Scene {
         model.y,
         model.isLeft,
       );
-      animator.sync(model);
+      // Start hidden if prog_init left it invisible (party2's limbs), matching
+      // LevelScene - see docs/058.
+      animator.sync(model, null, false, null, levelModel.initialEffect);
       this.animators.set(model.index, animator);
     }
 
@@ -333,6 +348,11 @@ export class ReplayScene extends Phaser.Scene {
 
     const progress = this.moving ? Math.min(1, this.roundClock / this.moveDurationMs) : 1;
     for (const animator of this.animators.values()) animator.render(progress);
+    // Ropes anchor to the models' just-rendered screen positions. The original
+    // holds decors on the Room's View (Room::addDecor -> m_view->addDecor), and
+    // replay drives that very same Room via Room::loadMove() - so the elevator
+    // cables are drawn in replay exactly as in play. See docs/055.
+    this.drawRopes();
 
     if (factor > 0) {
       const interval = this.moving ? this.moveDurationMs : IDLE_ROUND_MS;
@@ -341,6 +361,17 @@ export class ReplayScene extends Phaser.Scene {
         this.tick();
       }
     }
+  }
+
+  /** Elevator cables - see drawRopeDecors() (shared with LevelScene). */
+  private drawRopes(): void {
+    const decors = this.levelScript?.getRopeDecors();
+    if (!decors?.length) return;
+    if (!this.ropeGraphics) {
+      // Above the models (View::drawOn draws decors last), below the UI.
+      this.ropeGraphics = this.add.graphics().setDepth(5);
+    }
+    drawRopeDecors(this.ropeGraphics, decors, this.animators);
   }
 
   private tick(): void {
@@ -370,8 +401,11 @@ export class ReplayScene extends Phaser.Scene {
       // decorative animation during replay, only their real physics
       // position (still applied via sync() - unavoidable and expected,
       // that's the puzzle actually being solved). Fish are unaffected -
-      // they never read scriptAnim at all (docs/009/013).
-      this.animators.get(model.index)?.sync(model, null);
+      // they never read scriptAnim at all (docs/009/013). The init-time
+      // effect is kept, though (not the live one) - so a model hidden at
+      // init stays hidden rather than flashing in (party2's limbs, docs/058).
+      const effect = isFishKind(model.kind) ? null : this.levelData.models[model.index].initialEffect;
+      this.animators.get(model.index)?.sync(model, null, false, null, effect);
     }
 
     this.updateRoundPacing(renderModels);
@@ -384,11 +418,15 @@ export class ReplayScene extends Phaser.Scene {
       // level ends in its recap poster before returning to the map (docs/050).
       // An in-level (P) replay stays a review tool - pause and wait for Esc/R.
       if (this.returnTo === "worldmap" && this.poster) {
+        // Watching a final level's replay ends in its poster, then the map
+        // presents the ending - same as finishing it live (fromFinal). If this
+        // WAS the ending's replay, endingDone stops it re-presenting (docs/061).
         this.scene.start("demo", {
           demoFile: this.poster,
           levelName: this.levelData.levelName,
           mode: "poster",
           returnTo: "worldmap",
+          returnData: { fromLevel: true, fromFinal: true, endingDone: this.isEnding },
         });
         return;
       }
