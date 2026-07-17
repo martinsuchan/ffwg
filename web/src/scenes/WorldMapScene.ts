@@ -7,7 +7,6 @@ import type { WorldMapData, WorldMapNode } from "../lua/worldMapLoader";
 import { computeNodeStates, type NodeState } from "../game/worldMapState";
 import { isSandboxMode } from "../game/appMode";
 import { loadSolvedMoves } from "../storage/levelStorage";
-import { isFullscreenActive } from "../fullscreen";
 import {
   applyRenderScale,
   crispText,
@@ -89,6 +88,10 @@ export class WorldMapScene extends Phaser.Scene {
   private pulseTimer?: Phaser.Time.TimerEvent;
 
   private selectionRing?: Phaser.GameObjects.Arc;
+  /** The currently highlighted node - set by mouse hover OR Tab, launched by
+   *  Enter (legacy WorldMap::m_selected). Shared between the two, like the
+   *  original. */
+  private selectedNode?: WorldMapNode;
   private nameLabel!: Phaser.GameObjects.Text;
   private feedbackText!: Phaser.GameObjects.Text;
   private feedbackTimer?: Phaser.Time.TimerEvent;
@@ -207,11 +210,25 @@ export class WorldMapScene extends Phaser.Scene {
     );
 
     // Esc closes the pedometer (restoring the hidden dots), like its Cancel
-    // button - the map's only modal keyboard shortcut. While fullscreen, Esc
-    // only leaves fullscreen (docs/065).
+    // button - the map's only modal keyboard shortcut.
     this.input.keyboard?.on("keydown-ESC", () => {
-      if (isFullscreenActive()) return;
       if (this.pedometerUI.isShowing) this.closePedometer();
+    });
+
+    // Tab cycles the open (playable) levels, Enter runs the selected one -
+    // legacy WorldInput's KEY_TAB/KEY_ENTER. Capture both so the browser
+    // doesn't move focus off the canvas (Tab) on keydown. F10 opens the settings
+    // panel here too (legacy KEY_MENU is registered on every state, incl. the
+    // world map - docs/069); capture it so it doesn't open the browser menu bar.
+    this.input.keyboard?.addCapture("TAB,ENTER,F10");
+    this.input.keyboard?.on("keydown-TAB", () => {
+      if (!this.isModalOpen()) this.selectNextLevel();
+    });
+    this.input.keyboard?.on("keydown-ENTER", () => {
+      if (!this.isModalOpen()) this.runSelected();
+    });
+    this.input.keyboard?.on("keydown-F10", () => {
+      if (!this.isModalOpen()) this.optionsOverlay.show();
     });
 
     // Options panel (bottom-right corner button) - live-updates music volume
@@ -312,6 +329,7 @@ export class WorldMapScene extends Phaser.Scene {
   }
 
   private selectNode(node: WorldMapNode): void {
+    this.selectedNode = node;
     this.selectionRing?.destroy();
     // legacy NodeDrawer::drawSelect: a translucent yellow (0xffc618 @ 50%) disc
     // the size of the dot itself (radius = max(dotW,dotH)/2 + 1), drawn over the
@@ -326,9 +344,35 @@ export class WorldMapScene extends Phaser.Scene {
   }
 
   private deselectNode(): void {
+    this.selectedNode = undefined;
     this.selectionRing?.destroy();
     this.selectionRing = undefined;
     this.nameLabel.setVisible(false);
+  }
+
+  /** legacy LevelNode::findNextOpen: the next "open" (unlocked, unsolved) node
+   *  after `current` in node order, wrapping to the first; the first if `current`
+   *  isn't itself open (e.g. a hovered solved node); undefined if none are open
+   *  (e.g. everything solved) - then Tab is a no-op. */
+  private nextOpenNode(current?: WorldMapNode): WorldMapNode | undefined {
+    const open = this.mapData.nodes.filter((n) => this.nodeStates.get(n.codename) === "open");
+    if (open.length === 0) return undefined;
+    const idx = current ? open.indexOf(current) : -1;
+    return idx === -1 ? open[0] : open[(idx + 1) % open.length];
+  }
+
+  /** Tab: select the next open level (legacy WorldMap::selectNextLevel). */
+  private selectNextLevel(): void {
+    const next = this.nextOpenNode(this.selectedNode);
+    if (next) this.selectNode(next);
+    else this.deselectNode();
+  }
+
+  /** Enter: run the selected level (legacy WorldMap::runSelected) - the
+   *  pedometer for a solved node, otherwise play it, exactly like clicking. */
+  private runSelected(): void {
+    if (!this.selectedNode) return;
+    this.onNodeClicked(this.selectedNode, this.nodeStates.get(this.selectedNode.codename) ?? "far");
   }
 
   private onNodeClicked(node: WorldMapNode, state: NodeState): void {

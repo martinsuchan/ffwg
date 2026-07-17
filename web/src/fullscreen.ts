@@ -3,40 +3,34 @@ import Phaser from "phaser";
 import { reapplyRenderScale } from "./scenes/sceneUtils";
 
 /**
- * Aspect-preserving fullscreen via the Fullscreen API - see docs/064/065.
+ * Aspect-preserving fullscreen that rides the browser's OWN F11, and does NOT
+ * capture any key - see docs/064/065/066.
  *
- * History: the first version captured F11 + `preventDefault` + Phaser
- * `startFullscreen`, which black-screened in Edge (F11-conflict + a FIT layout
- * timing bug). The second rode the browser's native F11 (media query only) - it
- * rendered, but the browser's own F11 fullscreen can't be exited from JS (needed
- * for the Esc-to-exit request) and isn't reliably exited by Esc. So we're back to
- * the Fullscreen API, now that the layout bugs (stale parentSize, wrong aspect on
- * room change) are fixed: F11 requests/exits it, and Esc exits it (both the
- * browser's built-in behavior AND an explicit call, so it's reliable).
+ * We deliberately use the browser's native F11 fullscreen rather than the
+ * Fullscreen API. The API is exited by Esc *and that exit can't be prevented*
+ * (browsers won't let a page trap you in fullscreen) - so Esc would drop out of
+ * fullscreen every time you leave a level, which the player doesn't want. Native
+ * F11 fullscreen is toggled only by F11 and is unaffected by Esc, so Esc keeps
+ * doing its normal in-game job (leave the level, close a popup) while fullscreen
+ * stays on. F11 is the single enter/exit control.
  *
- * Layout is driven off the actual fullscreen state, not the key press: we react
- * to the `(display-mode: fullscreen)` media query AND `fullscreenchange` (belt
- * and suspenders - the query also catches a native F11 that slips through), size
- * the game container to the viewport, and re-apply the active scene's render
- * scale (which recomputes the framebuffer at the fullscreen fit factor and
- * switches to FIT - reapplyRenderScale/applyRenderScale in sceneUtils).
+ * Since we don't drive fullscreen ourselves, layout is purely reactive: the
+ * `(display-mode: fullscreen)` media query matches whenever the browser is
+ * fullscreen (native F11 included, unlike the Fullscreen-API-only
+ * `fullscreenchange`). On its change we size the game container to the viewport
+ * and re-apply the active scene's render scale, which recomputes the framebuffer
+ * at the fullscreen fit factor and switches to FIT (applyRenderScale in
+ * sceneUtils). `fullscreenchange` is also listened to, harmlessly, in case an API
+ * fullscreen is ever entered from elsewhere.
  */
 
 const FS_QUERY = "(display-mode: fullscreen)";
 
-/** True while any fullscreen is showing - the Fullscreen API's element OR the
- *  browser's native F11 (the media query catches both; `fullscreenElement`
- *  covers the instant before the query updates). */
+/** True whenever the browser is fullscreen - native F11 (the media query) or the
+ *  Fullscreen API (`fullscreenElement`, covering the instant before the query
+ *  updates). */
 export function isFullscreenActive(): boolean {
   return window.matchMedia(FS_QUERY).matches || document.fullscreenElement != null;
-}
-
-function requestFullscreen(): void {
-  void document.documentElement.requestFullscreen?.().catch(() => {});
-}
-
-function exitFullscreen(): void {
-  if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
 }
 
 export function initFullscreen(game: Phaser.Game): void {
@@ -73,20 +67,6 @@ export function initFullscreen(game: Phaser.Game): void {
 
   window.matchMedia(FS_QUERY).addEventListener("change", onChange);
   document.addEventListener("fullscreenchange", onChange);
-
-  window.addEventListener("keydown", (event: KeyboardEvent) => {
-    if (event.key !== "F11") return;
-    event.preventDefault();
-    if (isFullscreenActive()) exitFullscreen();
-    else requestFullscreen();
-  });
-
-  // Esc is intentionally NOT handled here: the browser exits Fullscreen-API
-  // fullscreen on Esc by itself, and the scenes' own Esc handlers no-op while
-  // fullscreen (they check isFullscreenActive) so the level isn't left - only
-  // fullscreen ends. Calling exitFullscreen() here would race those handlers
-  // (this listener runs first, flips the state, then the scene handler would
-  // see "not fullscreen" and leave the level). See docs/065.
 
   // Handle a page that somehow loads already fullscreen.
   if (isFullscreenActive()) onChange();

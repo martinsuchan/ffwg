@@ -7,7 +7,6 @@ import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
 import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
 import { applyRenderScale, crispText, drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
-import { isFullscreenActive } from "../fullscreen";
 import { WavyBackground } from "./WavyBackground";
 
 type PlayState = "paused" | "play" | "fast";
@@ -172,8 +171,6 @@ export class ReplayScene extends Phaser.Scene {
 
     this.input.keyboard!.on("keydown-R", () => this.startReplay());
     this.input.keyboard!.on("keydown-ESC", () => {
-      // While fullscreen, Esc only leaves fullscreen (docs/065).
-      if (isFullscreenActive()) return;
       if (this.returnTo === "worldmap") this.scene.start("worldmap");
       // Hand poster/depth back so the level it returns to is fully restored
       // (otherwise solving it afterwards would skip its recap poster).

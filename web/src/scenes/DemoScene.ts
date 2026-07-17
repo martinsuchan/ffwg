@@ -137,9 +137,11 @@ export class DemoScene extends Phaser.Scene {
     // Warm the movie's voice/music sprites so the first line plays on time.
     void this.audioManager.preloadAll(levelSoundSpriteDirs(this.levelName));
 
-    // Esc-only skip (per user - not Space/click).
-    this.input.keyboard!.addCapture("ESC");
+    // Skip with Esc (KEY_QUIT) or Space (legacy DemoInput registers SDLK_SPACE
+    // as quit) - not a click.
+    this.input.keyboard!.addCapture("ESC,SPACE");
     this.input.keyboard!.on("keydown-ESC", () => this.finish());
+    this.input.keyboard!.on("keydown-SPACE", () => this.finish());
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.cycleTimer?.remove();

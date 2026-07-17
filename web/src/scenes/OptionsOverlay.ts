@@ -21,6 +21,8 @@ import { crispText } from "./sceneUtils";
 
 const PANEL_W = 400;
 const PANEL_H = 364;
+/** Min gap kept between the panel and the room edges when scaling to fit. */
+const FIT_MARGIN = 24;
 const ROW_H = 44;
 const SLIDER_W = 180;
 
@@ -36,7 +38,11 @@ const GAME_SIZE_LABELS: Record<GameSize, string> = {
 };
 
 export class OptionsOverlay {
-  private objects: Phaser.GameObjects.GameObject[] = [];
+  /** Full-screen dimmer behind the panel (absorbs clicks) - NOT scaled. */
+  private backdrop?: Phaser.GameObjects.Rectangle;
+  /** Holds the panel + all controls so they can be scaled down to fit a room
+   *  narrower/shorter than the fixed panel (e.g. library) - see docs/069. */
+  private container?: Phaser.GameObjects.Container;
   private escHandler?: (event: KeyboardEvent) => void;
 
   constructor(
@@ -52,7 +58,7 @@ export class OptionsOverlay {
   ) {}
 
   get isShowing(): boolean {
-    return this.objects.length > 0;
+    return this.container !== undefined;
   }
 
   show(): void {
@@ -62,14 +68,17 @@ export class OptionsOverlay {
     const left = cx - PANEL_W / 2;
     const top = cy - PANEL_H / 2;
 
-    const backdrop = this.add(
-      this.scene.add
-        .rectangle(0, 0, this.width, this.height, 0x000000, 0.6)
-        .setOrigin(0, 0)
-        .setInteractive()
-        .setDepth(2999),
-    );
-    void backdrop;
+    // Full-room dimmer (kept out of the scaled container so it always covers the
+    // whole room and absorbs clicks).
+    this.backdrop = this.scene.add
+      .rectangle(0, 0, this.width, this.height, 0x000000, 0.6)
+      .setOrigin(0, 0)
+      .setInteractive()
+      .setDepth(2999);
+    // Everything else goes in a container that's scaled down to fit rooms
+    // narrower/shorter than the panel (docs/069).
+    this.container = this.scene.add.container(0, 0).setDepth(3000);
+
     const panel = this.add(
       this.scene.add
         .rectangle(cx, cy, PANEL_W, PANEL_H, 0x0a1f33, 0.98)
@@ -121,6 +130,13 @@ export class OptionsOverlay {
       .on("pointerdown", () => this.hide());
     this.add(back);
 
+    // Scale the panel down (around its centre) if the room is narrower/shorter
+    // than the fixed panel + margin - otherwise the panel is clipped by the
+    // room-sized camera in tall/narrow levels like library (docs/069). Wide
+    // rooms and the 640x480 world map keep scale 1.
+    const s = Math.min(1, (this.width - FIT_MARGIN) / PANEL_W, (this.height - FIT_MARGIN) / PANEL_H);
+    this.container.setScale(s).setPosition(cx * (1 - s), cy * (1 - s));
+
     this.escHandler = (e: KeyboardEvent) => {
       if (e.key === "Escape") this.hide();
     };
@@ -132,12 +148,15 @@ export class OptionsOverlay {
       window.removeEventListener("keydown", this.escHandler);
       this.escHandler = undefined;
     }
-    for (const o of this.objects) o.destroy();
-    this.objects = [];
+    this.backdrop?.destroy();
+    this.backdrop = undefined;
+    this.container?.destroy(); // destroys its children too
+    this.container = undefined;
   }
 
+  /** Add an object to the (scaled) panel container. */
   private add<T extends Phaser.GameObjects.GameObject>(obj: T): T {
-    this.objects.push(obj);
+    this.container?.add(obj);
     return obj;
   }
 
@@ -265,8 +284,14 @@ export class OptionsOverlay {
     };
     apply(get(), false);
 
-    const fromPointerX = (px: number): number => ((px - trackX) / trackW) * 100;
-    knob.on("drag", (_p: Phaser.Input.Pointer, dragX: number) => apply(fromPointerX(dragX), true));
+    // Fraction from a pointer's WORLD x, using the track's world-space bounds
+    // (getBounds() accounts for the container's fit-scale, docs/069) so the
+    // slider stays correct when the panel is scaled down in a narrow room.
+    const fromPointerX = (worldX: number): number => {
+      const b = track.getBounds();
+      return ((worldX - b.x) / b.width) * 100;
+    };
+    knob.on("drag", (p: Phaser.Input.Pointer) => apply(fromPointerX(p.worldX), true));
     track.on("pointerdown", (p: Phaser.Input.Pointer) => apply(fromPointerX(p.worldX), true));
   }
 

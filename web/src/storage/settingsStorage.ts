@@ -27,6 +27,8 @@ export interface Settings {
   soundVolume: number;
   /** Whether subtitles are drawn (voice audio plays regardless). */
   subtitles: boolean;
+  /** Whether the in-level step counter is shown (legacy F5 `show_steps`). */
+  showSteps: boolean;
   /** Canvas zoom factor: 1 = Standard (100%), 1.5 = Large, 2 = Huge. The world
    *  (sprites/photo backgrounds) is CSS-stretched by this; text is rendered at
    *  a higher resolution so it stays crisp (docs/064). */
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   musicVolume: 50,
   soundVolume: 90,
   subtitles: true,
+  showSteps: true,
   gameSize: 1.5,
 };
 
@@ -72,6 +75,7 @@ export function loadSettings(): Settings {
       musicVolume: clampVolume(p.musicVolume ?? DEFAULT_SETTINGS.musicVolume),
       soundVolume: clampVolume(p.soundVolume ?? DEFAULT_SETTINGS.soundVolume),
       subtitles: p.subtitles !== false,
+      showSteps: p.showSteps !== false,
       gameSize: clampGameSize(p.gameSize),
     };
   } catch {

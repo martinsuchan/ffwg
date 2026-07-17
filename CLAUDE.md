@@ -1140,6 +1140,67 @@ reasoning; check for later numbered entries too — decisions here can change):
   **Manual browser check still needed** (Playwright intercepts F11): real F11 enter/exit in Edge + the
   browser's Esc-exit of API fullscreen. If F11+preventDefault regresses to the black screen in Edge, the
   fallback is native-F11 (issue 1's interim), trading away JS Esc-exit.
+- Fullscreen: native F11, Esc stays fullscreen (`docs/066-2026-07-17-fullscreen-native-f11-esc-stays.md`,
+  **supersedes docs/065 issue 4**): play-testing showed Esc-exits-fullscreen (docs/065) is the wrong feel -
+  the player leaves levels with Esc constantly and doesn't want to drop out of fullscreen each time. Wanted:
+  **F11 is the only fullscreen toggle; Esc does its normal in-game job (leave level, close popup) and stays
+  fullscreen.** This is only possible with **native browser F11** fullscreen (toggled by F11, unaffected by
+  Esc) - the Fullscreen API is exited by Esc and *that exit can't be prevented*. So reverted to native F11:
+  `fullscreen.ts` no longer captures any key or calls `requestFullscreen`/`exitFullscreen`; it only reacts to
+  the `(display-mode: fullscreen)` media query (container->viewport + `reapplyRenderScale`, the docs/065
+  aspect+crisp layout fixes unchanged). The docs/065 Esc guards (`if (isFullscreenActive()) return;`) are
+  removed from `LevelScene`/`WorldMapScene`/`ReplayScene` so Esc leaves the level normally; native F11
+  persists across the scene change (media query stays matched, container stays viewport-sized) and the map
+  re-lays-out fullscreen in its own `create()`. Also drops docs/065's un-testable Edge F11+preventDefault
+  risk (we no longer touch F11 -> no conflict, black-screen history can't recur). Verified (real key press +
+  simulated native fullscreen): Esc in a fullscreen level leaves to the map AND stays fullscreen (map FIT
+  1200x900, aspect preserved); e2e 7/7; tsc clean.
+- Keybinding parity batch (`docs/067-2026-07-17-keybinding-parity-batch.md`): from a legacy-vs-port
+  keybinding audit (`legacy/src/level/LevelInput.cpp`, `plan/StateInput.cpp`, `menu/WorldInput.cpp`,
+  `state/DemoInput.cpp`), implemented five differences. (1) **Level restart -> `Backspace`** (legacy
+  `KEY_RESTART`), replacing `R` (`R` no longer restarts); Backspace is safely capturable (modern browsers
+  dropped Backspace-back; `addCapture` preventDefaults it). (2) **`F5` toggles the step counter** (legacy
+  `show_steps`) - new persisted `settings.showSteps` (default on). (3) **`F6` toggles subtitles** (legacy
+  `KEY_SUBTITLES`) - flips `settings.subtitles` + clears the visible `SubtitleStack`. (4) **`F10` opens
+  the settings panel in-level** (legacy `KEY_MENU`) - `OptionsOverlay` was world-map-only; `LevelScene`
+  now owns its own instance wired to this level (`onVolumeChange`->`audioManager.refreshMusicVolume`,
+  `onGameSizeChange`->`applyRenderScale(this,...)`, so volume+game size apply live in-level), a true modal
+  like F1 help (movement/discrete-key/pointer gated, Esc closes it not the level, `hide()` on SHUTDOWN so
+  its Esc listener doesn't leak); language change in-level only applies on next load (dialogs pre-loaded).
+  (5) **`Space` skips the demo/movie** (legacy `DemoInput` SDLK_SPACE) alongside Esc. `addCapture` gained
+  `BACKSPACE,F5,F6,F10` (F5=reload/F6=addr-bar/F10=menu all confirmed prevented); F1 help text updated.
+  Not changed: undo/redo + debug console (no such feature), world-map Tab/Enter nav (still mouse-only),
+  ReplayScene's `R` (restarts the *replay*, a distinct port feature). Verified in a real browser (all
+  toggles persist, F10 panel + live game-size 1012x607->1350x810, Backspace restarts & R doesn't, no
+  reload) + e2e 7/7 + tsc clean.
+- World-map Tab/Enter keyboard nav (`docs/068-2026-07-17-worldmap-tab-enter-navigation.md`): the last
+  keyboard-parity gap from docs/067's audit - legacy `WorldInput.cpp` navigates the map by keyboard, the
+  port was mouse-only. **`Tab`** = select next *open* (unlocked+unsolved, `STATE_OPEN`) level in node order,
+  wrapping (port of `WorldMap::selectNextLevel`/`LevelNode::findNextOpen`); skips solved+locked, **no-op
+  when nothing is open** (e.g. all solved). **`Enter`** = run the selected node (pedometer if solved else
+  play) - reuses the existing `onNodeClicked` click path. New `WorldMapScene.selectedNode` field shared
+  between mouse hover and Tab (like legacy `m_selected`); `selectNode`/`deselectNode` set/clear it;
+  `nextOpenNode()` filters `mapData.nodes` by `nodeStates==="open"`. Wired via `addCapture("TAB,ENTER")`
+  (Tab default = focus move) + `keydown-TAB`/`keydown-ENTER`, gated on `!isModalOpen()`. The sandbox
+  ending node isn't in `mapData.nodes`, so Tab never lands on it (matches legacy `m_ending`/`checkEnding`).
+  Endpoint note: `/sandbox` force-opens all unsolved (Tab cycles ~80); `/` gates so "open" is the real
+  frontier (1-2 nodes). Verified in a real browser (sandbox cycle start->briefcase + Enter launches;
+  standard 1 open, Tab+ring+name+Enter; all-solved no-op) + e2e 7/7 + tsc clean.
+- F10 options on world map + fit modals to narrow rooms (`docs/069-2026-07-17-options-worldmap-and-
+  narrow-room-fit.md`): two docs/067 bugs. (1) **F10 didn't open settings on the world map** - legacy
+  `KEY_MENU` is on the base `StateInput` (every screen), but docs/067 only wired F10 in `LevelScene`;
+  added a `keydown-F10` handler to `WorldMapScene` (`addCapture("F10")`, gated on `!isModalOpen()`) opening
+  its existing `optionsOverlay`. (2) **Settings panel clipped in tall/narrow rooms** (library, 315px wide;
+  panel is 400px) - overlays draw in room-world space, clipped by the room-sized camera (docs/064), and at
+  Standard 100% the canvas is only 315px so a bigger canvas can't help - the panel must **scale to fit**.
+  Fixed by wrapping the panel + controls in a Phaser **Container** scaled by `min(1, (roomW-margin)/PANEL_W,
+  (roomH-margin)/PANEL_H)` around its centre (`setScale(s).setPosition(cx*(1-s), cy*(1-s))`); the full-room
+  backdrop stays OUTSIDE the container (unscaled, still covers/absorbs). Sliders switched to the track's
+  world-space `getBounds()` + pointer `worldX` (instead of local coords) so drag stays correct when scaled.
+  `HelpOverlay` (F1) had the identical clip and was already container-based -> one-line `setScale(fit)`.
+  Wide rooms + the 640x480 map keep scale 1. Verified (real browser): F10 opens on the map; library options
+  scales 0.728, bounds 12..303 in [0,315] no clip, scaled toggle/sliders still clickable; library F1 help
+  scales 0.746 fits; e2e 7/7; tsc clean.
 
 Commands (from repo root):
 

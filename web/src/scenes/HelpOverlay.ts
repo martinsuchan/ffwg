@@ -13,9 +13,12 @@ const HELP_LINES: Array<[string, string]> = [
   ["Left-click", "select a fish"],
   ["Hold left-click", "swim toward the cursor"],
   ["Hold right-click", "push toward the cursor"],
-  ["R", "restart the level"],
+  ["Backspace", "restart the level"],
   ["P", "watch the solution replay"],
   ["F2 / F3", "save / load a position"],
+  ["F5 / F6", "toggle step counter / subtitles"],
+  ["F10", "settings"],
+  ["F11", "fullscreen"],
   ["Esc", "back to the world map"],
   ["F1", "show / hide this help"],
 ];
@@ -114,6 +117,11 @@ export class HelpOverlay {
     this.container = this.scene.add
       .container(this.width / 2, this.height / 2, [panel, title, keyCol, descCol, okButton])
       .setDepth(3000);
+    // Scale the panel down (around its centre) if the room is narrower/shorter
+    // than the panel, so it isn't clipped by the room-sized camera in tall/narrow
+    // levels like library (docs/069). Container is centred, so setScale is enough.
+    const fit = Math.min(1, (this.width - 16) / panelW, (this.height - 16) / panelH);
+    this.container.setScale(fit);
     // Backdrop is full-screen at (0,0), so it lives outside the centered
     // container - keep it just under the container by depth.
     backdrop.setDepth(2999);

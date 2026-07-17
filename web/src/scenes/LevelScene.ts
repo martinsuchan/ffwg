@@ -16,7 +16,6 @@ import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
 import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager, type MusicCommand } from "./AudioManager";
 import { applyRenderScale, crispText, drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
-import { isFullscreenActive } from "../fullscreen";
 import { pictureToAtlas } from "./atlas";
 import { SaveSlotUI } from "./SaveSlotUI";
 import { HelpOverlay } from "./HelpOverlay";
@@ -31,11 +30,12 @@ import {
   loadSolvedMoves,
   saveSolvedMoves,
 } from "../storage/levelStorage";
-import { loadSettings } from "../storage/settingsStorage";
+import { loadSettings, saveSettings } from "../storage/settingsStorage";
 import { isSandboxMode } from "../game/appMode";
+import { OptionsOverlay } from "./OptionsOverlay";
 
 /** Keys that can drive a fish - the only ones worth buffering as a queued
- *  edge (see LevelScene.queuedKey). Space/R are already handled as
+ *  edge (see LevelScene.queuedKey). Space/Backspace are already handled as
  *  immediate, un-queued actions, not through this movement path. */
 const MOVE_KEYS = new Set([
   "ArrowUp",
@@ -92,8 +92,8 @@ const STEP_MARGIN = 10;
  * select it, click-and-hold the left button to path the active fish
  * around obstacles toward the cursor, hold the right button to push it
  * straight toward the cursor (see docs/017, web/src/game/MouseControl.ts).
- * R restarts. See docs/007 for the rules this plays by, docs/009 for the
- * animation system.
+ * Backspace restarts. See docs/007 for the rules this plays by, docs/009 for
+ * the animation system.
  */
 export class LevelScene extends Phaser.Scene {
   private levelData!: LevelData;
@@ -143,6 +143,11 @@ export class LevelScene extends Phaser.Scene {
   private wrongCountdown = -1;
   /** F1 controls popup (replaces the old always-on top-of-screen help). */
   private helpOverlay!: HelpOverlay;
+  /** F10 in-level settings panel (legacy KEY_MENU) - same overlay the world map
+   *  uses, wired to this level's audio/render scale. */
+  private optionsOverlay!: OptionsOverlay;
+  /** Whether the step counter is shown (settings.showSteps, toggled by F5). */
+  private showSteps = true;
   /** Item animation (docs/014) - null until the async Lua bootstrap for
    *  this play session resolves; tick()/ModelAnimator handle that gap by
    *  just not applying any override yet, not by waiting for it. */
@@ -312,9 +317,11 @@ export class LevelScene extends Phaser.Scene {
       .setVisible(false);
 
     // Step counter (legacy StepDecor): top-right corner, outlined console-style
-    // font at size 20, orange / blue by active-fish power. Always visible.
-    // Inset from the right edge by the same margin as the top (STEP_MARGIN) so
-    // the corner reads as evenly spaced.
+    // font at size 20, orange / blue by active-fish power. Shown unless the
+    // player toggled it off (settings.showSteps, F5 - legacy show_steps). Inset
+    // from the right edge by the same margin as the top (STEP_MARGIN) so the
+    // corner reads as evenly spaced.
+    this.showSteps = loadSettings().showSteps;
     this.stepCounterText = this.add
       .text(roomWidthPx - STEP_MARGIN, STEP_MARGIN, "0", crispText({
         fontFamily: "monospace",
@@ -324,7 +331,8 @@ export class LevelScene extends Phaser.Scene {
         strokeThickness: 3,
       }))
       .setOrigin(1, 0)
-      .setDepth(1000);
+      .setDepth(1000)
+      .setVisible(this.showSteps);
 
     this.saveSlotUI = new SaveSlotUI(
       this,
@@ -337,10 +345,20 @@ export class LevelScene extends Phaser.Scene {
     this.saveSlotUI.refresh(loadSavedGames(this.levelData.levelName));
 
     this.helpOverlay = new HelpOverlay(this, roomWidthPx, roomHeightPx);
+    // F10 settings panel (legacy KEY_MENU) - the same overlay the world map
+    // uses, wired to this level so volume + game size apply live here.
+    this.optionsOverlay = new OptionsOverlay(
+      this,
+      roomWidthPx,
+      roomHeightPx,
+      () => this.audioManager.refreshMusicVolume(),
+      () => applyRenderScale(this, roomWidthPx, roomHeightPx),
+    );
 
-    // Capture arrows/space/F1/F2/F3 so the browser doesn't scroll the page,
-    // open its own help (F1), or (Firefox's F3) pop up quick-find while playing.
-    this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE,F1,F2,F3");
+    // Capture the keys whose browser defaults we must suppress: arrows/space
+    // (page scroll), F1 (browser help), F3 (Firefox quick-find), Backspace
+    // (history back), F5 (reload), F6 (address bar), F10 (menu bar).
+    this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE,F1,F2,F3,BACKSPACE,F5,F6,F10");
     this.input.keyboard!.on("keydown", (e: KeyboardEvent) => {
       this.heldKeys.add(e.code);
       if (this.queuedKey === null && MOVE_KEYS.has(e.code)) {
@@ -350,20 +368,28 @@ export class LevelScene extends Phaser.Scene {
     this.input.keyboard!.on("keyup", (e: KeyboardEvent) =>
       this.heldKeys.delete(e.code),
     );
-    this.input.keyboard!.on("keydown-F1", () => this.helpOverlay.toggle());
+    this.input.keyboard!.on("keydown-F1", () => {
+      if (!this.optionsOverlay.isShowing) this.helpOverlay.toggle();
+    });
     // The gameplay keys below are inert while the help modal is open, so
     // reading it can't accidentally restart/switch/save. Movement keys are
     // gated separately (via a no-op input in tick()).
-    this.input.keyboard!.on("keydown-R", () => this.whenPlaying(() => this.restart()));
+    // Restart on Backspace (legacy KEY_RESTART).
+    this.input.keyboard!.on("keydown-BACKSPACE", () => this.whenPlaying(() => this.restart()));
     this.input.keyboard!.on("keydown-SPACE", () => this.whenPlaying(() => this.engine.switchFish()));
     this.input.keyboard!.on("keydown-P", () => this.whenPlaying(() => void this.launchReplay()));
     this.input.keyboard!.on("keydown-F2", () => this.whenPlaying(() => this.saveGame()));
     this.input.keyboard!.on("keydown-F3", () => this.whenPlaying(() => this.loadLatestGame()));
+    // F5 toggles the step counter (legacy show_steps), F6 toggles subtitles
+    // (legacy KEY_SUBTITLES) - both persist as settings and apply instantly.
+    this.input.keyboard!.on("keydown-F5", () => this.toggleStepCounter());
+    this.input.keyboard!.on("keydown-F6", () => this.toggleSubtitles());
+    // F10 opens the in-level settings panel (legacy KEY_MENU / game menu).
+    this.input.keyboard!.on("keydown-F10", () => this.whenPlaying(() => this.optionsOverlay.show()));
     this.input.keyboard!.on("keydown-ESC", () => {
-      // While fullscreen, Esc only leaves fullscreen (handled in fullscreen.ts),
-      // never the level (docs/065).
-      if (isFullscreenActive()) return;
-      // Esc closes the help popup if it's open, otherwise leaves for the map.
+      // Esc closes a popup if one's open, otherwise leaves for the map. (Stays
+      // fullscreen if fullscreen - only F11 toggles that, docs/066.)
+      if (this.optionsOverlay.isShowing) return; // the overlay's own Esc closes it
       if (this.helpOverlay.isShowing) this.helpOverlay.hide();
       else this.scene.start("worldmap");
     });
@@ -372,7 +398,12 @@ export class LevelScene extends Phaser.Scene {
     // browser's context menu would otherwise get in the way.
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (this.helpOverlay.isShowing || (this.levelScript?.isShowing() ?? false)) return;
+      if (
+        this.helpOverlay.isShowing ||
+        this.optionsOverlay.isShowing ||
+        (this.levelScript?.isShowing() ?? false)
+      )
+        return;
       if (pointer.leftButtonDown()) {
         this.engine.selectAt(this.toFieldPos(pointer));
       }
@@ -413,6 +444,9 @@ export class LevelScene extends Phaser.Scene {
       this.audioManager.destroy();
       this.levelScript?.destroy();
       this.subtitleStack.destroy();
+      // hide() removes the overlay's window keydown (Esc) listener, else it
+      // leaks if the scene shuts down while the panel is open.
+      this.optionsOverlay.hide();
     });
 
     try {
@@ -762,8 +796,25 @@ export class LevelScene extends Phaser.Scene {
    *  the briefcase demo/show non-interruptible (docs/031: only Esc leaves). */
   private whenPlaying(action: () => void): void {
     if (this.helpOverlay.isShowing) return;
+    if (this.optionsOverlay.isShowing) return;
     if (this.levelScript?.isShowing()) return;
     action();
+  }
+
+  /** F5: toggle the step counter (legacy show_steps); persists in settings. */
+  private toggleStepCounter(): void {
+    this.showSteps = !loadSettings().showSteps;
+    saveSettings({ showSteps: this.showSteps });
+    this.stepCounterText.setVisible(this.showSteps);
+  }
+
+  /** F6: toggle subtitles (legacy KEY_SUBTITLES); persists in settings. The
+   *  per-round drain reads the setting, so turning off just needs the visible
+   *  stack cleared. */
+  private toggleSubtitles(): void {
+    const on = !loadSettings().subtitles;
+    saveSettings({ subtitles: on });
+    if (!on) this.subtitleStack.clear();
   }
 
   /** Leaves a just-solved level for the world map. A world-final level (or the
@@ -922,7 +973,7 @@ export class LevelScene extends Phaser.Scene {
     // During the briefcase auto-play "show" (demo_help) the demo drives the
     // fish and the player has no control; the help modal also freezes input.
     const showing = this.levelScript?.isShowing() ?? false;
-    const helpOpen = this.helpOverlay.isShowing;
+    const helpOpen = this.helpOverlay.isShowing || this.optionsOverlay.isShowing;
     const blockInput = showing || helpOpen;
     const pointer = this.input.activePointer;
     const input = {
