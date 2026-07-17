@@ -8,9 +8,8 @@ import { DemoScene } from "./scenes/DemoScene";
 import { CreditsScene } from "./scenes/CreditsScene";
 import { IntroScene } from "./scenes/IntroScene";
 import { initHistoryNav } from "./navigation";
+import { initFullscreen } from "./fullscreen";
 import { initPlaytimeTracking } from "./storage/playtime";
-
-const ZOOM = 1.5;
 
 async function boot(): Promise<void> {
   // Start accumulating total play time (persisted across sessions) from app
@@ -24,7 +23,11 @@ async function boot(): Promise<void> {
     parent: "game",
     width: 640,
     height: 480,
-    zoom: ZOOM,
+    // The on-screen size (Standard/Large/Huge) is applied per-scene via camera
+    // zoom + a display-resolution framebuffer (applyRenderScale), NOT a CSS
+    // stretch, so text/graphics stay crisp - see docs/064. So the Scale
+    // Manager's own zoom stays 1.
+    zoom: 1,
     backgroundColor: "#0a1a2a",
     // WorldMapScene needs its graph data up front (known at boot, unlike
     // per-level data - see docs/027), so it's a ready instance; LevelScene/
@@ -43,6 +46,9 @@ async function boot(): Promise<void> {
 
   // Browser Back returns to the world map instead of unloading the SPA.
   initHistoryNav(game);
+
+  // F11 toggles aspect-preserving fullscreen (docs/064).
+  initFullscreen(game);
 
   // Dev-only handle for the e2e regression suite (web/tests). Statically
   // stripped from production builds (import.meta.env.DEV is false there), so

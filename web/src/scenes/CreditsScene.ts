@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-import { pictureToAssetUrl } from "./sceneUtils";
+import { applyRenderScale, pictureToAssetUrl } from "./sceneUtils";
 
 /**
  * The rolling credits, reached from the world map's Credits corner button -
@@ -29,7 +29,7 @@ export class CreditsScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.scale.resize(VIEW_WIDTH, VIEW_HEIGHT);
+    applyRenderScale(this, VIEW_WIDTH, VIEW_HEIGHT);
     this.add.rectangle(0, 0, VIEW_WIDTH, VIEW_HEIGHT, 0x000000).setOrigin(0, 0).setDepth(-1);
 
     const img = this.add.image(VIEW_WIDTH / 2, VIEW_HEIGHT, "credits-img").setOrigin(0.5, 0);

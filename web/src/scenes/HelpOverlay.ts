@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 
+import { crispText } from "./sceneUtils";
+
 /** The controls reference, shown only on demand (F1) instead of a permanent
  *  top-of-screen wall of text - each line is `key\tdescription`, rendered in
  *  two aligned monospace columns. */
@@ -57,20 +59,20 @@ export class HelpOverlay {
     const PAD = 20;
     const COL_GAP = 24;
     const title = this.scene.add
-      .text(0, 0, "Controls", {
+      .text(0, 0, "Controls", crispText({
         fontFamily: "sans-serif",
         fontSize: "20px",
         color: "#ffc618",
         fontStyle: "bold",
-      })
+      }))
       .setOrigin(0.5, 0);
 
-    const rowStyle = {
+    const rowStyle = crispText({
       fontFamily: "monospace",
       fontSize: "13px",
       color: "#ffffff",
       lineSpacing: 4,
-    } as const;
+    });
     const keyCol = this.scene.add
       .text(0, 0, HELP_LINES.map(([key]) => key).join("\n"), { ...rowStyle, color: "#9fd0ff" })
       .setOrigin(0, 0);
@@ -79,13 +81,13 @@ export class HelpOverlay {
       .setOrigin(0, 0);
 
     const okButton = this.scene.add
-      .text(0, 0, "OK", {
+      .text(0, 0, "OK", crispText({
         fontFamily: "sans-serif",
         fontSize: "15px",
         color: "#ffffff",
         backgroundColor: "#2a5a8aff",
         padding: { x: 18, y: 5 },
-      })
+      }))
       .setOrigin(0.5, 0)
       .setInteractive({ useHandCursor: true })
       .on("pointerdown", () => this.hide());

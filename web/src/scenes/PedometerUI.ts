@@ -4,6 +4,7 @@ import type { BestSolution } from "../lua/worldMapLoader";
 import { loadSolvedMoves } from "../storage/levelStorage";
 import { loadSettings } from "../storage/settingsStorage";
 import {
+  crispText,
   readTexturePixels,
   buildMaskedTexture,
   packRgb,
@@ -112,13 +113,13 @@ export class PedometerUI {
       .setVisible(false);
 
     this.nameText = this.scene.add
-      .text(this.mapWidth / 2, PANEL_Y - 24, this.names.get(codename) ?? codename, {
+      .text(this.mapWidth / 2, PANEL_Y - 24, this.names.get(codename) ?? codename, crispText({
         fontFamily: "sans-serif",
         fontSize: "18px",
         color: "#ffffcc",
         stroke: "#000000",
         strokeThickness: 3,
-      })
+      }))
       .setOrigin(0.5, 1)
       .setDepth(2003);
 
@@ -227,14 +228,14 @@ export class PedometerUI {
 
     // SolverDrawer sits centered at screen y = h - 150 (below the rack).
     this.compareText = this.scene.add
-      .text(this.mapWidth / 2, this.mapHeight - 150, text, {
+      .text(this.mapWidth / 2, this.mapHeight - 150, text, crispText({
         fontFamily: "sans-serif",
         fontSize: "14px",
         color: "#ffffff",
         stroke: "#000000",
         strokeThickness: 3,
         align: "center",
-      })
+      }))
       .setOrigin(0.5, 0)
       .setDepth(2003);
   }

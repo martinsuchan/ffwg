@@ -6,7 +6,8 @@ import { GameEngine, type RenderModel } from "../game/GameEngine";
 import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
 import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager } from "./AudioManager";
-import { drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
+import { applyRenderScale, crispText, drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
+import { isFullscreenActive } from "../fullscreen";
 import { WavyBackground } from "./WavyBackground";
 
 type PlayState = "paused" | "play" | "fast";
@@ -130,9 +131,10 @@ export class ReplayScene extends Phaser.Scene {
   create(): void {
     // Needed here too, not just LevelScene/WorldMapScene - the Pedometer's
     // "Replay" button launches this scene directly from the (differently-
-    // sized) world map, without ever passing through LevelScene first. See
-    // docs/029 for why .resize() (not .setGameSize()) is the right call.
-    this.scale.resize(
+    // sized) world map, without ever passing through LevelScene first.
+    // applyRenderScale sizes the framebuffer + camera zoom (docs/064).
+    applyRenderScale(
+      this,
       this.levelData.roomWidth * GRID_SCALE,
       this.levelData.roomHeight * GRID_SCALE,
     );
@@ -148,28 +150,30 @@ export class ReplayScene extends Phaser.Scene {
     const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
 
     this.stepText = this.add
-      .text(roomWidthPx - 8, 8, "", {
+      .text(roomWidthPx - 8, 8, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "16px",
         color: "#ffffff",
         backgroundColor: "#000000a0",
         padding: { x: 6, y: 4 },
-      })
+      }))
       .setOrigin(1, 0)
       .setDepth(1000);
 
     this.statusText = this.add
-      .text(8, 8, `Replay - Esc = ${this.escLabel()}, R = restart replay`, {
+      .text(8, 8, `Replay - Esc = ${this.escLabel()}, R = restart replay`, crispText({
         fontFamily: "sans-serif",
         fontSize: "16px",
         color: "#ffffff",
         backgroundColor: "#000000a0",
         padding: { x: 6, y: 4 },
-      })
+      }))
       .setDepth(1000);
 
     this.input.keyboard!.on("keydown-R", () => this.startReplay());
     this.input.keyboard!.on("keydown-ESC", () => {
+      // While fullscreen, Esc only leaves fullscreen (docs/065).
+      if (isFullscreenActive()) return;
       if (this.returnTo === "worldmap") this.scene.start("worldmap");
       // Hand poster/depth back so the level it returns to is fully restored
       // (otherwise solving it afterwards would skip its recap poster).
@@ -301,13 +305,13 @@ export class ReplayScene extends Phaser.Scene {
     const startX = roomWidthPx / 2 - (spacing * (specs.length - 1)) / 2;
     specs.forEach((spec, i) => {
       const button = this.add
-        .text(startX + i * spacing, y, spec.symbol, {
+        .text(startX + i * spacing, y, spec.symbol, crispText({
           fontFamily: "sans-serif",
           fontSize: "20px",
           color: "#ffffff",
           backgroundColor: "#000000a0",
           padding: { x: 8, y: 6 },
-        })
+        }))
         .setOrigin(0.5, 1)
         .setDepth(1000)
         .setInteractive({ useHandCursor: true })

@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 
 import { loadSettings } from "../storage/settingsStorage";
+import { applyRenderScale } from "./sceneUtils";
 
 /**
  * The intro movie, reached from the world map's Intro corner button - legacy
@@ -34,7 +35,7 @@ export class IntroScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.scale.resize(VIDEO_WIDTH, VIDEO_HEIGHT);
+    applyRenderScale(this, VIDEO_WIDTH, VIDEO_HEIGHT);
     this.add.rectangle(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT, 0x000000).setOrigin(0, 0).setDepth(-1);
 
     if (this.cache.video.exists("intro-video")) {

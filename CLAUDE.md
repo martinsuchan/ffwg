@@ -1056,6 +1056,90 @@ reasoning; check for later numbered entries too — decisions here can change):
   data; `launchEnding` removed. Verified in a real browser (busy+talking -> `body_talk_*` + head hidden,
   non-busy unchanged; playtime 10800s -> 3h; sandbox ending node open->solved->pedometer "Doma" +
   Run/Replay/Cancel; standard present + loop guard) + e2e 7/7; tsc clean.
+- Lossless WebP for flat sprite art (`docs/062-2026-07-16-demo-briefcase-lossless.md`): an
+  asset-size/quality analysis switched two **flat cartoon/sprite** categories from lossy WebP to
+  lossless, where lossy's block-noise bleeds RGB across hard alpha edges. **demo_briefcase** movie
+  frames (docs/031, 296 transparent-layer frames) had a user-reported edge fringe - lossy Q85 smeared
+  gold into the dark background; lossless is *smaller* here (2.89->2.40 MB) AND artifact-free.
+  **Fish** atlases (4 shared variants) were the worst Q90 offenders (flat outlines, always on
+  screen); lossless costs only +42 KB (93->135 KB). Photographic **level backgrounds stay lossy Q90**
+  (lossless there is ~3x larger, +23 MB, for no visible gain). Threaded an opt-in `--lossless` flag
+  through `build-atlas.mjs` -> `build-atlas.ps1` -> `convert-assets.ps1` (`Build-FishAtlas` +
+  demo_briefcase). Converted assets are gitignored, so the script changes are what carry into
+  publish/CI. Verified visible-pixel RGB maxDiff=0 vs source for both categories.
+- Fractional animation-phase freeze (`docs/063-2026-07-16-fractional-anim-phase-freeze.md`):
+  `electromagnet` (and latently `rotate`) froze the instant it opened - the same **class** as
+  docs/058's negative-`afaze` crash, a different arithmetic case. `electromagnet/code.lua` sets
+  `plutonium.afaze = math.mod(count,12)/3` (0, 0.33, 0.67, 1...); that **fractional** phase flowed
+  through `model_setAnim` -> `ModelAnimator.resolveFrame`, where `0.33 % length === 0.33` so
+  `sideFrames[0.33]` is `undefined` -> `pictureToAtlas(undefined)` throws `reading 'replace'`, which
+  propagates out of `LevelScene.tick()`/`update()` and **halts Phaser's game loop** (hard freeze,
+  `cycles` stuck at 1). The original truncates: `model_setAnim`'s phase passes `luaL_checkint` (C cast
+  toward zero) and `getRes()`'s advance loop compares an int rank, so `0.33->0`, `1.67->1`. Fix is one
+  line in `resolveFrame` - `Math.trunc(phase)` before indexing, which also **subsumes** docs/058's
+  negative guard (`-1.5->-1->frame 0`). Blast radius (all `code.lua` swept): only electromagnet +
+  rotate produce true fractions; the rest `math.floor` first. **The headless Lua sweep (e2e case 05)
+  structurally can't catch this** - it runs the Lua but never builds a `ModelAnimator`/calls
+  `resolveFrame`; the crash is purely in the render path. Verified with a Playwright probe that
+  launches the real `LevelScene` and samples `state.cycles` advancing (was frozen at 1); tsc + e2e
+  7/7 green.
+- Game size + crisp text + F11 fullscreen (`docs/064-2026-07-17-game-size-crisp-text-fullscreen.md`):
+  a **Game size** setting (Standard 100% / Large 150% / Huge 200%, default Large) plus F11 fullscreen,
+  requiring a switch from **CSS-zoom to camera-zoom rendering**. The port rendered at native res and
+  CSS-stretched the canvas to 150% (`zoom: 1.5`), so the WebGL framebuffer stayed native-res and
+  *everything* (incl. text) was bilinearly upscaled -> soft text. **Key finding (verified
+  empirically):** raising Phaser `Text.resolution` under CSS-zoom is a no-op - a native-res framebuffer
+  caps it regardless (A/B `resolution:1` vs `6` moved backing AA only 397->493 lit px, dominated by the
+  CSS blur). Crisp text needs a **display-resolution framebuffer**. Fix: new
+  `applyRenderScale(scene, nativeW, nativeH)` (`sceneUtils.ts`, replaces every scene's
+  `scale.resize(...)`) sets the framebuffer to `native*factor` and camera-zooms the main camera by
+  `factor` (`cam.setZoom`/`setOrigin(0,0)`), so text/vector graphics render at display density while
+  sprites/photo backgrounds upscale as before. **World coords unchanged** (input already uses
+  camera-aware `pointer.worldX`), so gameplay/click/rope/screen-shift math is untouched. Scale-Manager
+  `zoom` is now always 1 (size lives on the camera); Phaser quirk handled by `resize()` then `setZoom(1)`
+  to force CSS==framebuffer 1:1. `crispText(style)` wraps all ~22 `add.text` sites to set
+  `resolution=max(factor,3)=3` (now genuinely effective). `gameSize` added to `settingsStorage`; new
+  **Game size** row in `OptionsOverlay` applies live via `onGameSizeChange` -> `WorldMapScene.applyGameSize()`
+  (no reload; other scenes re-read on `create()`). **F11 fullscreen** (new `fullscreen.ts`,
+  `initFullscreen` in `main.ts`): does NOT capture F11 (a browser-reserved key - `preventDefault` doesn't
+  reliably stop the browser's native F11, and capturing it + `requestFullscreen` made two fullscreens
+  fight = **black screen in Edge**). Instead it **rides the browser's native F11**, listening to the
+  `(display-mode: fullscreen)` media query (matches native F11 AND the Fullscreen API, unlike the
+  element-only `fullscreenchange`/Phaser events). On enter: size the container to the viewport
+  (fixed/100vw/100vh/black) + `fitToParent()` = FIT (+`setAspectMode(FIT)`) letterbox-fills the screen
+  preserving aspect; on exit: clear + `restoreWindowed()` = NONE + `setZoom(1)`. FIT leaves the framebuffer
+  untouched so the crisp render carries in. Two Scale-Manager gotchas: `refresh()` uses a stale `parentSize`
+  (re-measured only at the END of its pass), so `fitToParent` calls `getParentBounds()` first or the canvas
+  never grows to the screen; and `applyRenderScale` checks `isFullscreenActive()` (the media query) not
+  Phaser's element-only `scale.isFullscreen`, so navigating while F11-fullscreen keeps FIT.
+  `web/tests/lib.mjs`'s `canvasMapper` updated to
+  multiply by `cam.zoom` (framebuffer is now world*factor). Verified in a real browser (framebuffer =
+  native*factor at all sizes; 2x step counter renders sharp; airplane @1.5 full-room correct; live Huge
+  switch 960x720->1280x960 no reload; FIT dry-run preserves backing; Options Game-size row) + e2e 7/7
+  (node-hover/pedometer cases exercise the coordinate fix) + tsc clean.
+- Fullscreen fixes (`docs/065-2026-07-17-fullscreen-fixes.md`, **supersedes docs/064's fullscreen
+  section**): four issues from Edge testing. (1) **Black screen** - docs/064 captured F11 +
+  `startFullscreen` + FIT-before-enter; F11 is browser-reserved (`preventDefault` doesn't reliably stop
+  native F11 -> two fullscreens fought) and FIT fit the small windowed container. (2) **Aspect not
+  preserved on room change** (tall `library` after the 4:3 map stretched) - Phaser `resize()` uses
+  `displaySize.setSize()` which keeps the OLD aspect ratio, so FIT letterboxed to the previous room;
+  fixed by using `scale.setGameSize()` (calls `setAspectRatio`) in FIT mode, `applyRenderScale` now sets
+  scale mode explicitly (FIT vs NONE) + matching `setGameSize`/`resize`, plus a `getParentBounds()` before
+  the FIT `refresh()` (refresh re-measures parentSize only at its END). (3) **Text stretched in
+  fullscreen** - docs/064 kept the framebuffer at the *windowed* size and FIT-stretched it; now the
+  fullscreen factor = `min(innerW/nativeW, innerH/nativeH) * devicePixelRatio` (capped 4096) so the
+  framebuffer matches the display and FIT scales ~1:1 = crisp; new `reapplyRenderScale()` re-runs the
+  active scene on fullscreen toggle; `crispTextResolution` floor 3->4. (4) **Esc exits fullscreen, not the
+  level** - switched to the **Fullscreen API** (F11 captured + `preventDefault` toggles
+  `documentElement.requestFullscreen()`/`exitFullscreen()`), which the browser exits on Esc itself; each
+  scene's Esc handler guards `if (isFullscreenActive()) return;` so Esc-while-fullscreen no-ops in-game
+  (the global keydown handler does NOT touch Esc - it runs first and would race the scene guard). Layout
+  still rides `(display-mode: fullscreen)` media query + `fullscreenchange`. Verified: aspect preserved +
+  fit-resolution framebuffer (map 1200x900, library 510x900 pillarboxed) in forced-fullscreen headless;
+  Esc guard (real key press) keeps the level fullscreen / leaves to map windowed; e2e 7/7; tsc clean.
+  **Manual browser check still needed** (Playwright intercepts F11): real F11 enter/exit in Edge + the
+  browser's Esc-exit of API fullscreen. If F11+preventDefault regresses to the black screen in Edge, the
+  fallback is native-F11 (issue 1's interim), trading away JS Esc-exit.
 
 Commands (from repo root):
 

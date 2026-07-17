@@ -13,6 +13,11 @@ const SETTINGS_KEY = "ffwg:settings";
  *  the selector offers exactly these (docs/038). */
 export type DialogLang = "cs" | "nl";
 
+/** On-screen render scale (CSS zoom of the whole canvas). Standard/Large/Huge -
+ *  the only three values the Options selector offers (docs/064). */
+export type GameSize = 1 | 1.5 | 2;
+export const GAME_SIZES: GameSize[] = [1, 1.5, 2];
+
 export interface Settings {
   /** Subtitle text + voice-over language (both switch together). */
   lang: DialogLang;
@@ -22,16 +27,27 @@ export interface Settings {
   soundVolume: number;
   /** Whether subtitles are drawn (voice audio plays regardless). */
   subtitles: boolean;
+  /** Canvas zoom factor: 1 = Standard (100%), 1.5 = Large, 2 = Huge. The world
+   *  (sprites/photo backgrounds) is CSS-stretched by this; text is rendered at
+   *  a higher resolution so it stays crisp (docs/064). */
+  gameSize: GameSize;
 }
 
 /** Legacy defaults (AudioManager's old GLOBAL_MUSIC_VOLUME/GLOBAL_SOUND_VOLUME,
- *  cs from docs/018, subtitles on). */
+ *  cs from docs/018, subtitles on). gameSize defaults to 1.5 to preserve the
+ *  port's original on-screen size (docs/064). */
 export const DEFAULT_SETTINGS: Settings = {
   lang: "cs",
   musicVolume: 50,
   soundVolume: 90,
   subtitles: true,
+  gameSize: 1.5,
 };
+
+function clampGameSize(v: unknown): GameSize {
+  const n = typeof v === "number" ? v : Number(v);
+  return (GAME_SIZES as number[]).includes(n) ? (n as GameSize) : DEFAULT_SETTINGS.gameSize;
+}
 
 function clampVolume(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
@@ -56,10 +72,17 @@ export function loadSettings(): Settings {
       musicVolume: clampVolume(p.musicVolume ?? DEFAULT_SETTINGS.musicVolume),
       soundVolume: clampVolume(p.soundVolume ?? DEFAULT_SETTINGS.soundVolume),
       subtitles: p.subtitles !== false,
+      gameSize: clampGameSize(p.gameSize),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
+}
+
+/** The current canvas zoom factor (Standard/Large/Huge). Single source of truth
+ *  for the Phaser game `zoom` and text-resolution helpers (docs/064). */
+export function gameRenderScale(): GameSize {
+  return loadSettings().gameSize;
 }
 
 /** Merges `patch` into the stored settings and persists the result. Returns the

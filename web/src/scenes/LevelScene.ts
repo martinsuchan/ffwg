@@ -15,7 +15,8 @@ import { Weight } from "../game/Cube";
 import { CYCLE_MS, IDLE_ROUND_MS } from "../game/timing";
 import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./ModelAnimator";
 import { AudioManager, type MusicCommand } from "./AudioManager";
-import { drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
+import { applyRenderScale, crispText, drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
+import { isFullscreenActive } from "../fullscreen";
 import { pictureToAtlas } from "./atlas";
 import { SaveSlotUI } from "./SaveSlotUI";
 import { HelpOverlay } from "./HelpOverlay";
@@ -261,18 +262,13 @@ export class LevelScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Each level has its own room size, unlike the world map's fixed
-    // 640x480 - resize the game canvas on every entry (docs/027). This
-    // port's Game config sets no explicit scale `mode`, so the Scale
-    // Manager defaults to NONE - Phaser's own docs are explicit that
-    // `.setGameSize()` is for FIT-style modes only (it updates just the
-    // internal/backing resolution) and `.resize()` is the one that
-    // actually matches for NONE (it also updates the canvas's CSS display
-    // box). Using setGameSize() here left the CSS size frozen at whatever
-    // it was on boot (960x720, the map's size at zoom 1.5), so every level
-    // with a different aspect ratio got visibly stretched into that fixed
-    // box - see docs/029.
-    this.scale.resize(
+    // Each level has its own room size, unlike the world map's fixed 640x480,
+    // so size the canvas at the current game-size factor on every entry
+    // (docs/027/029). applyRenderScale sizes the framebuffer to room*factor and
+    // camera-zooms by factor, so text/graphics render crisp at 150/200% instead
+    // of being CSS-stretched (docs/064).
+    applyRenderScale(
+      this,
       this.levelData.roomWidth * GRID_SCALE,
       this.levelData.roomHeight * GRID_SCALE,
     );
@@ -289,13 +285,13 @@ export class LevelScene extends Phaser.Scene {
     // renders its little padding box (the stray top-left smudge), so it's
     // only made visible when there's an actual solved/died message.
     this.statusText = this.add
-      .text(8, 8, "", {
+      .text(8, 8, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "16px",
         color: "#ffffff",
         backgroundColor: "#000000a0",
         padding: { x: 6, y: 4 },
-      })
+      }))
       .setDepth(1000)
       .setVisible(false);
 
@@ -304,13 +300,13 @@ export class LevelScene extends Phaser.Scene {
     this.subtitleStack = new SubtitleStack(this, roomWidthPx, roomHeightPx);
 
     this.feedbackText = this.add
-      .text(roomWidthPx - 8, 8, "", {
+      .text(roomWidthPx - 8, 8, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "16px",
         color: "#ffffff",
         backgroundColor: "#000000a0",
         padding: { x: 6, y: 4 },
-      })
+      }))
       .setOrigin(1, 0)
       .setDepth(1000)
       .setVisible(false);
@@ -320,13 +316,13 @@ export class LevelScene extends Phaser.Scene {
     // Inset from the right edge by the same margin as the top (STEP_MARGIN) so
     // the corner reads as evenly spaced.
     this.stepCounterText = this.add
-      .text(roomWidthPx - STEP_MARGIN, STEP_MARGIN, "0", {
+      .text(roomWidthPx - STEP_MARGIN, STEP_MARGIN, "0", crispText({
         fontFamily: "monospace",
         fontSize: "20px",
         color: STEP_COLOR_NORMAL,
         stroke: "#000000",
         strokeThickness: 3,
-      })
+      }))
       .setOrigin(1, 0)
       .setDepth(1000);
 
@@ -364,6 +360,9 @@ export class LevelScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-F2", () => this.whenPlaying(() => this.saveGame()));
     this.input.keyboard!.on("keydown-F3", () => this.whenPlaying(() => this.loadLatestGame()));
     this.input.keyboard!.on("keydown-ESC", () => {
+      // While fullscreen, Esc only leaves fullscreen (handled in fullscreen.ts),
+      // never the level (docs/065).
+      if (isFullscreenActive()) return;
       // Esc closes the help popup if it's open, otherwise leaves for the map.
       if (this.helpOverlay.isShowing) this.helpOverlay.hide();
       else this.scene.start("worldmap");
@@ -385,7 +384,8 @@ export class LevelScene extends Phaser.Scene {
     // See docs/031, Phase 1.
     this.events.on(Phaser.Scenes.Events.RESUME, () => {
       this.input.enabled = true;
-      this.scale.resize(
+      applyRenderScale(
+        this,
         this.levelData.roomWidth * GRID_SCALE,
         this.levelData.roomHeight * GRID_SCALE,
       );

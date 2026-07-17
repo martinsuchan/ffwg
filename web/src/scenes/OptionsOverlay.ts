@@ -3,8 +3,11 @@ import Phaser from "phaser";
 import {
   loadSettings,
   saveSettings,
+  GAME_SIZES,
   type DialogLang,
+  type GameSize,
 } from "../storage/settingsStorage";
+import { crispText } from "./sceneUtils";
 
 /**
  * The settings panel, reached from the world map's Options corner button -
@@ -17,7 +20,7 @@ import {
  */
 
 const PANEL_W = 400;
-const PANEL_H = 320;
+const PANEL_H = 364;
 const ROW_H = 44;
 const SLIDER_W = 180;
 
@@ -25,6 +28,12 @@ const LANGS: Array<{ code: DialogLang; label: string }> = [
   { code: "cs", label: "Čeština" },
   { code: "nl", label: "Nederlands" },
 ];
+
+const GAME_SIZE_LABELS: Record<GameSize, string> = {
+  1: "Standard",
+  1.5: "Large",
+  2: "Huge",
+};
 
 export class OptionsOverlay {
   private objects: Phaser.GameObjects.GameObject[] = [];
@@ -37,6 +46,9 @@ export class OptionsOverlay {
     /** Called after the music volume changes, so the caller can update the
      *  currently-playing track live (AudioManager.refreshMusicVolume). */
     private readonly onVolumeChange: () => void,
+    /** Called after the game-size (zoom) changes, so the caller can apply it
+     *  live via scale.setZoom - see docs/064. */
+    private readonly onGameSizeChange: () => void,
   ) {}
 
   get isShowing(): boolean {
@@ -68,18 +80,20 @@ export class OptionsOverlay {
 
     this.add(
       this.scene.add
-        .text(cx, top + 16, "Options", {
+        .text(cx, top + 16, "Options", crispText({
           fontFamily: "sans-serif",
           fontSize: "20px",
           color: "#ffc618",
           fontStyle: "bold",
-        })
+        }))
         .setOrigin(0.5, 0)
         .setDepth(3001),
     );
 
     let y = top + 60;
     this.buildLanguageRow(left + 24, y);
+    y += ROW_H;
+    this.buildGameSizeRow(left + 24, y);
     y += ROW_H;
     this.buildVolumeRow(left + 24, y, "Music", () => loadSettings().musicVolume, (v) => {
       saveSettings({ musicVolume: v });
@@ -94,13 +108,13 @@ export class OptionsOverlay {
 
     // Back button + Esc.
     const back = this.scene.add
-      .text(cx, cy + PANEL_H / 2 - 34, "Back", {
+      .text(cx, cy + PANEL_H / 2 - 34, "Back", crispText({
         fontFamily: "sans-serif",
         fontSize: "15px",
         color: "#ffffff",
         backgroundColor: "#2a5a8a",
         padding: { x: 22, y: 6 },
-      })
+      }))
       .setOrigin(0.5, 0)
       .setDepth(3001)
       .setInteractive({ useHandCursor: true })
@@ -130,7 +144,7 @@ export class OptionsOverlay {
   private label(x: number, y: number, text: string): void {
     this.add(
       this.scene.add
-        .text(x, y, text, { fontFamily: "sans-serif", fontSize: "14px", color: "#cfe6ff" })
+        .text(x, y, text, crispText({ fontFamily: "sans-serif", fontSize: "14px", color: "#cfe6ff" }))
         .setOrigin(0, 0.5)
         .setDepth(3001),
     );
@@ -149,13 +163,13 @@ export class OptionsOverlay {
     };
     for (const { code, label } of LANGS) {
       const t = this.scene.add
-        .text(bx, y, label, {
+        .text(bx, y, label, crispText({
           fontFamily: "sans-serif",
           fontSize: "13px",
           color: "#ffffff",
           backgroundColor: code === current ? "#2a7a3a" : "#333c48",
           padding: { x: 10, y: 4 },
-        })
+        }))
         .setOrigin(0, 0.5)
         .setDepth(3001)
         .setInteractive({ useHandCursor: true })
@@ -166,6 +180,42 @@ export class OptionsOverlay {
       this.add(t);
       buttons.push({ code, text: t });
       bx += t.width + 10;
+    }
+  }
+
+  /** Standard/Large/Huge on-screen size (docs/064) - same button-row shape as
+   *  the language row. Applies live via onGameSizeChange (scale.setZoom). */
+  private buildGameSizeRow(x: number, y: number): void {
+    this.label(x, y, "Game size");
+    let bx = x + 90;
+    const buttons: Array<{ size: GameSize; text: Phaser.GameObjects.Text }> = [];
+    const refresh = () => {
+      const active = loadSettings().gameSize;
+      for (const b of buttons) {
+        b.text.setBackgroundColor(b.size === active ? "#2a7a3a" : "#333c48");
+      }
+    };
+    for (const size of GAME_SIZES) {
+      const active = loadSettings().gameSize;
+      const t = this.scene.add
+        .text(bx, y, GAME_SIZE_LABELS[size], crispText({
+          fontFamily: "sans-serif",
+          fontSize: "13px",
+          color: "#ffffff",
+          backgroundColor: size === active ? "#2a7a3a" : "#333c48",
+          padding: { x: 10, y: 4 },
+        }))
+        .setOrigin(0, 0.5)
+        .setDepth(3001)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerdown", () => {
+          saveSettings({ gameSize: size });
+          refresh();
+          this.onGameSizeChange();
+        });
+      this.add(t);
+      buttons.push({ size, text: t });
+      bx += t.width + 8;
     }
   }
 
@@ -197,11 +247,11 @@ export class OptionsOverlay {
     this.add(knob);
     const valueText = this.add(
       this.scene.add
-        .text(trackX + trackW + 12, y, "", {
+        .text(trackX + trackW + 12, y, "", crispText({
           fontFamily: "sans-serif",
           fontSize: "13px",
           color: "#ffffff",
-        })
+        }))
         .setOrigin(0, 0.5)
         .setDepth(3001),
     );
@@ -223,12 +273,12 @@ export class OptionsOverlay {
   private buildSubtitlesRow(x: number, y: number): void {
     this.label(x, y, "Subtitles");
     const toggle = this.scene.add
-      .text(x + 90, y, "", {
+      .text(x + 90, y, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "13px",
         color: "#ffffff",
         padding: { x: 14, y: 4 },
-      })
+      }))
       .setOrigin(0, 0.5)
       .setDepth(3001)
       .setInteractive({ useHandCursor: true });

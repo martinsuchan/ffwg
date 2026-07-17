@@ -147,7 +147,15 @@ export function roundPhases(
  *  wreck parks at -1; fdto's seahorse counts up from `-random(100)`), and it
  *  reaches setAnim() live via updateAnim(). Without the guard, JS's `%` keeps the
  *  sign (`-37 % 3 === -1`), indexing off the front of the array and handing
- *  `undefined` to pictureToAtlas(). See docs/058. */
+ *  `undefined` to pictureToAtlas(). See docs/058.
+ *
+ *  A *fractional* phase is truncated toward zero first, matching the original's
+ *  own int conversion: model_setAnim's phase passes through `luaL_checkint`, and
+ *  getRes()'s `for (i = 0; i < rank; i++)` advance loop only ever compares an
+ *  integer step count. Scripts do produce fractions - electromagnet's plutonium
+ *  is `math.mod(count, 12)/3` (0, 0.33, 0.67, 1, ...) - and `sideFrames[0.33]`
+ *  is `undefined` (another route to the same pictureToAtlas crash). Math.trunc,
+ *  not floor, so it also subsumes the negative case (-1.5 -> -1 -> frame 0). */
 export function resolveFrame(
   anims: Record<string, AnimFrames>,
   name: string,
@@ -159,7 +167,8 @@ export function resolveFrame(
   const usableSide = frames[side].length > 0 ? side : side === "left" ? "right" : "left";
   const sideFrames = frames[usableSide];
   if (sideFrames.length === 0) return null;
-  const index = phase < 0 ? 0 : phase % sideFrames.length;
+  const rank = Math.trunc(phase);
+  const index = rank < 0 ? 0 : rank % sideFrames.length;
   return pictureToAtlas(sideFrames[index]);
 }
 

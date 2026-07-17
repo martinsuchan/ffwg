@@ -2,7 +2,7 @@ import Phaser from "phaser";
 
 import { createDemoScript, DEMO_CYCLE_MS, type DemoScript } from "../lua/demoScript";
 import { levelSoundSpriteDirs } from "../lua/levelScript";
-import { pictureToAssetUrl } from "./sceneUtils";
+import { applyRenderScale, crispText, pictureToAssetUrl } from "./sceneUtils";
 import { pictureToAtlas, atlasWebpUrl, atlasJsonUrl } from "./atlas";
 import { AudioManager } from "./AudioManager";
 
@@ -116,11 +116,11 @@ export class DemoScene extends Phaser.Scene {
   create(): void {
     const w = this.canvasWidth;
     const h = this.canvasHeight;
-    this.scale.resize(w, h);
+    applyRenderScale(this, w, h);
     this.add.rectangle(0, 0, w, h, 0x000000).setOrigin(0, 0).setDepth(-1);
 
     this.subtitleText = this.add
-      .text(w / 2, h - 10, "", {
+      .text(w / 2, h - 10, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "15px",
         color: "#ffffff",
@@ -128,7 +128,7 @@ export class DemoScene extends Phaser.Scene {
         padding: { x: 8, y: 5 },
         align: "center",
         wordWrap: { width: w - 48 },
-      })
+      }))
       .setOrigin(0.5, 1)
       .setDepth(1000)
       .setVisible(false);

@@ -20,7 +20,7 @@ import sharp from "sharp";
 import { MaxRectsPacker } from "maxrects-packer";
 
 function parseArgs(argv) {
-  const args = { padding: 2, maxSize: 2048, quality: 90 };
+  const args = { padding: 2, maxSize: 2048, quality: 90, lossless: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--source") args.source = argv[++i];
@@ -28,11 +28,12 @@ function parseArgs(argv) {
     else if (a === "--padding") args.padding = Number(argv[++i]);
     else if (a === "--max-size") args.maxSize = Number(argv[++i]);
     else if (a === "--quality") args.quality = Number(argv[++i]);
+    else if (a === "--lossless") args.lossless = true;
   }
   if (!args.source || !args.output) {
     throw new Error(
       "Usage: node build-atlas.mjs --source <dir> --output <path-without-extension> " +
-        "[--padding N] [--max-size N] [--quality N]"
+        "[--padding N] [--max-size N] [--quality N] [--lossless]"
     );
   }
   return args;
@@ -98,7 +99,7 @@ async function loadSprite(source, relPath) {
 }
 
 async function main() {
-  const { source, output, padding, maxSize, quality } = parseArgs(process.argv.slice(2));
+  const { source, output, padding, maxSize, quality, lossless } = parseArgs(process.argv.slice(2));
 
   const pngFiles = (await collectPngs(source)).sort();
 
@@ -158,7 +159,7 @@ async function main() {
     },
   })
     .composite(composites)
-    .webp({ quality, lossless: false })
+    .webp(lossless ? { lossless: true } : { quality, lossless: false })
     .toFile(`${output}.webp`);
 
   const json = {

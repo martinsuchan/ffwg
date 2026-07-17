@@ -49,21 +49,21 @@ $buildAtlas = Join-Path $PSScriptRoot "build-atlas.ps1"
 $convertImages = Join-Path $PSScriptRoot "convert-images.ps1"
 
 function Convert-ImageDirIndividual {
-    param([string]$Name)
+    param([string]$Name, [switch]$Lossless)
     $src = Join-Path $legacyImages $Name
     if (-not (Test-Path $src)) { return }
-    Write-Host "== Images (individual): $Name =="
-    & $convertImages -Source $src -Destination (Join-Path $assetsRoot "images\$Name") -Force:$Force
+    Write-Host "== Images (individual): $Name$(if ($Lossless) { ' [lossless]' }) =="
+    & $convertImages -Source $src -Destination (Join-Path $assetsRoot "images\$Name") -Force:$Force -Lossless:$Lossless
 }
 
 # Atlas one image dir into <destDir>/atlas.{webp,json}. Wipes destDir first so
 # the dir becomes atlas-only - no stale individual .webp sprites from an earlier
 # (pre-atlas) conversion linger to be published alongside the atlas.
 function Build-Atlas {
-    param([string]$Src, [string]$DestDir)
+    param([string]$Src, [string]$DestDir, [switch]$Lossless)
     if (-not (Test-Path $Src)) { return }
     if (Test-Path $DestDir) { Remove-Item -LiteralPath $DestDir -Recurse -Force }
-    & $buildAtlas -Source $Src -Destination (Join-Path $DestDir "atlas")
+    & $buildAtlas -Source $Src -Destination (Join-Path $DestDir "atlas") -Lossless:$Lossless
 }
 
 function Build-LevelAtlas {
@@ -74,9 +74,12 @@ function Build-LevelAtlas {
 
 function Build-FishAtlas {
     param([string]$Variant)
-    Write-Host "== Atlas: fishes/$Variant =="
+    Write-Host "== Atlas: fishes/$Variant [lossless] =="
+    # The fish are flat sprite art with hard outlines, always on screen and
+    # animated - lossy WebP's edge noise is most visible on them, and lossless
+    # costs only ~+41 KB across all 4 variants. See docs/062.
     Build-Atlas -Src (Join-Path $legacyImages "fishes\$Variant") `
-        -DestDir (Join-Path $assetsRoot "images\fishes\$Variant")
+        -DestDir (Join-Path $assetsRoot "images\fishes\$Variant") -Lossless
 }
 
 if ($Level) {
@@ -93,7 +96,13 @@ if ($Level) {
 else {
     # Full batch: individual webp for the non-atlased dirs, an atlas per level
     # dir, and an atlas per fish variant.
-    foreach ($name in $nonAtlasImageDirs) { Convert-ImageDirIndividual -Name $name }
+    # demo_briefcase's movie frames are flat cartoon art composited as
+    # transparent layers - lossy WebP bleeds RGB block-noise across their hard
+    # alpha edges (visible fringing), and lossless is actually SMALLER for this
+    # content (2.40 vs 2.89 MB). So convert them lossless. See docs/062.
+    foreach ($name in $nonAtlasImageDirs) {
+        Convert-ImageDirIndividual -Name $name -Lossless:($name -eq "demo_briefcase")
+    }
 
     $levelDirs = Get-ChildItem -Path $legacyImages -Directory |
         Where-Object { $nonAtlasImageDirs -notcontains $_.Name -and $_.Name -ne "fishes" }

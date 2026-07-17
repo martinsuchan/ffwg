@@ -7,7 +7,10 @@ import type { WorldMapData, WorldMapNode } from "../lua/worldMapLoader";
 import { computeNodeStates, type NodeState } from "../game/worldMapState";
 import { isSandboxMode } from "../game/appMode";
 import { loadSolvedMoves } from "../storage/levelStorage";
+import { isFullscreenActive } from "../fullscreen";
 import {
+  applyRenderScale,
+  crispText,
   pictureToAssetUrl,
   readTexturePixels,
   buildMaskedTexture,
@@ -131,11 +134,10 @@ export class WorldMapScene extends Phaser.Scene {
   }
 
   create(): void {
-    // .resize(), not .setGameSize() - see LevelScene.create()'s comment
-    // (docs/029) for why: this port's Scale Manager is in NONE mode
-    // (no explicit `mode` set), and only .resize() updates the canvas's
-    // actual CSS display box to match, not just its internal resolution.
-    this.scale.resize(MAP_WIDTH, MAP_HEIGHT);
+    // Size the map at the current game-size factor via camera zoom + a
+    // display-resolution framebuffer (docs/064). NOT a CSS stretch of a
+    // native-res canvas (which was the old zoom, and blurred everything).
+    applyRenderScale(this, MAP_WIDTH, MAP_HEIGHT);
     this.add.image(0, 0, "map-bg").setOrigin(0, 0);
     this.setupCorners();
 
@@ -169,25 +171,25 @@ export class WorldMapScene extends Phaser.Scene {
     });
 
     this.nameLabel = this.add
-      .text(MAP_WIDTH / 2, MAP_HEIGHT - 24, "", {
+      .text(MAP_WIDTH / 2, MAP_HEIGHT - 24, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "18px",
         color: "#ffffcc",
         stroke: "#000000",
         strokeThickness: 3,
-      })
+      }))
       .setOrigin(0.5)
       .setDepth(1000)
       .setVisible(false);
 
     this.feedbackText = this.add
-      .text(MAP_WIDTH - 8, 8, "", {
+      .text(MAP_WIDTH - 8, 8, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "14px",
         color: "#ffffff",
         backgroundColor: "#000000a0",
         padding: { x: 6, y: 4 },
-      })
+      }))
       .setOrigin(1, 0)
       .setDepth(1000)
       .setVisible(false);
@@ -205,14 +207,21 @@ export class WorldMapScene extends Phaser.Scene {
     );
 
     // Esc closes the pedometer (restoring the hidden dots), like its Cancel
-    // button - the map's only modal keyboard shortcut.
+    // button - the map's only modal keyboard shortcut. While fullscreen, Esc
+    // only leaves fullscreen (docs/065).
     this.input.keyboard?.on("keydown-ESC", () => {
+      if (isFullscreenActive()) return;
       if (this.pedometerUI.isShowing) this.closePedometer();
     });
 
-    // Options panel (bottom-right corner button) - live-updates music volume.
-    this.optionsOverlay = new OptionsOverlay(this, MAP_WIDTH, MAP_HEIGHT, () =>
-      this.audioManager.refreshMusicVolume(),
+    // Options panel (bottom-right corner button) - live-updates music volume
+    // and the on-screen game size (zoom).
+    this.optionsOverlay = new OptionsOverlay(
+      this,
+      MAP_WIDTH,
+      MAP_HEIGHT,
+      () => this.audioManager.refreshMusicVolume(),
+      () => this.applyGameSize(),
     );
 
     // legacy's WorldMap::own_resumeState() plays menu music every time the
@@ -357,6 +366,14 @@ export class WorldMapScene extends Phaser.Scene {
       this.selectionRing?.setVisible(false);
       this.nameLabel.setVisible(false);
     }
+  }
+
+  /** Apply the Options game-size change live - the canvas grows/shrinks in
+   *  place via camera zoom + framebuffer resize, no reload (docs/064). Each
+   *  scene re-reads the setting in its own create(), so this only needs to
+   *  re-apply the currently-showing map. */
+  private applyGameSize(): void {
+    applyRenderScale(this, MAP_WIDTH, MAP_HEIGHT);
   }
 
   // -----------------------------------------------------------------

@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 
+import { crispText } from "./sceneUtils";
+
 /**
  * A stack of colored, self-dismissing subtitles at the bottom of the screen -
  * the port of legacy/src/plan/SubTitleAgent.* + legacy/src/widget/Title.*.
@@ -60,7 +62,7 @@ export class SubtitleStack {
    *  newSubtitle). `color` is a CSS hex from the speaker's font. */
   add(text: string, color: string): void {
     const label = this.scene.add
-      .text(this.width / 2, this.height, text, {
+      .text(this.width / 2, this.height, text, crispText({
         fontFamily: "sans-serif",
         fontSize: `${FONT_SIZE}px`,
         color,
@@ -71,7 +73,7 @@ export class SubtitleStack {
         strokeThickness: 4,
         align: "center",
         wordWrap: { width: this.width - 32 },
-      })
+      }))
       .setOrigin(0.5, 0)
       .setDepth(1000);
     // Start just below the visible area so it glides up into place.

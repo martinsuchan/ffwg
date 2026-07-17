@@ -15,7 +15,12 @@
 .PARAMETER MaxSize
     Max atlas page dimension in pixels. Default 2048.
 .PARAMETER Quality
-    WebP quality (0-100) for the final atlas image. Default 90.
+    WebP quality (0-100) for the final atlas image. Default 90. Ignored if
+    -Lossless is set.
+.PARAMETER Lossless
+    Encode the atlas image losslessly instead of lossy WebP. Worth it for flat
+    sprite art with hard edges (the fish); not for photographic level
+    backgrounds, where it's ~3x larger. See docs/062.
 #>
 param(
     [string]$Level,
@@ -23,7 +28,8 @@ param(
     [string]$Destination,
     [int]$Padding = 2,
     [int]$MaxSize = 2048,
-    [int]$Quality = 90
+    [int]$Quality = 90,
+    [switch]$Lossless
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,9 +51,13 @@ if (-not (Test-Path (Join-Path $toolDir "node_modules"))) {
     try { npm install } finally { Pop-Location }
 }
 
-node (Join-Path $toolDir "build-atlas.mjs") `
-    --source $Source `
-    --output $Destination `
-    --padding $Padding `
-    --max-size $MaxSize `
-    --quality $Quality
+$atlasArgs = @(
+    (Join-Path $toolDir "build-atlas.mjs"),
+    "--source", $Source,
+    "--output", $Destination,
+    "--padding", $Padding,
+    "--max-size", $MaxSize,
+    "--quality", $Quality
+)
+if ($Lossless) { $atlasArgs += "--lossless" }
+node @atlasArgs

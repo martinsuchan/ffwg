@@ -12,17 +12,21 @@ export async function gotoWorldmap(page, baseURL, { sandbox = true } = {}) {
   await page.waitForTimeout(400);
 }
 
-/** Returns a fn mapping world coords (the 640x480 map space) to page pixels,
- *  accounting for the CSS-zoomed, centered canvas. */
+/** Returns a fn mapping world coords (the 640x480 map space) to page pixels.
+ *  The render pipeline is camera-zoom now (docs/064): the framebuffer is
+ *  worldSize*factor and the main camera zooms world coords by `factor`, so world
+ *  -> framebuffer is `wx * cam.zoom`, then framebuffer -> CSS is `w/cw`. (Works
+ *  for the old CSS-zoom path too, where cam.zoom == 1.) */
 export async function canvasMapper(page) {
   const box = await page.evaluate(() => {
     const c = document.querySelector("canvas");
     const r = c.getBoundingClientRect();
-    return { x: r.x, y: r.y, w: r.width, h: r.height, cw: c.width, ch: c.height };
+    const cam = window.__game.scene.keys.worldmap.cameras.main;
+    return { x: r.x, y: r.y, w: r.width, h: r.height, cw: c.width, ch: c.height, zoom: cam.zoom };
   });
   return (wx, wy) => ({
-    x: box.x + wx * (box.w / box.cw),
-    y: box.y + wy * (box.h / box.ch),
+    x: box.x + wx * box.zoom * (box.w / box.cw),
+    y: box.y + wy * box.zoom * (box.h / box.ch),
   });
 }
 
