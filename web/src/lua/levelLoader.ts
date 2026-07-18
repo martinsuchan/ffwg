@@ -251,6 +251,31 @@ export function getAudioManifest(): Promise<Set<string>> {
   return audioManifestPromise;
 }
 
+let soundDirsPromise: Promise<Set<string>> | null = null;
+
+/**
+ * The set of sound sprite dirs (`<level>/<lang>`, `share/border/<lang>`, …) that
+ * actually have converted audio, derived from the audio manifest (whose entries
+ * are `sound/<dir>/<file>`). Callers use it to skip fetching sprite.json/.mp3 for
+ * dirs that don't exist - notably the English voice-fallback pools only ~31
+ * levels have (docs/060), which otherwise fire a 404 per missing dir on every
+ * other level. See docs/075.
+ */
+export function getSoundSpriteDirs(): Promise<Set<string>> {
+  if (!soundDirsPromise) {
+    soundDirsPromise = getAudioManifest().then((manifest) => {
+      const dirs = new Set<string>();
+      for (const path of manifest) {
+        const rel = path.replace(/^sound\//, "");
+        const slash = rel.lastIndexOf("/");
+        dirs.add(slash >= 0 ? rel.slice(0, slash) : rel);
+      }
+      return dirs;
+    });
+  }
+  return soundDirsPromise;
+}
+
 /**
  * A faithful *subset* of legacy/script/share/level_start.lua's real
  * initModels() - the per-model setup its own trailing content-loaders

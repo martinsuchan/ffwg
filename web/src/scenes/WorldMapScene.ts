@@ -85,6 +85,9 @@ export class WorldMapScene extends Phaser.Scene {
   private nodeSprites = new Map<string, NodeSprites>();
   private openOverlays: Phaser.GameObjects.Image[] = [];
   private edges?: Phaser.GameObjects.Graphics;
+  /** Centered "Loading…" + level name shown while a clicked level loads. */
+  private loadingText?: Phaser.GameObjects.Text;
+  private loadingName?: Phaser.GameObjects.Text;
   private pulsePhase = 0;
   private pulseTimer?: Phaser.Time.TimerEvent;
 
@@ -144,6 +147,11 @@ export class WorldMapScene extends Phaser.Scene {
     applyRenderScale(this, MAP_WIDTH, MAP_HEIGHT);
     this.add.image(0, 0, "map-bg").setOrigin(0, 0);
     this.setupCorners();
+    // The scene instance is reused across scene.start(); drop stale (destroyed)
+    // loading-screen handles from a previous entry so hide/show don't touch them.
+    this.loadingText = undefined;
+    this.loadingName = undefined;
+    this.loadingCodename = null;
 
     // Window/tab title - legacy's WorldMap.cpp sets the SDL window caption to
     // findDesc("menu"); this port uses its own GAME_TITLE instead. Every
@@ -623,9 +631,52 @@ export class WorldMapScene extends Phaser.Scene {
     return this.mapData.posters.get(codename) ?? null;
   }
 
+  /** Centered "Loading… <level name>" shown while a clicked level loads (it can
+   *  take a few seconds on a slow connection). Hides the node graph so the map
+   *  reads as a clean loading screen; torn down when the level scene starts, or
+   *  restored on a load failure. */
+  private showLoadingScreen(codename: string): void {
+    this.setNodesVisible(false);
+    this.pedometerUI.hide();
+    this.loadingText?.destroy();
+    this.loadingName?.destroy();
+    this.loadingText = this.add
+      .text(MAP_WIDTH / 2, MAP_HEIGHT / 2 - 10, t("loading"), crispText({
+        fontFamily: "sans-serif",
+        fontSize: "26px",
+        color: "#ffc618",
+        fontStyle: "bold",
+        stroke: "#000000",
+        strokeThickness: 4,
+      }))
+      .setOrigin(0.5, 1)
+      .setDepth(6);
+    this.loadingName = this.add
+      .text(MAP_WIDTH / 2, MAP_HEIGHT / 2 + 8, mapName(this.mapData, codename), crispText({
+        fontFamily: "sans-serif",
+        fontSize: "18px",
+        color: "#ffffff",
+        stroke: "#000000",
+        strokeThickness: 3,
+        align: "center",
+        wordWrap: { width: MAP_WIDTH - 80 },
+      }))
+      .setOrigin(0.5, 0)
+      .setDepth(6);
+  }
+
+  private hideLoadingScreen(): void {
+    this.loadingText?.destroy();
+    this.loadingText = undefined;
+    this.loadingName?.destroy();
+    this.loadingName = undefined;
+    this.setNodesVisible(true);
+  }
+
   private async launchLevel(codename: string): Promise<void> {
     if (this.loadingCodename) return;
     this.loadingCodename = codename;
+    this.showLoadingScreen(codename);
     try {
       const levelData = await loadLevelModels(codename);
       const depth = this.mapData.depths.get(codename) ?? 1;
@@ -661,6 +712,7 @@ export class WorldMapScene extends Phaser.Scene {
       });
     } catch (error) {
       console.error(`Failed to load level "${codename}"`, error);
+      this.hideLoadingScreen();
       this.showFeedback(t("load_failed", mapName(this.mapData, codename)));
     } finally {
       this.loadingCodename = null;
@@ -692,6 +744,7 @@ export class WorldMapScene extends Phaser.Scene {
       this.loadingCodename = null;
       return;
     }
+    this.showLoadingScreen(codename);
     loadLevelModels(codename)
       .then((levelData) => {
         document.title = this.titleFor(codename);
@@ -707,6 +760,7 @@ export class WorldMapScene extends Phaser.Scene {
       })
       .catch((error: unknown) => {
         console.error(`Failed to load level "${codename}" for replay`, error);
+        this.hideLoadingScreen();
         this.showFeedback(t("load_failed", mapName(this.mapData, codename)));
       })
       .finally(() => {

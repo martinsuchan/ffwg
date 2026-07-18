@@ -1,4 +1,4 @@
-import { fetchText } from "./levelLoader";
+import { fetchText, getSoundSpriteDirs } from "./levelLoader";
 
 /**
  * legacy DialogStack::actorTalk() splits a talk() name on '@' into the real
@@ -60,8 +60,13 @@ export function resolveSoundPath(soundPath: string): ResolvedSound | null {
  *  (docs/018). */
 export async function fetchSoundDurations(spriteDirs: string[]): Promise<Map<string, number>> {
   const durations = new Map<string, number>();
+  // Skip dirs with no converted audio (e.g. the en fallback pools most levels
+  // lack, docs/060) so we don't fire a 404 per missing dir - docs/075.
+  const known = await getSoundSpriteDirs();
   await Promise.all(
-    spriteDirs.map(async (spriteDir) => {
+    spriteDirs
+      .filter((spriteDir) => known.has(spriteDir))
+      .map(async (spriteDir) => {
       try {
         const json = await fetchText(`/assets/sound/${spriteDir}/sprite.json`);
         // Vite's dev server SPA-fallback-serves index.html (200 OK, not a real

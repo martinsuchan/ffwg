@@ -54,10 +54,32 @@ export function computeNodeStates(
 
   for (const node of data.nodes) resolve(node.codename);
 
-  if (!sandboxMode) return states;
+  if (sandboxMode) {
+    // Every not-yet-solved node open (reveals the whole map, incl. secrets).
+    for (const [codename, state] of states) {
+      if (state !== "solved") states.set(codename, "open");
+    }
+    return states;
+  }
 
-  for (const [codename, state] of states) {
-    if (state !== "solved") states.set(codename, "open");
+  // Standard mode: progressively reveal whole sections/branches (docs/074, a
+  // deliberate deviation from the original, which shows the entire map as dim
+  // locked dots from the start). A section is the level's "house"
+  // (worldmap_addDesc's desc, e.g. "Rybí domeček"); it becomes visible once any
+  // of its nodes is open or solved - i.e. when the level leading into it is
+  // solved, its entry node opens and the whole branch appears (entry playable,
+  // the rest locked). Until then every node in the section is hidden, so a fresh
+  // game shows only the starting house. Grouped by the language-independent en
+  // section name (falling back to cs, then the codename for an unlabelled node).
+  const sectionOf = (codename: string): string =>
+    data.sections.get(`${codename}:en`) || data.sections.get(`${codename}:cs`) || codename;
+  const revealedSections = new Set<string>();
+  for (const node of data.nodes) {
+    const state = states.get(node.codename);
+    if (state === "open" || state === "solved") revealedSections.add(sectionOf(node.codename));
+  }
+  for (const node of data.nodes) {
+    if (!revealedSections.has(sectionOf(node.codename))) states.set(node.codename, "hidden");
   }
   return states;
 }

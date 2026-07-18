@@ -27,8 +27,13 @@ import { t } from "../i18n";
  * applies live via the onVolumeChange callback.
  */
 
+/** Dutch isn't shipped for now (only cs content is packaged), so the cs/nl
+ *  language switch is hidden - flip back to re-enable it. See docs/075. */
+const SHOW_LANGUAGE = false;
+
 const PANEL_W = 400;
-const PANEL_H = 430;
+/** Tall enough for all rows; one row shorter when the language row is hidden. */
+const PANEL_H = SHOW_LANGUAGE ? 430 : 386;
 /** Min gap kept between the panel and the room edges when scaling to fit. */
 const FIT_MARGIN = 24;
 const ROW_H = 44;
@@ -118,8 +123,10 @@ export class OptionsOverlay {
     );
 
     let y = top + 60;
-    this.buildLanguageRow(left + 24, y);
-    y += ROW_H;
+    if (SHOW_LANGUAGE) {
+      this.buildLanguageRow(left + 24, y);
+      y += ROW_H;
+    }
     this.buildGameSizeRow(left + 24, y);
     y += ROW_H;
     this.buildVolumeRow(left + 24, y, t("opt_music"), () => loadSettings().musicVolume, (v) => {

@@ -1272,6 +1272,49 @@ reasoning; check for later numbered entries too — decisions here can change):
   only when non-empty. Verified in a real browser (cs+nl Options fully localized, no overlap; map name cs "Jak
   to všechno začalo" vs nl "Hoe het allemaal begon"; gods poster no empty box) + e2e case `04-settings` extended
   (opt_title cs/nl, reused `menu_back`, localized map names) + full suite + tsc clean.
+- World-map progressive branch reveal (`docs/074-2026-07-18-worldmap-progressive-branch-reveal.md`): user wanted
+  branches hidden until unlocked. **This was actually faithful** - legacy defaults nodes to `STATE_FAR` and
+  `NodeDrawer::drawNode` draws a far dot + edges for every non-secret node, so FF NG shows the whole map up front
+  (only the 10 secret branches hidden). Per the user, added a **deliberate deviation**: reveal by section/house
+  (`worldmap_addDesc` desc, already in `WorldMapData.sections` from docs/073), not per node. New final pass in
+  `computeNodeStates` (`web/src/game/worldMapState.ts`, standard mode only): a **section is revealed iff any of
+  its nodes is open or solved** (its entry opens when the level leading into it is solved); every node in a
+  non-revealed section is forced to `hidden` (drawNodes/drawEdges/Tab-nav already skip hidden; secret-flag nodes
+  stay individually hidden). Grouped by the **language-independent en** section name (fallback cs, then codename).
+  Fresh game shows only the starting house ("Rybí domeček"/"Fish House" - 8 real nodes, `start` playable, rest
+  locked; `ending` shares the section but isn't a map dot); solving a house reveals the branches it leads into
+  (entry playable, rest locked), unreached branches stay hidden. Sandbox untouched (all open → all revealed).
+  Verified in a real browser (fresh: 1 house/8 nodes/1 open, 72 hidden; after solving the start house: 6 sections
+  visible with new playable entries; screenshots) + e2e `07-sandbox-mode` still green (standard open=1,
+  far+hidden≫50) + full suite + tsc. **Not yet deployed** - the live Azure site shows the old full-map behavior
+  until the next publish (needs the docs/073 nl-audio trim to fit the SWA 100s upload timeout).
+- Hide language switch + gate en-sprite fetches + world-map loading screen
+  (`docs/075-2026-07-18-hide-language-en-sprite-gate-loading-screen.md`): three user requests. (1) **cs/nl
+  language switch hidden** (nl not shipped): `OptionsOverlay` `SHOW_LANGUAGE=false` skips `buildLanguageRow` +
+  shrinks `PANEL_H` 430->386; one-line re-enable. (2) **Failing en sprite requests in Czech**: the per-line
+  English **voice fallback** (docs/060 - viking1's band, cancan's piano voiced only in en) preloads `<level>/en`
+  + shared en pools even in cs, but only ~31 levels HAVE en audio, so `<level>/en/sprite.json` 404s for the other
+  ~50 (caught silently, but noisy). Fix: new `getSoundSpriteDirs()` (`levelLoader.ts`) derives the set of dirs
+  with converted audio from the audio manifest (`sound/<dir>/<file>` -> `Set<dir>`, cached); `AudioEngine.
+  doLoadDir` + `fetchSoundDurations` (`dialogSound.ts`) skip any dir not in it, so missing en dirs are never
+  requested (en fallback still works for the 31 that have it). Verified: `airplane` fires 0 en requests, `viking1`
+  still requests `viking1/en`. (3) **World-map loading screen** (slow connections): `WorldMapScene.
+  showLoadingScreen(codename)` hides the node graph (`setNodesVisible(false)`) and centers a localized "Načítání…"
+  + the level name (`mapName`) over the map art; called at the start of `launchLevel`/`launchReplay`, torn down on
+  scene start, restored on load failure. New `loading` i18n key. Verified in a real browser (options language row
+  gone; airplane 0 en reqs / viking1 en req; loading screen hides 81 nodes + shows "Načítání…"/"Výška: -9000 stop"
+  - screenshots) + full e2e + tsc. Note: e2e `04-settings` can false-fail under dev **HMR** (its dynamic
+  `import("/src/i18n.ts")` gets a different module instance than the app's `initLabels`-populated one) - green on
+  a fresh dev server, which `scripts\test.ps1` always starts. Still **not deployed**.
+- Backlog refresh + FF NG comparison + README rewrite
+  (`docs/076-2026-07-18-backlog-refresh-ffng-comparison-readme.md`): docs-only pass. Recompiled
+  `docs/BACKLOG.md` (supersedes the 2026-07-15 compile, covers through docs/075): a **FF NG feature-comparison
+  matrix** (parity / port-adds / partial / missing per area - genuine gaps are gamepad+touch input, undo/redo,
+  `mirror`/`zx` effects, and cs-only shipping), regrouped **open items** (new §H deployment section: SWA 100s
+  single-zip upload limit forcing the nl-audio trim, live site behind the working tree, uncommitted docs/057-075),
+  and a **resolved-since-2026-07-15** delta list. Rewrote `README.md` (was "early spike, not playable") to an
+  accurate playable overview: features, controls table, `setup.ps1` run, publish + Azure SWA deploy (with the
+  upload-limit caveat), e2e, layout, license. No code touched.
 
 Commands (from repo root):
 

@@ -127,6 +127,7 @@ const PORT_LABELS: Record<string, { cs: string; nl: string; en: string }> = {
 
   // --- World map ---
   load_failed: { cs: "Načtení selhalo: %1", nl: "Laden mislukt: %1", en: "Failed to load %1" },
+  loading: { cs: "Načítání…", nl: "Laden…", en: "Loading…" },
 };
 
 /** The active dialog/UI language (cs/nl), read live so a change takes effect on

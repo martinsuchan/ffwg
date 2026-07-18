@@ -1,10 +1,49 @@
 {
   "permissions": {
     "allow": [
-      "Bash(rm -f /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.mjs /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.txt /c/git/ffwg/web/shot-*.png 2>/dev/null; echo cleaned)"
+      "Bash(rm -f /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.mjs /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.txt /c/git/ffwg/web/shot-*.png 2>/dev/null; echo cleaned)",
+      "PowerShell(& powershell -ExecutionPolicy Bypass -File scripts\\\\publish.ps1 -SkipAssets 2>&1 | Select-Object -Last 40)",
+      "Read(//c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/tasks/**)",
+      "Bash(wc -l < /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/tasks/bh5ab1wo9.output; echo \"=== tail ===\"; tail -30 /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/tasks/bh5ab1wo9.output 2>&1)",
+      "PowerShell(Get-Process | Where-Object { $_.ProcessName -match \"StaticSitesClient|swa|node\" } | Select-Object ProcessName, Id, @{N=\"CPU\\(s\\)\";E={[math]::Round\\($_.CPU,1\\)}}, @{N=\"MB\";E={[math]::Round\\($_.WorkingSet/1MB\\)}} | Format-Table -AutoSize; Write-Output \"--- StaticSitesClient download cache ---\"; Get-ChildItem \"$env:USERPROFILE\\\\.swa\\\\deploy\" -ErrorAction SilentlyContinue | Select-Object Name, Length, LastWriteTime)",
+      "Bash(tasklist)",
+      "PowerShell($p = Get-Process StaticSitesClient -ErrorAction SilentlyContinue; if \\($p\\) { Write-Output \\(\"StaticSitesClient RUNNING - CPU {0}s, {1} MB\" -f [math]::Round\\($p.CPU,1\\), [math]::Round\\($p.WorkingSet/1MB\\)\\) } else { Write-Output \"StaticSitesClient NOT running \\(finished or exited\\)\" })",
+      "Read(//c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/**)",
+      "PowerShell(Stop-Process -Name StaticSitesClient -Force -ErrorAction SilentlyContinue; Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.CPU -lt 5 } | ForEach-Object { } ; Write-Output \"stopped StaticSitesClient \\(retry aborted - it would time out the same way\\)\"; Write-Output \"--- StaticSitesClient.json \\(look for timeout knobs\\) ---\"; Get-Content \"$env:USERPROFILE\\\\.swa\\\\deploy\\\\689a6c1fe8fc32f40348cc41223a7e9d83dd43d2\\\\StaticSitesClient.json\" -ErrorAction SilentlyContinue)",
+      "Bash(SWA_DIR=\"C:/Users/marti/AppData/Roaming/npm/node_modules/@azure/static-web-apps-cli\"; sed -n '175,230p' \"$SWA_DIR/dist/cli/commands/deploy/deploy.js\")",
+      "Read(//c/Users/marti/AppData/Roaming/npm/node_modules/@azure/static-web-apps-cli/dist/cli/commands/deploy/**)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}  %{size_download} bytes  %{time_total}s\\\\n\" https://wonderful-rock-00e053703.7.azurestaticapps.net/)",
+      "Bash(curl -s https://wonderful-rock-00e053703.7.azurestaticapps.net/)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}  %{content_type}\\\\n\" https://wonderful-rock-00e053703.7.azurestaticapps.net/legacy/script/worldmap.lua)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" https://wonderful-rock-00e053703.7.azurestaticapps.net/sandbox)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" https://wonderful-rock-00e053703.7.azurestaticapps.net/assets/sound/airplane/cs/sprite.json)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" https://wonderful-rock-00e053703.7.azurestaticapps.net/assets/sound/airplane/nl/sprite.json)",
+      "Bash(rm -f /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/swa_token.txt /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/deploy*.log 2>/dev/null; echo \"cleaned deploy token + logs\")",
+      "Read(//c/c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/**)",
+      "Bash(sed -i 's/\\(\\) => window.__game.scene.isActive\\(\"worldmap\"\\)/\\(\\) => !!window.__game \\\\&\\\\& window.__game.scene.isActive\\(\"worldmap\"\\)/' repro-map.mjs)",
+      "Bash(node repro-map.mjs)",
+      "Bash(cd /c/git/ffwg/legacy/src/menu; echo \"=== NodeDrawer: how a node is drawn by state ===\"; sed -n '1,140p' NodeDrawer.cpp 2>/dev/null | grep -nE \"STATE_|drawNode|drawEdge|drawPath|getState|hidden|LOCKED|OPEN|SOLVED|maskCheck|return\" | head -50)",
+      "Read(//c/git/ffwg/legacy/src/menu/**)",
+      "Bash(cd /c/git/ffwg/legacy/src/menu; echo \"=== who calls drawNode/drawEdge \\(the path loop\\) ===\"; grep -rniE \"drawNode|drawEdge|drawPath|drawDot\" WorldMap.cpp NodeDrawer.cpp NodeDrawer.h 2>/dev/null | head; echo \"=== drawEdge body + any state guard ===\"; sed -n '139,175p' NodeDrawer.cpp; echo \"=== the traversal that draws edges \\(WorldMap\\) ===\"; grep -nE \"drawEdge|drawNode|getState|STATE_|eachNode|traverse|for\" WorldMap.cpp 2>/dev/null | head -30)",
+      "Bash(find /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad /c/git/ffwg -name \"repro-standard-map.png\" 2>/dev/null)",
+      "Bash(cd /c/git/ffwg/web; echo \"=== port node textures ===\"; grep -nE 'load\\\\.image\\\\\\(\"node-|node-far|node-open|node-solved' src/scenes/WorldMapScene.ts | head; echo; echo \"=== legacy worldmap image pack \\(far/open/solved resources\\) ===\"; grep -rnE \"worldmap_addImg|addImg|\\\\\"far\\\\\"|\\\\\"open\\\\\"|\\\\\"solved\\\\\"|n0|n1|n2\" ../legacy/script/worldmap.lua 2>/dev/null | head -20)",
+      "Read(//c/git/ffwg/web/**)",
+      "Bash(cd /c/git/ffwg; echo \"=== branch_addNode calls total ===\"; grep -c \"branch_addNode\" legacy/script/worldmap.lua; echo \"=== calls with hidden flag \\(6th arg true\\) ===\"; grep -cE \"branch_addNode\\\\\\([^\\)]*,[^,\\)]*,[^,\\)]*,[^,\\)]*,[^,\\)]*, *true\" legacy/script/worldmap.lua; echo \"=== sample hidden lines ===\"; grep -nE \"branch_addNode\\\\\\([^\\)]*, *true *[,\\)]\" legacy/script/worldmap.lua | head; echo \"=== n_far.png vs n0.png \\(size/dims\\) ===\"; ls -la web/public/assets/images/menu/n_far.png web/public/assets/images/menu/n0.png legacy/images/menu/n_far.png legacy/images/menu/n0.png 2>/dev/null)",
+      "Read(//c/git/ffwg/**)",
+      "Bash(rm -f /c/git/ffwg/web/shot-deployed-map.png 2>/dev/null; echo cleaned)",
+      "Bash(cd /c/git/ffwg; echo \"=== distinct cs sections \\(desc\\) + count ===\"; grep -E 'worldmap_addDesc\\\\\\(\"[^\"]+\", \"cs\"' legacy/script/worlddesc.lua | sed -E 's/.*\"cs\", \"[^\"]*\", \"\\([^\"]*\\)\".*/\\\\1/' | sort | uniq -c | sort -rn; echo; echo \"=== root node + its section ===\"; grep -E 'worldmap_addDesc\\\\\\(\"start\", \"cs\"' legacy/script/worlddesc.lua)",
+      "Bash(cd /c/git/ffwg/web && npx tsc -b 2>&1 | head -15)",
+      "Bash(find /c/git/ffwg /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg -maxdepth 4 -name \"reveal-fresh.png\" -o -name \"reveal-after.png\" 2>/dev/null | head; ls -la reveal-fresh.png reveal-after.png 2>/dev/null; pwd)",
+      "Bash(rm -f /c/git/ffwg/web/reveal-*.png /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.mjs /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.png 2>/dev/null; echo cleaned; FFWG_BASE_URL=\"http://localhost:5173/\" node tests/run.mjs 2>&1 | tee /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/e2e.txt | tail -13)",
+      "Bash(pwsh -NoProfile -File scripts/new-doc.ps1 \"worldmap-progressive-branch-reveal\")",
+      "Bash(tail -13 /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/tasks/bjr7bdgmq.output 2>&1)",
+      "Bash(rm -f /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.txt /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.mjs 2>/dev/null; echo cleaned)",
+      "Bash(cd /c/git/ffwg/web; echo \"=== levelSoundSpriteDirs / en fallback in levelScript.ts ===\"; grep -nE \"levelSoundSpriteDirs|levelDialogVoiceDir|/en|en fallback|enFallback|shared|border|joke\" src/lua/levelScript.ts | head -30)",
+      "Bash(pwsh -NoProfile -File scripts/new-doc.ps1 \"backlog-refresh-ffng-comparison-readme\")"
     ],
     "additionalDirectories": [
-      "C:\\Users\\marti\\AppData\\Local\\Temp\\claude\\c--git-ffwg\\b2a322cc-e3f1-42b8-8cc7-fd02968defb3\\scratchpad"
+      "C:\\Users\\marti\\AppData\\Local\\Temp\\claude\\c--git-ffwg\\b2a322cc-e3f1-42b8-8cc7-fd02968defb3\\scratchpad",
+      "C:\\git\\ffwg\\web"
     ]
   }
 }

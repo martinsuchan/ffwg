@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-import { fetchText } from "../lua/levelLoader";
+import { fetchText, getSoundSpriteDirs } from "../lua/levelLoader";
 import { loadSettings } from "../storage/settingsStorage";
 
 /** legacy/src/gengine/SoundAgent.cpp applies the global volume as a flat
@@ -106,6 +106,10 @@ export class AudioEngine {
 
   private async doLoadDir(dir: string): Promise<void> {
     if (!this.ctx || dirBuffers.has(dir)) return;
+    // Skip dirs with no converted audio (e.g. the en voice-fallback pool most
+    // levels lack, docs/060) so we don't fire a 404 per missing dir - docs/075.
+    const known = await getSoundSpriteDirs();
+    if (!known.has(dir)) return;
     try {
       // sprite.json first: the dev server SPA-fallback-serves index.html (200)
       // for an unconverted dir, so JSON.parse failing is the real "missing"
