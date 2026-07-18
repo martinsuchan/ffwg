@@ -10,6 +10,8 @@ import { IntroScene } from "./scenes/IntroScene";
 import { initHistoryNav } from "./navigation";
 import { initFullscreen } from "./fullscreen";
 import { initPlaytimeTracking } from "./storage/playtime";
+import { serializeProgress, parseBackup, restoreProgress } from "./storage/progressBackup";
+import { initLabels } from "./i18n";
 
 async function boot(): Promise<void> {
   // Start accumulating total play time (persisted across sessions) from app
@@ -17,6 +19,9 @@ async function boot(): Promise<void> {
   initPlaytimeTracking();
 
   const worldMapData = await loadWorldMap();
+  // Feed the legacy labels.lua translations into the port's i18n layer so our
+  // own UI strings localize the same way FF NG's menu does (docs/073).
+  initLabels(worldMapData.labels);
 
   const game = new Phaser.Game({
     type: Phaser.AUTO,
@@ -55,6 +60,13 @@ async function boot(): Promise<void> {
   // it never ships - see web/tests/README.md.
   if (import.meta.env.DEV) {
     (window as unknown as { __game: Phaser.Game }).__game = game;
+    // Progress backup/restore internals, for the e2e suite (docs/072) - drives
+    // serialize/parse/restore directly without the UI's page-reload.
+    (window as unknown as { __progress: unknown }).__progress = {
+      serializeProgress,
+      parseBackup,
+      restoreProgress,
+    };
   }
 }
 

@@ -1201,6 +1201,77 @@ reasoning; check for later numbered entries too — decisions here can change):
   Wide rooms + the 640x480 map keep scale 1. Verified (real browser): F10 opens on the map; library options
   scales 0.728, bounds 12..303 in [0,315] no clip, scaled toggle/sliders still clickable; library F1 help
   scales 0.746 fits; e2e 7/7; tsc clean.
+- Held-key release: one phantom extra cell fixed (`docs/070-2026-07-17-held-key-release-extra-cell-fix.md`):
+  holding a movement key (arrows/WASD/IJKL) and releasing it mid-cell-animation often swam **one more cell**
+  before stopping. Cause: `LevelScene`'s keydown handler armed the one-shot **queued key** (docs/019, the
+  fast-tap buffer `Controls.driving()` drains once/round and treats as used even for a blocked move) on
+  **every** keydown - but the OS fires `keydown` repeatedly while a key is held (auto-repeat), and the
+  `queuedKey===null` guard only blocks *overwriting* a pending key, not *re-filling* it after a round drains
+  it. A repeat landing in the drain->keyup window left a **stale** `queuedKey` that drove one phantom cell
+  after release (heldKeys, which the polling path reads, clears immediately - so only the queued edge leaked).
+  "Often" not "always" = depends on a repeat hitting that window. Fix: only buffer a genuine fresh edge -
+  `isFreshEdge = !e.repeat && !this.heldKeys.has(e.code)` (the `!heldKeys.has` is belt-and-suspenders where
+  `repeat` isn't set). Preserves docs/019 fast-tap reliability (a real tap still arms once, still fires if
+  released sub-round; `queuedKey` is deliberately NOT cleared on keyup) - it just stops auto-repeat re-arming.
+  LevelScene-only (sole interactive-held-key buffer). Verified in a real browser (Playwright: fresh edge arms,
+  auto-repeat does NOT re-arm after a drain, fresh press after release re-arms; proven to discriminate -
+  reverting the guard makes the repeat case re-arm and fail; no phantom move after release) + e2e 7/7 + tsc.
+- Mouse clicks outside the level ignored (`docs/071-2026-07-17-mouse-clicks-outside-level-ignored.md`): with a
+  small window (page scrollbar showing), clicking the scrollbar / any window area outside the rendered level
+  moved the fish toward it - only in-level clicks should. Cause: the mouse-control path (hold-left = path to
+  cursor, hold-right = push to cursor; docs/017) wired `isLeftPressed`/`isRightPressed` + `getMouseField`
+  straight to Phaser's polled button/pointer state with **no bounds check**. The original (`MouseControl.cpp`)
+  has none either - its SDL window *is* the level, so the cursor can't be outside-level-but-inside-window; the
+  browser canvas can be smaller than the window (margins/scrollbar/fullscreen letterbox). **A worldX bounds
+  check alone can't fix it**: Phaser leaves `pointer.worldX/worldY` **stale** at the last in-canvas value when
+  off-canvas, so an out-of-room click reports an in-room cell (measured worldX 608 inside the 675px room while
+  the cursor was off-canvas). Fix: track pointer-over-canvas via the canvas's own `pointerenter`/`pointerleave`
+  DOM events (a `pointerOverCanvas` flag, default true, listeners added in `create()` / removed on SHUTDOWN /
+  reset per entry since the scene instance + canvas are reused), and gate the `pointerdown` click-to-select and
+  the per-round `isLeftPressed`/`isRightPressed` on `isPointerInLevel()` = over-canvas AND world coords in the
+  room rect (the over-canvas check is the one that catches the stale-coord case). Keyboard untouched.
+  LevelScene-only. Verified in a real browser (in-room hold still paths the fish 0->5; out-of-room hold with a
+  stale in-room worldX does NOT move it 5->5; proven to discriminate - neutralizing the guard moves it 5->12)
+  + e2e 7/7 + tsc clean.
+- Backup / restore game progress (`docs/072-2026-07-17-progress-backup-restore.md`): progress lived only in
+  `localStorage` (lost when browser data is cleared) - added **Backup**/**Restore** buttons to the Settings
+  panel (`OptionsOverlay`, shared by world map + level). Exports **everything** (`ffwg:solved:*` best solutions +
+  `ffwg:saves:*` slots + `ffwg:settings` + `ffwg:playtime`) to a human-readable versioned **JSON** file
+  (`{format:"ffwg-progress",version:1,...}`); restore **merges** keep-best (never destructive). JSON over Lua
+  deliberately: already JSON-shaped + human-readable + **no interpreter to load** (no code-exec surface on an
+  editable file). New `web/src/storage/progressBackup.ts` (no Phaser deps): `serializeProgress()`,
+  `parseBackup(text)` (**pure/sync**: 5 MB size cap -> JSON-parse guard -> format/version gate -> per-field
+  coercion dropping anything malformed, move strings checked vs the legal symbol alphabet, settings via a shared
+  `sanitizeSettings` extracted from `loadSettings`), `restoreProgress(value)` (**async**: loads each level once
+  via `loadLevelModels`, **re-validates every solved solution by replaying it to solved** with `validateSolution`
+  + a fresh `GameEngine` before trusting it, saves must replay cleanly, unknown/failing levels rejected per-entry;
+  writes via `saveSolvedMoves` keep-shorter / new `mergeSavedGames` / `saveSettings` / new `mergePlaytimeSeconds`
+  max; returns a report). UI: Backup = Blob + `<a download="ffwg-progress-YYYY-MM-DD.json">`; Restore = reused
+  hidden file input -> parse -> "Validating n/N" status -> summary -> `location.reload()` (map re-derives node
+  states). `PANEL_H` 364->430 (docs/069 fit-scale still fits narrow `library`: 0.7275). Verified via a DEV-only
+  `window.__progress` handle (new e2e case `08-progress-backup.mjs`, 16 assertions: round-trip; valid solution
+  accepted + wrong/unknown rejected & not persisted; malformed/oversized refused) + a real-browser UI smoke
+  (F10 -> Backup downloads a valid backup with the seeded progress; panel fits library) + tsc + e2e.
+- UI localization + notification cleanup (`docs/073-2026-07-18-ui-localization-and-notification-cleanup.md`):
+  localized every custom (non-Lua) UI string and removed redundant success toasts. **How FF NG does it**:
+  `MenuOptions` rows are language-neutral **icons**; the localized `menu_*`/`help` text from `script/labels.lua`
+  (`label_text(name,lang,text)`, ~14 langs, `Labels::getLabel` with DEFAULT_LANG fallback) is only a hover
+  **tooltip**. The port already parsed `labels.lua` in `worldMapLoader.ts` (solver labels), so we **reuse that
+  data** - no new parse. New `web/src/i18n.ts`: `initLabels(map)` (fed from `WorldMapData.labels`, now capturing
+  ALL `label_text` calls; `main.ts` calls it post-`loadWorldMap`), `t(key,...args)` resolving legacy store ->
+  `PORT_LABELS` (cs/nl/en for port-only strings: game size, backup/restore, help, toasts) -> en -> key, with
+  `%1`/`%2` substitution (reused for `solver_*`). Applied across `OptionsOverlay`/`HelpOverlay`/`LevelScene`/
+  `ReplayScene`/`WorldMapScene`/`PedometerUI`; `parseBackup` returns an **i18n key** (localized in the UI).
+  `OptionsOverlay` control offset `CTRL_DX=108` so long labels (nl "Ondertiteling") don't overlap. **World-map
+  names now follow the language** (worlddesc.lua has cs/nl/en; dropped hard-coded `MAP_LANG="cs"`): `names`/
+  `sections` keyed `<codename>:<lang>` + `mapName`/`mapSection` resolvers used by the map label, `document.title`,
+  pedometer. **Removed** (user): Saved/Loaded toasts, in-level "Solved!"/"new best!" banner, "fish died"/"stuck"
+  banners, world-map "Loading…" toast, backup-success toast (behavior/logic all unchanged - only text removed;
+  warnings/errors kept + localized). **DemoScene subtitle**: switched from a `backgroundColor` box (the "shadow
+  rectangle", which also showed an empty box on posters) to the level's outlined `SubtitleStack` style, shown
+  only when non-empty. Verified in a real browser (cs+nl Options fully localized, no overlap; map name cs "Jak
+  to všechno začalo" vs nl "Hoe het allemaal begon"; gods poster no empty box) + e2e case `04-settings` extended
+  (opt_title cs/nl, reused `menu_back`, localized map names) + full suite + tsc clean.
 
 Commands (from repo root):
 

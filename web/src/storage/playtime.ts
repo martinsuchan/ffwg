@@ -44,6 +44,20 @@ function flush(): void {
   }
 }
 
+/** Merge a backed-up play-time total into storage (docs/072): keep the larger of
+ *  the current running total and `seconds`, so a restore never shrinks play time
+ *  and re-restoring is idempotent. A page reload after restore re-reads the new
+ *  total into `bootTotalSeconds`. */
+export function mergePlaytimeSeconds(seconds: number): void {
+  const incoming = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+  const next = Math.max(getPlaytimeSeconds(), incoming);
+  try {
+    localStorage.setItem(STORAGE_KEY, String(next));
+  } catch {
+    // Storage unavailable - nothing to persist.
+  }
+}
+
 /** Start accumulating play time. Called once at app boot (main.ts). Flushes on a
  *  slow interval and whenever the page is hidden/unloaded - the browser's
  *  closest analogue to SDL's shutdown hook, and the only reliable "leaving" edge

@@ -3,8 +3,9 @@ import Phaser from "phaser";
 import { loadLevelModels } from "../lua/levelLoader";
 import { createLevelScript, type EngineControl } from "../lua/levelScript";
 import { GameEngine } from "../game/GameEngine";
-import type { WorldMapData, WorldMapNode } from "../lua/worldMapLoader";
+import { mapName, mapSection, type WorldMapData, type WorldMapNode } from "../lua/worldMapLoader";
 import { computeNodeStates, type NodeState } from "../game/worldMapState";
+import { t } from "../i18n";
 import { isSandboxMode } from "../game/appMode";
 import { loadSolvedMoves } from "../storage/levelStorage";
 import {
@@ -201,9 +202,8 @@ export class WorldMapScene extends Phaser.Scene {
       this,
       MAP_WIDTH,
       MAP_HEIGHT,
-      this.mapData.names,
+      (codename) => mapName(this.mapData, codename),
       this.mapData.bestSolutions,
-      this.mapData.solverLabels,
       (codename) => void this.launchLevel(codename),
       (codename) => this.launchReplay(codename),
       () => this.closePedometer(),
@@ -340,7 +340,7 @@ export class WorldMapScene extends Phaser.Scene {
       | HTMLCanvasElement;
     const radius = Math.max(dot.width, dot.height) / 2 + 1;
     this.selectionRing = this.add.circle(node.x, node.y, radius, 0xffc618, 0.5).setDepth(4);
-    this.nameLabel.setText(this.mapData.names.get(node.codename) ?? node.codename).setVisible(true);
+    this.nameLabel.setText(mapName(this.mapData, node.codename)).setVisible(true);
   }
 
   private deselectNode(): void {
@@ -626,7 +626,6 @@ export class WorldMapScene extends Phaser.Scene {
   private async launchLevel(codename: string): Promise<void> {
     if (this.loadingCodename) return;
     this.loadingCodename = codename;
-    this.showFeedback(`Loading "${codename}"...`);
     try {
       const levelData = await loadLevelModels(codename);
       const depth = this.mapData.depths.get(codename) ?? 1;
@@ -662,7 +661,7 @@ export class WorldMapScene extends Phaser.Scene {
       });
     } catch (error) {
       console.error(`Failed to load level "${codename}"`, error);
-      this.showFeedback(`Failed to load "${codename}"`);
+      this.showFeedback(t("load_failed", mapName(this.mapData, codename)));
     } finally {
       this.loadingCodename = null;
     }
@@ -693,7 +692,6 @@ export class WorldMapScene extends Phaser.Scene {
       this.loadingCodename = null;
       return;
     }
-    this.showFeedback(`Loading "${codename}"...`);
     loadLevelModels(codename)
       .then((levelData) => {
         document.title = this.titleFor(codename);
@@ -709,7 +707,7 @@ export class WorldMapScene extends Phaser.Scene {
       })
       .catch((error: unknown) => {
         console.error(`Failed to load level "${codename}" for replay`, error);
-        this.showFeedback(`Failed to load "${codename}"`);
+        this.showFeedback(t("load_failed", mapName(this.mapData, codename)));
       })
       .finally(() => {
         this.loadingCodename = null;
@@ -727,8 +725,8 @@ export class WorldMapScene extends Phaser.Scene {
    *  composes it as `<section>: <levelname>`, e.g. "Rybí domeček: Jak to
    *  všechno začalo". Falls back gracefully if a codename has no desc row. */
   private titleFor(codename: string): string {
-    const section = this.mapData.sections.get(codename);
-    const name = this.mapData.names.get(codename) ?? codename;
+    const section = mapSection(this.mapData, codename);
+    const name = mapName(this.mapData, codename);
     return section ? `${section}: ${name}` : name;
   }
 

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -f /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.mjs /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.txt /c/git/ffwg/web/shot-*.png 2>/dev/null; echo cleaned)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\marti\\AppData\\Local\\Temp\\claude\\c--git-ffwg\\b2a322cc-e3f1-42b8-8cc7-fd02968defb3\\scratchpad"
+    ]
+  }
+}

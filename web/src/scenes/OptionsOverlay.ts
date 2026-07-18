@@ -7,7 +7,15 @@ import {
   type DialogLang,
   type GameSize,
 } from "../storage/settingsStorage";
+import {
+  serializeProgress,
+  backupFilename,
+  parseBackup,
+  restoreProgress,
+  MAX_BACKUP_BYTES,
+} from "../storage/progressBackup";
 import { crispText } from "./sceneUtils";
+import { t } from "../i18n";
 
 /**
  * The settings panel, reached from the world map's Options corner button -
@@ -20,21 +28,26 @@ import { crispText } from "./sceneUtils";
  */
 
 const PANEL_W = 400;
-const PANEL_H = 364;
+const PANEL_H = 430;
 /** Min gap kept between the panel and the room edges when scaling to fit. */
 const FIT_MARGIN = 24;
 const ROW_H = 44;
 const SLIDER_W = 180;
+/** X offset from a row's label to its control - wide enough for the localized
+ *  row labels (e.g. Dutch "Ondertiteling", "Game progress") not to overlap. */
+const CTRL_DX = 108;
 
+/** Language names shown as their own endonyms - never translated. */
 const LANGS: Array<{ code: DialogLang; label: string }> = [
   { code: "cs", label: "Čeština" },
   { code: "nl", label: "Nederlands" },
 ];
 
-const GAME_SIZE_LABELS: Record<GameSize, string> = {
-  1: "Standard",
-  1.5: "Large",
-  2: "Huge",
+/** GameSize -> i18n key for the Standard/Large/Huge buttons. */
+const GAME_SIZE_KEYS: Record<GameSize, string> = {
+  1: "size_standard",
+  1.5: "size_large",
+  2: "size_huge",
 };
 
 export class OptionsOverlay {
@@ -44,6 +57,11 @@ export class OptionsOverlay {
    *  narrower/shorter than the fixed panel (e.g. library) - see docs/069. */
   private container?: Phaser.GameObjects.Container;
   private escHandler?: (event: KeyboardEvent) => void;
+  /** Status/result line for the Backup/Restore actions (docs/072). */
+  private statusText?: Phaser.GameObjects.Text;
+  /** Reused hidden file input for Restore, so cancelled dialogs don't leak
+   *  elements. Created lazily, removed in hide(). */
+  private fileInput?: HTMLInputElement;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -89,7 +107,7 @@ export class OptionsOverlay {
 
     this.add(
       this.scene.add
-        .text(cx, top + 16, "Options", crispText({
+        .text(cx, top + 16, t("opt_title"), crispText({
           fontFamily: "sans-serif",
           fontSize: "20px",
           color: "#ffc618",
@@ -104,20 +122,35 @@ export class OptionsOverlay {
     y += ROW_H;
     this.buildGameSizeRow(left + 24, y);
     y += ROW_H;
-    this.buildVolumeRow(left + 24, y, "Music", () => loadSettings().musicVolume, (v) => {
+    this.buildVolumeRow(left + 24, y, t("opt_music"), () => loadSettings().musicVolume, (v) => {
       saveSettings({ musicVolume: v });
       this.onVolumeChange();
     });
     y += ROW_H;
-    this.buildVolumeRow(left + 24, y, "Sound", () => loadSettings().soundVolume, (v) =>
+    this.buildVolumeRow(left + 24, y, t("opt_sound"), () => loadSettings().soundVolume, (v) =>
       saveSettings({ soundVolume: v }),
     );
     y += ROW_H;
     this.buildSubtitlesRow(left + 24, y);
+    y += ROW_H;
+    this.buildProgressRow(left + 24, y);
+
+    // Backup/Restore status + result line (docs/072).
+    this.statusText = this.scene.add
+      .text(cx, y + 30, "", crispText({
+        fontFamily: "sans-serif",
+        fontSize: "12px",
+        color: "#cfe6ff",
+        align: "center",
+        wordWrap: { width: PANEL_W - 48 },
+      }))
+      .setOrigin(0.5, 0)
+      .setDepth(3001);
+    this.add(this.statusText);
 
     // Back button + Esc.
     const back = this.scene.add
-      .text(cx, cy + PANEL_H / 2 - 34, "Back", crispText({
+      .text(cx, cy + PANEL_H / 2 - 34, t("menu_back"), crispText({
         fontFamily: "sans-serif",
         fontSize: "15px",
         color: "#ffffff",
@@ -152,6 +185,9 @@ export class OptionsOverlay {
     this.backdrop = undefined;
     this.container?.destroy(); // destroys its children too
     this.container = undefined;
+    this.statusText = undefined; // was a child of the container, already destroyed
+    this.fileInput?.remove();
+    this.fileInput = undefined;
   }
 
   /** Add an object to the (scaled) panel container. */
@@ -170,8 +206,8 @@ export class OptionsOverlay {
   }
 
   private buildLanguageRow(x: number, y: number): void {
-    this.label(x, y, "Language");
-    let bx = x + 90;
+    this.label(x, y, t("opt_language"));
+    let bx = x + CTRL_DX;
     const current = loadSettings().lang;
     const buttons: Array<{ code: DialogLang; text: Phaser.GameObjects.Text }> = [];
     const refresh = () => {
@@ -181,7 +217,7 @@ export class OptionsOverlay {
       }
     };
     for (const { code, label } of LANGS) {
-      const t = this.scene.add
+      const btn = this.scene.add
         .text(bx, y, label, crispText({
           fontFamily: "sans-serif",
           fontSize: "13px",
@@ -196,17 +232,17 @@ export class OptionsOverlay {
           saveSettings({ lang: code });
           refresh();
         });
-      this.add(t);
-      buttons.push({ code, text: t });
-      bx += t.width + 10;
+      this.add(btn);
+      buttons.push({ code, text: btn });
+      bx += btn.width + 10;
     }
   }
 
   /** Standard/Large/Huge on-screen size (docs/064) - same button-row shape as
    *  the language row. Applies live via onGameSizeChange (scale.setZoom). */
   private buildGameSizeRow(x: number, y: number): void {
-    this.label(x, y, "Game size");
-    let bx = x + 90;
+    this.label(x, y, t("opt_gamesize"));
+    let bx = x + CTRL_DX;
     const buttons: Array<{ size: GameSize; text: Phaser.GameObjects.Text }> = [];
     const refresh = () => {
       const active = loadSettings().gameSize;
@@ -216,8 +252,8 @@ export class OptionsOverlay {
     };
     for (const size of GAME_SIZES) {
       const active = loadSettings().gameSize;
-      const t = this.scene.add
-        .text(bx, y, GAME_SIZE_LABELS[size], crispText({
+      const btn = this.scene.add
+        .text(bx, y, t(GAME_SIZE_KEYS[size]), crispText({
           fontFamily: "sans-serif",
           fontSize: "13px",
           color: "#ffffff",
@@ -232,9 +268,9 @@ export class OptionsOverlay {
           refresh();
           this.onGameSizeChange();
         });
-      this.add(t);
-      buttons.push({ size, text: t });
-      bx += t.width + 8;
+      this.add(btn);
+      buttons.push({ size, text: btn });
+      bx += btn.width + 8;
     }
   }
 
@@ -246,7 +282,7 @@ export class OptionsOverlay {
     set: (v: number) => void,
   ): void {
     this.label(x, y, label);
-    const trackX = x + 90;
+    const trackX = x + CTRL_DX;
     const trackW = SLIDER_W;
     const track = this.scene.add
       .rectangle(trackX, y, trackW, 6, 0x11202e)
@@ -296,9 +332,9 @@ export class OptionsOverlay {
   }
 
   private buildSubtitlesRow(x: number, y: number): void {
-    this.label(x, y, "Subtitles");
+    this.label(x, y, t("opt_subtitles"));
     const toggle = this.scene.add
-      .text(x + 90, y, "", crispText({
+      .text(x + CTRL_DX, y, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "13px",
         color: "#ffffff",
@@ -310,12 +346,117 @@ export class OptionsOverlay {
     this.add(toggle);
     const refresh = () => {
       const on = loadSettings().subtitles;
-      toggle.setText(on ? "On" : "Off").setBackgroundColor(on ? "#2a7a3a" : "#7a3a3a");
+      toggle.setText(on ? t("toggle_on") : t("toggle_off")).setBackgroundColor(on ? "#2a7a3a" : "#7a3a3a");
     };
     refresh();
     toggle.on("pointerdown", () => {
       saveSettings({ subtitles: !loadSettings().subtitles });
       refresh();
     });
+  }
+
+  /** Backup / Restore game progress (docs/072) - two styled buttons that
+   *  download / import the JSON progress file. */
+  private buildProgressRow(x: number, y: number): void {
+    this.label(x, y, t("opt_progress"));
+    let bx = x + CTRL_DX;
+    const button = (text: string, handler: () => void): void => {
+      const btn = this.scene.add
+        .text(bx, y, text, crispText({
+          fontFamily: "sans-serif",
+          fontSize: "13px",
+          color: "#ffffff",
+          backgroundColor: "#2a5a8a",
+          padding: { x: 10, y: 4 },
+        }))
+        .setOrigin(0, 0.5)
+        .setDepth(3001)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerdown", handler);
+      this.add(btn);
+      bx += btn.width + 8;
+    };
+    button(t("btn_backup"), () => this.doBackup());
+    button(t("btn_restore"), () => this.doRestore());
+  }
+
+  private setStatus(text: string, color: string): void {
+    this.statusText?.setText(text).setColor(color);
+  }
+
+  /** Serialize all progress and trigger a browser download of the JSON file. */
+  private doBackup(): void {
+    try {
+      const blob = new Blob([serializeProgress()], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = backupFilename();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      // No success toast - the browser's own download indicator confirms it (docs/073).
+    } catch (error) {
+      console.error("Progress backup failed", error);
+      this.setStatus(t("backup_failed"), "#ff9090");
+    }
+  }
+
+  /** Open a file picker and restore progress from the chosen JSON file. */
+  private doRestore(): void {
+    if (!this.fileInput) {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "application/json,.json";
+      input.style.display = "none";
+      input.addEventListener("change", () => {
+        const file = input.files?.[0] ?? null;
+        input.value = ""; // allow re-picking the same file later
+        void this.handleRestoreFile(file);
+      });
+      document.body.appendChild(input);
+      this.fileInput = input;
+    }
+    this.fileInput.click();
+  }
+
+  private async handleRestoreFile(file: File | null): Promise<void> {
+    if (!file) return;
+    if (file.size > MAX_BACKUP_BYTES) {
+      this.setStatus(t("backup_err_big"), "#ff9090");
+      return;
+    }
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      this.setStatus(t("restore_read_err"), "#ff9090");
+      return;
+    }
+    const parsed = parseBackup(text);
+    if (!parsed.ok) {
+      // parsed.error is an i18n key (docs/073).
+      this.setStatus(t(parsed.error), "#ff9090");
+      return;
+    }
+    try {
+      const report = await restoreProgress(parsed.value, {
+        onProgress: (done, total) => this.setStatus(t("backup_validating", done, total), "#e6e08a"),
+      });
+      const rejected = report.solvedRejected.length;
+      const summary =
+        t("restore_done", report.solvedAccepted.length, report.savesAccepted) +
+        (rejected > 0 ? t("restore_rejected", rejected) : "") +
+        ". " +
+        t("reloading");
+      this.setStatus(summary, "#a8e6a0");
+      // Reload so the world map re-derives node states and playtime/settings
+      // re-read from the freshly written storage (docs/072).
+      window.setTimeout(() => window.location.reload(), 1400);
+    } catch (error) {
+      console.error("Progress restore failed", error);
+      this.setStatus(t("restore_failed"), "#ff9090");
+    }
   }
 }

@@ -1,26 +1,27 @@
 import Phaser from "phaser";
 
 import { crispText } from "./sceneUtils";
+import { t } from "../i18n";
 
-/** The controls reference, shown only on demand (F1) instead of a permanent
- *  top-of-screen wall of text - each line is `key\tdescription`, rendered in
- *  two aligned monospace columns. */
+/** The controls reference, shown only on demand (F1). Each line is a fixed key
+ *  label (not translated) + an i18n key for the localized description (docs/073),
+ *  rendered in two aligned columns. */
 const HELP_LINES: Array<[string, string]> = [
-  ["Arrow keys", "move the active fish"],
-  ["W A S D", "move the big fish"],
-  ["I J K L", "move the small fish"],
-  ["Space", "switch the active fish"],
-  ["Left-click", "select a fish"],
-  ["Hold left-click", "swim toward the cursor"],
-  ["Hold right-click", "push toward the cursor"],
-  ["Backspace", "restart the level"],
-  ["P", "watch the solution replay"],
-  ["F2 / F3", "save / load a position"],
-  ["F5 / F6", "toggle step counter / subtitles"],
-  ["F10", "settings"],
-  ["F11", "fullscreen"],
-  ["Esc", "back to the world map"],
-  ["F1", "show / hide this help"],
+  ["Arrow keys", "help_move_active"],
+  ["W A S D", "help_move_big"],
+  ["I J K L", "help_move_small"],
+  ["Space", "help_switch"],
+  ["Left-click", "help_select"],
+  ["Hold left-click", "help_swim"],
+  ["Hold right-click", "help_push"],
+  ["Backspace", "help_restart"],
+  ["P", "help_replay"],
+  ["F2 / F3", "help_saveload"],
+  ["F5 / F6", "help_toggles"],
+  ["F10", "help_settings"],
+  ["F11", "help_fullscreen"],
+  ["Esc", "help_backmap"],
+  ["F1", "help_help"],
 ];
 
 /**
@@ -62,7 +63,7 @@ export class HelpOverlay {
     const PAD = 20;
     const COL_GAP = 24;
     const title = this.scene.add
-      .text(0, 0, "Controls", crispText({
+      .text(0, 0, t("help_title"), crispText({
         fontFamily: "sans-serif",
         fontSize: "20px",
         color: "#ffc618",
@@ -80,11 +81,11 @@ export class HelpOverlay {
       .text(0, 0, HELP_LINES.map(([key]) => key).join("\n"), { ...rowStyle, color: "#9fd0ff" })
       .setOrigin(0, 0);
     const descCol = this.scene.add
-      .text(0, 0, HELP_LINES.map(([, desc]) => desc).join("\n"), rowStyle)
+      .text(0, 0, HELP_LINES.map(([, descKey]) => t(descKey)).join("\n"), rowStyle)
       .setOrigin(0, 0);
 
     const okButton = this.scene.add
-      .text(0, 0, "OK", crispText({
+      .text(0, 0, t("help_ok"), crispText({
         fontFamily: "sans-serif",
         fontSize: "15px",
         color: "#ffffff",

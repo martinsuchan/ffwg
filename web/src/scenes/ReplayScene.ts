@@ -8,6 +8,7 @@ import { ModelAnimator, collectAtlasKeys, preloadAtlases, roundPhases } from "./
 import { AudioManager } from "./AudioManager";
 import { applyRenderScale, crispText, drawRopeDecors, isFishKind, resolveInitialFrame } from "./sceneUtils";
 import { WavyBackground } from "./WavyBackground";
+import { t } from "../i18n";
 
 type PlayState = "paused" | "play" | "fast";
 
@@ -160,7 +161,7 @@ export class ReplayScene extends Phaser.Scene {
       .setDepth(1000);
 
     this.statusText = this.add
-      .text(8, 8, `Replay - Esc = ${this.escLabel()}, R = restart replay`, crispText({
+      .text(8, 8, this.hintText(), crispText({
         fontFamily: "sans-serif",
         fontSize: "16px",
         color: "#ffffff",
@@ -212,7 +213,7 @@ export class ReplayScene extends Phaser.Scene {
     this.engine = new GameEngine(this.levelData);
     this.moveIndex = 0;
     this.gameOver = false;
-    this.statusText.setText(`Replay - Esc = ${this.escLabel()}, R = restart replay`);
+    this.statusText.setText(this.hintText());
 
     const initialRenderModels = this.engine.getRenderModels();
 
@@ -432,11 +433,11 @@ export class ReplayScene extends Phaser.Scene {
         return;
       }
       this.setPlayState("paused");
-      this.statusText.setText(`Solved! (R = restart replay, Esc = ${this.escLabel()})`);
+      this.statusText.setText(t("replay_solved", this.escLabel(), t("replay_restart")));
     } else if (!this.engine.isSolvable()) {
       this.gameOver = true;
       this.setPlayState("paused");
-      this.statusText.setText(`Replay ended - a fish died. (R = restart, Esc = ${this.escLabel()})`);
+      this.statusText.setText(t("replay_died", this.escLabel(), t("replay_restart")));
     } else if (this.moveIndex >= this.moves.length && this.engine.room.isFresh()) {
       // Ran out of recorded moves without solving - stop instead of
       // spinning the timer forever with nothing left to consume.
@@ -459,6 +460,11 @@ export class ReplayScene extends Phaser.Scene {
   }
 
   private escLabel(): string {
-    return this.returnTo === "worldmap" ? "back to map" : "back to level";
+    return t(this.returnTo === "worldmap" ? "nav_worldmap" : "nav_level");
+  }
+
+  /** The persistent replay hint line: "Esc = <target> · R = restart replay". */
+  private hintText(): string {
+    return t("replay_hint", this.escLabel(), t("replay_restart"));
   }
 }

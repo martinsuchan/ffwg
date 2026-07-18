@@ -113,6 +113,69 @@ export function loadTutorialGame(levelName: string): SavedGame | null {
   return loadSavedGames(levelName).find((s) => s.tutorial) ?? null;
 }
 
+/** Every level's save slots, keyed by codename - used by the progress backup
+ *  (docs/072) to collect all saves without knowing the level list up front.
+ *  Scans the SAVES_PREFIX keyspace; malformed entries are skipped by
+ *  loadSavedGames' own guard. */
+export function allSaves(): Record<string, SavedGame[]> {
+  const out: Record<string, SavedGame[]> = {};
+  let keys: string[] = [];
+  try {
+    keys = Object.keys(localStorage);
+  } catch {
+    return out;
+  }
+  for (const key of keys) {
+    if (!key.startsWith(SAVES_PREFIX)) continue;
+    const level = key.slice(SAVES_PREFIX.length);
+    const saves = loadSavedGames(level);
+    if (saves.length > 0) out[level] = saves;
+  }
+  return out;
+}
+
+/** Every level's best solved move string, keyed by codename - the progress
+ *  backup's progression data (docs/072). */
+export function allSolved(): Record<string, string> {
+  const out: Record<string, string> = {};
+  let keys: string[] = [];
+  try {
+    keys = Object.keys(localStorage);
+  } catch {
+    return out;
+  }
+  for (const key of keys) {
+    if (!key.startsWith(SOLVED_PREFIX)) continue;
+    const level = key.slice(SOLVED_PREFIX.length);
+    const moves = safeGet(key);
+    if (moves) out[level] = moves;
+  }
+  return out;
+}
+
+/** Merges already-validated `incoming` save slots into a level's stored saves
+ *  for a progress restore (docs/072): union by `id` (existing slots win, so a
+ *  re-restore is idempotent), keeping at most one tutorial slot, capped at
+ *  MAX_SAVES. Never deletes existing saves.
+ *  @return how many incoming saves were actually added. */
+export function mergeSavedGames(levelName: string, incoming: SavedGame[]): number {
+  const existing = loadSavedGames(levelName);
+  const byId = new Set(existing.map((s) => s.id));
+  const hasTutorial = existing.some((s) => s.tutorial);
+  const merged = [...existing];
+  let added = 0;
+  for (const save of incoming) {
+    if (merged.length >= MAX_SAVES) break;
+    if (byId.has(save.id)) continue;
+    if (save.tutorial && hasTutorial) continue; // keep only one tutorial slot
+    merged.push(save);
+    byId.add(save.id);
+    added++;
+  }
+  if (added > 0) writeSavedGames(levelName, merged);
+  return added;
+}
+
 export function deleteSavedGame(levelName: string, id: string): void {
   writeSavedGames(
     levelName,

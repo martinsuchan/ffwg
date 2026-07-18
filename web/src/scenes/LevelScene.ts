@@ -33,6 +33,7 @@ import {
 import { loadSettings, saveSettings } from "../storage/settingsStorage";
 import { isSandboxMode } from "../game/appMode";
 import { OptionsOverlay } from "./OptionsOverlay";
+import { t } from "../i18n";
 
 /** Keys that can drive a fish - the only ones worth buffering as a queued
  *  edge (see LevelScene.queuedKey). Space/Backspace are already handled as
@@ -122,6 +123,18 @@ export class LevelScene extends Phaser.Scene {
    *  raw keydown edge itself, independent of round timing - this mirrors
    *  that design instead of only polling held state. */
   private queuedKey: string | null = null;
+  /** Whether the mouse pointer is currently over the game canvas - tracked via
+   *  the canvas's own pointerenter/leave DOM events. Mouse fish-driving is gated
+   *  on this so a click in the page margin / scrollbar / letterbox (anywhere the
+   *  cursor left the rendered level) can't move a fish. The original never
+   *  needed this: its SDL window *was* the level. A world-coordinate bounds
+   *  check alone can't cover it - Phaser leaves worldX/worldY stale at their
+   *  last in-canvas value when the pointer is off-canvas, so an out-of-room
+   *  click looks in-room. See docs/071. Defaults true (the player is over the
+   *  canvas when they click a node to enter); corrected on the first leave. */
+  private pointerOverCanvas = true;
+  private onCanvasEnter?: () => void;
+  private onCanvasLeave?: () => void;
   private gameOver = false;
   /** This level's recap poster (a demo_poster.lua path), or null - only the 9
    *  world-final levels + the ending have one. Played after solving, before
@@ -360,8 +373,18 @@ export class LevelScene extends Phaser.Scene {
     // (history back), F5 (reload), F6 (address bar), F10 (menu bar).
     this.input.keyboard!.addCapture("UP,DOWN,LEFT,RIGHT,SPACE,F1,F2,F3,BACKSPACE,F5,F6,F10");
     this.input.keyboard!.on("keydown", (e: KeyboardEvent) => {
+      // Only buffer a GENUINE fresh keydown edge - not OS key-repeat (which
+      // fires keydown continuously while a key is held) nor a key already down.
+      // The queued edge is drained once per round (takeQueuedKey), but held
+      // polling covers a continuous hold; if auto-repeat kept re-arming it, a
+      // repeat landing just before keyup would leave a stale queuedKey that
+      // drives one phantom extra cell after release (Controls.driving() counts
+      // a queued key as used even for a blocked move). Filtering to the real
+      // edge still preserves docs/019's fast-tap reliability (a genuine tap
+      // arms it once and fires even if released before the round consumes it).
+      const isFreshEdge = !e.repeat && !this.heldKeys.has(e.code);
       this.heldKeys.add(e.code);
-      if (this.queuedKey === null && MOVE_KEYS.has(e.code)) {
+      if (isFreshEdge && this.queuedKey === null && MOVE_KEYS.has(e.code)) {
         this.queuedKey = e.code;
       }
     });
@@ -394,6 +417,15 @@ export class LevelScene extends Phaser.Scene {
       else this.scene.start("worldmap");
     });
 
+    // Track whether the pointer is over the rendered canvas, so a mouse click in
+    // the page margin / scrollbar / letterbox never drives a fish (docs/071).
+    const canvas = this.game.canvas;
+    this.pointerOverCanvas = true; // reset (the scene instance is reused across entries)
+    this.onCanvasEnter = () => (this.pointerOverCanvas = true);
+    this.onCanvasLeave = () => (this.pointerOverCanvas = false);
+    canvas.addEventListener("pointerenter", this.onCanvasEnter);
+    canvas.addEventListener("pointerleave", this.onCanvasLeave);
+
     // Right-click is a real game action (push-toward-cursor) now, so the
     // browser's context menu would otherwise get in the way.
     this.input.mouse?.disableContextMenu();
@@ -404,7 +436,7 @@ export class LevelScene extends Phaser.Scene {
         (this.levelScript?.isShowing() ?? false)
       )
         return;
-      if (pointer.leftButtonDown()) {
+      if (pointer.leftButtonDown() && this.isPointerInLevel(pointer)) {
         this.engine.selectAt(this.toFieldPos(pointer));
       }
     });
@@ -447,6 +479,11 @@ export class LevelScene extends Phaser.Scene {
       // hide() removes the overlay's window keydown (Esc) listener, else it
       // leaks if the scene shuts down while the panel is open.
       this.optionsOverlay.hide();
+      // Remove the canvas pointer-tracking listeners (the canvas is reused
+      // across scenes, so these would otherwise pile up per level entry).
+      const canvas = this.game.canvas;
+      if (this.onCanvasEnter) canvas.removeEventListener("pointerenter", this.onCanvasEnter);
+      if (this.onCanvasLeave) canvas.removeEventListener("pointerleave", this.onCanvasLeave);
     });
 
     try {
@@ -462,9 +499,7 @@ export class LevelScene extends Phaser.Scene {
       // already-registered Esc handler get the player back out, matching
       // how a failed loadLevelModels() is handled one level up.
       console.error(`Failed to start level "${this.levelData.levelName}"`, error);
-      this.statusText
-        .setText(`This level isn't supported yet (${String(error)}). Press Esc for the map.`)
-        .setVisible(true);
+      this.statusText.setText(t("level_unsupported")).setVisible(true);
       this.gameOver = true;
       return;
     }
@@ -842,21 +877,21 @@ export class LevelScene extends Phaser.Scene {
    *  into a new save slot - legacy's Level::action_save(). */
   private saveGame(): void {
     if (!this.engine.isSolvable()) {
-      this.showFeedback("Can't save - no longer solvable");
+      this.showFeedback(t("save_unsolvable"));
       return;
     }
     if (!this.levelScript) {
-      this.showFeedback("Still loading, try again in a moment");
+      this.showFeedback(t("save_loading"));
       return;
     }
     const modelState = this.levelScript.captureModelState();
     const saved = addSavedGame(this.levelData.levelName, this.engine.getMoves(), modelState);
     if (!saved) {
-      this.showFeedback("All save slots full - right-click a dot to delete one");
+      this.showFeedback(t("save_full"));
       return;
     }
+    // No "Saved" confirmation toast - the save-dot row visibly gains a dot (docs/073).
     this.saveSlotUI.refresh(loadSavedGames(this.levelData.levelName));
-    this.showFeedback(`Saved (${this.engine.getStepCount()} moves)`);
   }
 
   /** Left-click on a filled save dot: jumps straight to that slot's
@@ -864,8 +899,8 @@ export class LevelScene extends Phaser.Scene {
   private loadGame(id: string): void {
     const save = loadSavedGames(this.levelData.levelName).find((s) => s.id === id);
     if (!save) return;
+    // No "Loaded" confirmation toast - the room visibly jumps to the position.
     this.startEngine(save.moves, save.modelState);
-    this.showFeedback(`Loaded (${save.moves.length} moves)`);
   }
 
   /** F3: loads the most recently created slot - a "quick load" stand-in
@@ -874,7 +909,7 @@ export class LevelScene extends Phaser.Scene {
   private loadLatestGame(): void {
     const saves = loadSavedGames(this.levelData.levelName);
     if (saves.length === 0) {
-      this.showFeedback("No saved position");
+      this.showFeedback(t("save_none"));
       return;
     }
     this.loadGame(saves[saves.length - 1].id);
@@ -911,7 +946,7 @@ export class LevelScene extends Phaser.Scene {
       }
       if (!moves) {
         console.warn(`No solution found for "${levelName}"`);
-        this.showFeedback("No solution to replay");
+        this.showFeedback(t("replay_none"));
         return;
       }
       // Carry poster/depth so Esc back from the replay restores this level
@@ -946,6 +981,18 @@ export class LevelScene extends Phaser.Scene {
     );
   }
 
+  /** Whether a mouse action should count as "inside the level" - only then may
+   *  it drive a fish (docs/071). Primarily the pointer must be over the canvas
+   *  (page margins / scrollbar / fullscreen letterbox are outside it); a
+   *  room-rectangle world-coordinate check is kept as a secondary guard for any
+   *  in-canvas region outside the room itself. */
+  private isPointerInLevel(pointer: Phaser.Input.Pointer): boolean {
+    if (!this.pointerOverCanvas) return false;
+    const w = this.levelData.roomWidth * GRID_SCALE;
+    const h = this.levelData.roomHeight * GRID_SCALE;
+    return pointer.worldX >= 0 && pointer.worldX < w && pointer.worldY >= 0 && pointer.worldY < h;
+  }
+
   /** Elevator cables - see drawRopeDecors() (shared with ReplayScene). */
   private drawRopes(): void {
     const decors = this.levelScript?.getRopeDecors();
@@ -978,8 +1025,8 @@ export class LevelScene extends Phaser.Scene {
     const pointer = this.input.activePointer;
     const input = {
       isPressed: (code: string) => !blockInput && this.heldKeys.has(code),
-      isLeftPressed: () => !blockInput && pointer.leftButtonDown(),
-      isRightPressed: () => !blockInput && pointer.rightButtonDown(),
+      isLeftPressed: () => !blockInput && pointer.leftButtonDown() && this.isPointerInLevel(pointer),
+      isRightPressed: () => !blockInput && pointer.rightButtonDown() && this.isPointerInLevel(pointer),
       getMouseField: () => this.toFieldPos(pointer),
       takeQueuedKey: () => {
         const key = this.queuedKey;
@@ -1104,14 +1151,9 @@ export class LevelScene extends Phaser.Scene {
         // running so the player can finish it).
         this.gameOver = true;
         this.wrongCountdown = -1;
-        const isNewBest = saveSolvedMoves(this.levelData.levelName, this.engine.getMoves());
-        this.statusText
-          .setText(
-            isNewBest
-              ? `Solved in ${this.engine.getStepCount()} moves - new best!`
-              : "Solved! Both fish made it out.",
-          )
-          .setVisible(true);
+        saveSolvedMoves(this.levelData.levelName, this.engine.getMoves());
+        // No "Solved!" banner - the auto-return + recap poster already signal the
+        // win, and the pedometer shows the solver result (docs/073).
         // Give the player longer to read if a subtitle is still on screen.
         this.solvedCountdown = this.subtitleStack.hasVisible()
           ? SOLVED_RETURN_ROUNDS_DIALOG
@@ -1134,9 +1176,9 @@ export class LevelScene extends Phaser.Scene {
       // just solved (docs/034). Tracked on its own counter so it still fires
       // when gameOver was already latched by the single-death branch below.
       if (this.wrongCountdown < 0) {
+        // No "stuck" banner - the room visibly auto-restarts (docs/073).
         this.gameOver = true;
         this.wrongCountdown = WRONG_RESTART_ROUNDS;
-        this.statusText.setText("Both fish are stuck - restarting...").setVisible(true);
       } else if (this.wrongCountdown > 0) {
         this.wrongCountdown -= cyclesElapsed;
       } else {
@@ -1145,8 +1187,9 @@ export class LevelScene extends Phaser.Scene {
         return;
       }
     } else if (!this.engine.isSolvable() && !this.gameOver) {
+      // No "a fish died" banner - a dead fish is obvious, and the level either
+      // auto-restarts (both stuck) or the player restarts with Backspace (docs/073).
       this.gameOver = true;
-      this.statusText.setText("A fish died - press R to restart, or Esc for the map.").setVisible(true);
     }
   }
 

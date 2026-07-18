@@ -1,10 +1,7 @@
 import { LuaFactory } from "wasmoon";
 
 import { fetchLegacyFile } from "./levelLoader";
-
-/** Map/level-name language - matches DIALOG_LANG (levelScript.ts, docs/018)
- *  for consistency across the whole port, per the user's choice. */
-export const MAP_LANG = "cs";
+import { currentLang } from "../i18n";
 
 /** One entry from legacy/script/worldmap.lua's branch_addNode() calls -
  *  `datafile` is dropped (this port's loadLevelModels() assumes the
@@ -37,15 +34,15 @@ export interface WorldMapData {
    *  excluded (see loadWorldMap doc comment). */
   nodes: WorldMapNode[];
   rootCodename: string;
-  /** codename -> display name (worldmap_addDesc's `levelname`), MAP_LANG
-   *  only - e.g. "start" -> "Jak to všechno začalo". */
+  /** display name (worldmap_addDesc's `levelname`), keyed `<codename>:<lang>`
+   *  for all languages (cs/nl/en) - resolved by the current setting via
+   *  mapName(). e.g. "start:cs" -> "Jak to všechno začalo". */
   names: Map<string, string>;
-  /** codename -> section/house name (worldmap_addDesc's `desc`), MAP_LANG
-   *  only - e.g. "start" -> "Rybí domeček". The original composes a level's
-   *  window caption as `<section>: <name>` (Level::initScreen) and the map's
-   *  own caption from the special "menu" entry's section text
-   *  (WorldMap.cpp -> findDesc("menu") = "Fish Fillets - Next Generation").
-   *  See LevelScene / WorldMapScene document.title handling. */
+  /** section/house name (worldmap_addDesc's `desc`), keyed `<codename>:<lang>` -
+   *  e.g. "start:cs" -> "Rybí domeček". The original composes a level's window
+   *  caption as `<section>: <name>` (Level::initScreen) and the map's own
+   *  caption from the special "menu" entry's section text. Resolved via
+   *  mapSection(). See LevelScene / WorldMapScene document.title handling. */
   sections: Map<string, string>;
   bestSolutions: Map<string, BestSolution>;
   /** codename -> that level's poster cutscene (a `demo_poster.lua` DemoMode
@@ -59,15 +56,28 @@ export interface WorldMapData {
    *  (real range here is 1..15); the ending is -1. blackjokes.lua picks its
    *  death-joke tier with `switch(level_getDepth())`. See docs/054. */
   depths: Map<string, number>;
-  /** legacy Pedometer's SolverDrawer strings from script/labels.lua, keyed
-   *  `<name>:<lang>` (name = solver_better/solver_equals/solver_worse). Only
-   *  these 3 labels are captured. `%1`/`%2` placeholders are filled at render
-   *  time with the best move count + author (Dialog::getFormatedSubtitle). */
-  solverLabels: Map<string, string>;
+  /** Every legacy `script/labels.lua` string, keyed `<name>:<lang>` - the menu
+   *  labels (menu_*), pedometer solver labels (solver_*), help text, etc. Fed
+   *  to the port's i18n layer (initLabels) so our UI reuses the same
+   *  translations FF NG's Settings menu uses. See docs/073. */
+  labels: Map<string, string>;
 }
 
-/** The three SolverDrawer labels captured from labels.lua. */
-const SOLVER_LABELS = new Set(["solver_better", "solver_equals", "solver_worse"]);
+/** Resolve a `<codename>:<lang>` map (names/sections) for the current language,
+ *  falling back to English then the codename itself. */
+function pick(map: Map<string, string>, codename: string): string | undefined {
+  return map.get(`${codename}:${currentLang()}`) ?? map.get(`${codename}:en`);
+}
+
+/** Localized world-map display name for a level (worldmap_addDesc levelname). */
+export function mapName(data: WorldMapData, codename: string): string {
+  return pick(data.names, codename) ?? codename;
+}
+
+/** Localized section/house name for a level (worldmap_addDesc desc), or "". */
+export function mapSection(data: WorldMapData, codename: string): string {
+  return pick(data.sections, codename) ?? "";
+}
 
 /**
  * One-shot (non-persistent) wasmoon parse of legacy/script/worldmap.lua -
@@ -102,7 +112,7 @@ export async function loadWorldMap(): Promise<WorldMapData> {
   const bestSolutions = new Map<string, BestSolution>();
   const posters = new Map<string, string>();
   let ending: EndingNode | null = null;
-  const solverLabels = new Map<string, string>();
+  const labels = new Map<string, string>();
 
   try {
     lua.global.set(
@@ -132,20 +142,20 @@ export async function loadWorldMap(): Promise<WorldMapData> {
     lua.global.set(
       "worldmap_addDesc",
       (codename: string, lang: string, name: string, desc: string) => {
-        if (lang === MAP_LANG) {
-          names.set(codename, name);
-          sections.set(codename, desc);
-        }
+        // Capture every language (cs/nl/en all present in worlddesc.lua) so the
+        // map name/section follow the language setting (docs/073).
+        names.set(`${codename}:${lang}`, name);
+        sections.set(`${codename}:${lang}`, desc);
       },
     );
     lua.global.set("node_bestSolution", (codename: string, moves: number, author: string) => {
       bestSolutions.set(codename, { moves, author });
     });
     lua.global.set("file_include", () => {});
-    // labels.lua only calls label_text(name, lang, text) - capture the 3
-    // pedometer solver labels for every language (picked by setting at render).
+    // labels.lua only calls label_text(name, lang, text) - capture ALL of them
+    // (menu_*, solver_*, help, ...) for the port's i18n layer (docs/073).
     lua.global.set("label_text", (name: string, lang: string, text: string) => {
-      if (SOLVER_LABELS.has(name)) solverLabels.set(`${name}:${lang}`, text);
+      labels.set(`${name}:${lang}`, text);
     });
 
     await lua.doString(mapSource);
@@ -165,7 +175,7 @@ export async function loadWorldMap(): Promise<WorldMapData> {
     posters,
     ending,
     depths: computeDepths(nodes, ending),
-    solverLabels,
+    labels,
   };
 }
 

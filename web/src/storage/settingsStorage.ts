@@ -58,6 +58,22 @@ function clampVolume(v: unknown): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+/** Coerces an arbitrary (possibly partial/corrupt/untrusted) object into a full,
+ *  valid Settings - every field falls back to its default. Shared by loadSettings
+ *  and the progress-backup restore path (untrusted file input gets the exact same
+ *  hardening as stored data). Non-object input yields the defaults. */
+export function sanitizeSettings(raw: unknown): Settings {
+  const p = (raw && typeof raw === "object" ? raw : {}) as Partial<Settings>;
+  return {
+    lang: p.lang === "nl" ? "nl" : "cs",
+    musicVolume: clampVolume(p.musicVolume ?? DEFAULT_SETTINGS.musicVolume),
+    soundVolume: clampVolume(p.soundVolume ?? DEFAULT_SETTINGS.soundVolume),
+    subtitles: p.subtitles !== false,
+    showSteps: p.showSteps !== false,
+    gameSize: clampGameSize(p.gameSize),
+  };
+}
+
 /** Reads the whole settings record, filling any missing/invalid field with its
  *  default - so a partial or corrupt record still yields a usable Settings. */
 export function loadSettings(): Settings {
@@ -69,15 +85,7 @@ export function loadSettings(): Settings {
   }
   if (!raw) return { ...DEFAULT_SETTINGS };
   try {
-    const p = JSON.parse(raw) as Partial<Settings>;
-    return {
-      lang: p.lang === "nl" ? "nl" : "cs",
-      musicVolume: clampVolume(p.musicVolume ?? DEFAULT_SETTINGS.musicVolume),
-      soundVolume: clampVolume(p.soundVolume ?? DEFAULT_SETTINGS.soundVolume),
-      subtitles: p.subtitles !== false,
-      showSteps: p.showSteps !== false,
-      gameSize: clampGameSize(p.gameSize),
-    };
+    return sanitizeSettings(JSON.parse(raw));
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

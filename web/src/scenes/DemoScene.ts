@@ -119,13 +119,16 @@ export class DemoScene extends Phaser.Scene {
     applyRenderScale(this, w, h);
     this.add.rectangle(0, 0, w, h, 0x000000).setOrigin(0, 0).setDepth(-1);
 
+    // Outlined text with no background box, matching the level's SubtitleStack
+    // (docs/037/073) - the old background rectangle also showed as an empty box
+    // on posters (which have no subtitles). Only shown when there's actual text.
     this.subtitleText = this.add
       .text(w / 2, h - 10, "", crispText({
         fontFamily: "sans-serif",
         fontSize: "15px",
         color: "#ffffff",
-        backgroundColor: "#000000c0",
-        padding: { x: 8, y: 5 },
+        stroke: "#000000",
+        strokeThickness: 4,
         align: "center",
         wordWrap: { width: w - 48 },
       }))
@@ -198,7 +201,7 @@ export class DemoScene extends Phaser.Scene {
 
     // Subtitle + one-shot voice.
     const subtitle = script.getActiveSubtitle();
-    if (subtitle) this.subtitleText.setText(subtitle.text).setVisible(true);
+    if (subtitle && subtitle.text) this.subtitleText.setText(subtitle.text).setVisible(true);
     else this.subtitleText.setVisible(false);
 
     void this.audioManager.applyMusicCommand(script.getMusicCommand());

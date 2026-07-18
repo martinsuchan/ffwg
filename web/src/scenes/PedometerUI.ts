@@ -2,7 +2,7 @@ import Phaser from "phaser";
 
 import type { BestSolution } from "../lua/worldMapLoader";
 import { loadSolvedMoves } from "../storage/levelStorage";
-import { loadSettings } from "../storage/settingsStorage";
+import { t } from "../i18n";
 import {
   crispText,
   readTexturePixels,
@@ -72,9 +72,9 @@ export class PedometerUI {
     private readonly scene: Phaser.Scene,
     private readonly mapWidth: number,
     private readonly mapHeight: number,
-    private readonly names: Map<string, string>,
+    /** Resolves a codename to its localized display name (docs/073). */
+    private readonly nameOf: (codename: string) => string,
     private readonly bestSolutions: Map<string, BestSolution>,
-    private readonly solverLabels: Map<string, string>,
     private readonly onRun: (codename: string) => void,
     private readonly onReplay: (codename: string) => void,
     /** Cancel/close - lets WorldMapScene restore the hidden node dots. */
@@ -113,7 +113,7 @@ export class PedometerUI {
       .setVisible(false);
 
     this.nameText = this.scene.add
-      .text(this.mapWidth / 2, PANEL_Y - 24, this.names.get(codename) ?? codename, crispText({
+      .text(this.mapWidth / 2, PANEL_Y - 24, this.nameOf(codename), crispText({
         fontFamily: "sans-serif",
         fontSize: "18px",
         color: "#ffffcc",
@@ -215,16 +215,10 @@ export class PedometerUI {
           ? "solver_equals"
           : "solver_better";
 
-    const lang = loadSettings().lang;
-    const raw =
-      this.solverLabels.get(`${labelName}:${lang}`) ??
-      this.solverLabels.get(`${labelName}:en`);
-    if (!raw) return;
-    // Dialog::getFormatedSubtitle: %1 -> best moves, %2 -> best author.
-    const text = raw
-      .replace(/%1/g, String(best.moves))
-      .replace(/%2/g, best.author)
-      .trim();
+    // The localized solver label from labels.lua via the shared i18n layer;
+    // %1 -> best moves, %2 -> best author (Dialog::getFormatedSubtitle). See docs/073.
+    const text = t(labelName, best.moves, best.author);
+    if (!text || text === labelName) return;
 
     // SolverDrawer sits centered at screen y = h - 150 (below the rack).
     this.compareText = this.scene.add
