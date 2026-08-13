@@ -1,0 +1,111 @@
+{
+ "name": "society",
+ "width": 24,
+ "height": 14,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXX\nXXXX..............XXXXXX\nX.....................XX\nX.....................XX\nX.....................XX\nX.....................XX\nXX........XX.....XX...XX\nXX........XXXXXXXXX...XX\nXX....................XX\nXXXXX.................XX\nXXXXXXX....XXXXXXX....XX\nXXXXXXX.XX.XXXX.......XX\nXXXXXXX.XX.XXX........XX\nXXXXXXXXXXXXX......XXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 15,
+   "y": 3,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_big",
+   "x": 2,
+   "y": 7,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "item_heavy",
+   "x": 6,
+   "y": 7,
+   "shape": "X\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 13,
+   "y": 1,
+   "shape": "XXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 18,
+   "y": 3,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 17,
+   "y": 2,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 15,
+   "y": 5,
+   "shape": "XXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 13,
+   "y": 3,
+   "shape": "XX.\n.XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 10,
+   "y": 3,
+   "shape": "XX.\n.XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 9,
+   "y": 4,
+   "shape": "XX.\n.XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 7,
+   "y": 2,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 4,
+   "y": 5,
+   "shape": "XX.\n.XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

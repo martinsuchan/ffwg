@@ -39,11 +39,27 @@
       "Bash(tail -13 /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/tasks/bjr7bdgmq.output 2>&1)",
       "Bash(rm -f /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.txt /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.mjs 2>/dev/null; echo cleaned)",
       "Bash(cd /c/git/ffwg/web; echo \"=== levelSoundSpriteDirs / en fallback in levelScript.ts ===\"; grep -nE \"levelSoundSpriteDirs|levelDialogVoiceDir|/en|en fallback|enFallback|shared|border|joke\" src/lua/levelScript.ts | head -30)",
-      "Bash(pwsh -NoProfile -File scripts/new-doc.ps1 \"backlog-refresh-ffng-comparison-readme\")"
+      "Bash(pwsh -NoProfile -File scripts/new-doc.ps1 \"backlog-refresh-ffng-comparison-readme\")",
+      "PowerShell(& powershell -ExecutionPolicy Bypass -File scripts\\\\publish.ps1 -SkipAssets 2>&1 | Select-Object -Last 20)",
+      "Bash(grep -iE \"upload|timeout|zip|artifact|size|failed|retry|error\" /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/deploy.log | head -30)",
+      "Bash(rm -f /c/git/ffwg/publish/shot-live-map.png /c/Users/marti/AppData/Local/Temp/claude/c--git-ffwg/b2a322cc-e3f1-42b8-8cc7-fd02968defb3/scratchpad/*.mjs 2>/dev/null; echo cleaned)",
+      "Bash(dotnet --list-sdks)",
+      "Bash(dotnet --list-runtimes)",
+      "PowerShell(cd c:\\\\git\\\\ffwg\\\\solver; foreach \\($l in @\\(\"airplane\",\"gems\",\"map\",\"warcraft\"\\)\\) { dotnet run --project src\\\\FishFillets.Cli -c Release --no-build -- bench $l --rounds 200 2>&1 | Select-Object -Last 7; \"\" })",
+      "Bash(cmd //c '\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\" && dotnet publish src\\\\FishFillets.Cli -c Release -r win-x64')",
+      "PowerShell(& \"C:\\\\Users\\\\marti\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-ffwg\\\\fd229758-03f7-434d-9a2a-abe408ad67f2\\\\scratchpad\\\\aotpub.bat\" 2>&1)",
+      "Read(//c/Program Files/Microsoft Visual Studio/18/Community/Common7/Tools/**)",
+      "PowerShell(Import-Module \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\Common7\\\\Tools\\\\Microsoft.VisualStudio.DevShell.dll\"; Enter-VsDevShell -VsInstallPath \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\" -SkipAutomaticLocation -DevCmdArguments \"-arch=x64 -host_arch=x64\" 2>&1 | Select-Object -Last 3; \"--- link.exe on PATH?\"; \\(Get-Command link.exe -ErrorAction SilentlyContinue\\).Source)",
+      "PowerShell($msvc = \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Tools\\\\MSVC\"; Get-ChildItem $msvc -ErrorAction SilentlyContinue | ForEach-Object { \"$\\($_.Name\\)  lib\\\\x64=$\\(Test-Path \"$\\($_.FullName\\)\\\\lib\\\\x64\"\\)  include=$\\(Test-Path \"$\\($_.FullName\\)\\\\include\"\\)\" }; \"--- vcvarsall:\"; Test-Path \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvarsall.bat\")",
+      "PowerShell(\"PROCESSOR_ARCHITECTURE: $env:PROCESSOR_ARCHITECTURE\"; \"OSArchitecture:        $\\([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture\\)\"; \"ProcessArchitecture:   $\\([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture\\)\"; \"--- vswhere:\"; Test-Path \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\Installer\\\\vswhere.exe\"; \"--- host linkers available:\"; Get-ChildItem \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Tools\\\\MSVC\\\\14.51.36231\\\\bin\" | Select-Object -ExpandProperty Name)",
+      "PowerShell(cd c:\\\\git\\\\ffwg\\\\solver; $env:PATH = \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\Installer;$env:PATH\"; dotnet publish src\\\\FishFillets.Cli -c Release -r win-arm64 2>&1 | Select-Object -Last 10)",
+      "PowerShell(cd c:\\\\git\\\\ffwg\\\\solver; $env:PATH = \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\Installer;$env:PATH\"; dotnet publish src\\\\FishFillets.Cli -c Release -r win-x64 2>&1 | Select-Object -Last 4; \"\"; \"--- x64 binary runs \\(under emulation\\):\"; & \"src\\\\FishFillets.Cli\\\\bin\\\\Release\\\\net10.0\\\\win-x64\\\\publish\\\\ffsolve.exe\" verify --all 2>&1 | Select-Object -Last 2)",
+      "PowerShell(dotnet new list test 2>&1)"
     ],
     "additionalDirectories": [
       "C:\\Users\\marti\\AppData\\Local\\Temp\\claude\\c--git-ffwg\\b2a322cc-e3f1-42b8-8cc7-fd02968defb3\\scratchpad",
-      "C:\\git\\ffwg\\web"
+      "C:\\git\\ffwg\\web",
+      "C:\\git\\ffwg\\publish"
     ]
   }
 }

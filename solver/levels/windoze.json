@@ -1,0 +1,327 @@
+{
+ "name": "windoze",
+ "width": 45,
+ "height": 33,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX..X\nX...........................................X\nX............................................\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nX...........................................X\nXXXXXXX.....................................X\nXXXXXXX.....................................X\nXXXXXXX.....................................X\nXXXXXXX.....................................X\nXXXXXXX.....................................X\nXXXXXXX.....................................X\nX....XX.....................................X\nX....XX.....................................X\nXXXXXXX.....................................X\nX...XXX......................................\nXXXXXXX......................................\nX....XX.....................................X\nX....XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXX...XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 33,
+   "y": 4,
+   "shape": "XXXXXXX\nXXXXXXX\nXXXXXXX\nXXXXXXX\nXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 28,
+   "y": 22,
+   "shape": "XXXXXXXX\nXXXXXXXX\nXXXXXXXX\nXXXXXXXX\nXXXXXXXX\nXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 1,
+   "y": 12,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 23,
+   "y": 9,
+   "shape": "XXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXX\nX.................X\nX...X.............X\nX.................X\nX.................X\nXX................X\nXX.........XX.....X\nX.XXX.............X\n.............X....X\n.............X....X\nX...XX............X\nXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 1,
+   "y": 16,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 2,
+   "shape": ".XX.\n.XX.\nXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 37,
+   "y": 2,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 29,
+   "y": 28,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 9,
+   "y": 20,
+   "shape": "XX\nXX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 11,
+   "y": 29,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "fish_big",
+   "x": 3,
+   "y": 7,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "item_light",
+   "x": 7,
+   "y": 23,
+   "shape": "XXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 14,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 5,
+   "y": 16,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 31,
+   "y": 28,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 12,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 4,
+   "y": 5,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 4,
+   "y": 14,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 18,
+   "y": 21,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 7,
+   "y": 8,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 6,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 17,
+   "y": 23,
+   "shape": "XXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 41,
+   "y": 0,
+   "shape": ".XX.\n.XX.\nXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 16,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 5,
+   "y": 12,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 10,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 33,
+   "y": 28,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 18,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 1,
+   "y": 8,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 1,
+   "y": 14,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 1,
+   "y": 10,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_EXTRA-WXYZ",
+   "x": 24,
+   "y": 13,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "fish_extra-wxyz",
+   "x": 24,
+   "y": 11,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "item_heavy",
+   "x": 29,
+   "y": 19,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 35,
+   "y": 13,
+   "shape": "...X\nXXXX\nX...\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 36,
+   "y": 15,
+   "shape": "X\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 11,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 24,
+   "y": 12,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "output_left",
+   "x": 23,
+   "y": 17,
+   "shape": ".X\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

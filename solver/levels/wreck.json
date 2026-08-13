@@ -1,0 +1,87 @@
+{
+ "name": "wreck",
+ "width": 28,
+ "height": 20,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": ".......................XX...\n.......................XX...\n...............XXXXXXXXXXXXX\n..X....................XX...\n.XXX...................XX...\n.XXX...................XX...\n..XX...................XX...\n..XXX..................XX...\n..XXX..................XX...\n...XX..................XX...\n...XXXX................XX...\n...XXXXXXXXX.X....XXXXXXXXXX\n....XXXXXXXXXX......XXXXXXXX\n....XXXXXXXXXX....XXXXX.....\n....XXXXXXXXXX..............\n.....XXXXXXXXX.............X\n......XXXXXXXX....XXXXXXXXXX\nXXXXXXXXXXXXXX....XXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 3,
+   "y": 3,
+   "shape": "XXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 16,
+   "y": 5,
+   "shape": "X.XX.X\nXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 13,
+   "y": 9,
+   "shape": "XXX\nX.X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 7,
+   "y": 7,
+   "shape": "XX\nX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 5,
+   "y": 9,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "fish_big",
+   "x": 17,
+   "y": 7,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 16,
+   "y": 4,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 22,
+   "y": 8,
+   "shape": "X\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 17,
+   "y": 12,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

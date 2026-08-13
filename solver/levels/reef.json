@@ -1,0 +1,79 @@
+{
+ "name": "reef",
+ "width": 52,
+ "height": 15,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXX................XX....XXXXXXXXX\nXXXXXXXXXXXXXXXXXXXX..........XXX...XXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXX..........XXXXXXXXXXXXXXXXXXXXXXX\n.XXXXXXXXXXXXXXXXXX...........XXXXXXXXX.............\n.XXXXXXXXXXXXXXXXX............XXXX.................X\n..XXXXXXXXXXXXXXXX......XXXXXXX...................XX\n...XXXXXXXXXXXXXX................................XXX\n......XXXXXXXXXX.........................XXXXXXXXXXX\n......XXXXXXXXX..........................XXXXXXXXXXX\n.......XXXXXX.......................................\n..................................................XX\nX................................................XXX\nX......X.XXXXXXXX...............................XXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX........XXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 20,
+   "y": 2,
+   "shape": "XXXXX....\n....X....\n....XXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 12,
+   "shape": "XXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 44,
+   "y": 4,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_big",
+   "x": 43,
+   "y": 10,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 5,
+   "y": 11,
+   "shape": "XX\n.X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 41,
+   "y": 6,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 43,
+   "y": 6,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 15,
+   "y": 10,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

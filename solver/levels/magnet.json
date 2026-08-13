@@ -1,0 +1,87 @@
+{
+ "name": "magnet",
+ "width": 35,
+ "height": 31,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXX................................X\nXX.................................\nXX.................................\nXX.................................\nXX.................................\nXX.................................\nXXXX.........XXXXXXXXXXXXXXXXXXXXXX\nXXXX.........XXXXXXXXXXXXXXXXXXXXXX\nXXXX...XX......................XXXX\nXXXX...XX......................XXXX\nXXXX...XXXX....................XXXX\nXXXX..........................XXXXX\nXXXX..........................XXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXX....XXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXX....XXXXX\nXXXXXXXXXXX......................XX\nXXXXXXXXXXX......................XX\nXXXXXXXXXXX......................XX\nXXXXXXXXXXX.......................X\nXXXXXXXXXXX.......................X\nXXXXXXXXXXX................XX.....X\nXXXXXXXXXXX...............XXX...XXX\nXXXXXXXXXXX...............XXX...XXX\nXXXXXXXXXXX....XXX.XXXXXXXXXX...XXX\nXXXXXXXXXXX....XXX.XXXXXXXXXX...XXX\nXXXXXXXXXXX....XXX.XXXXXXXXXXXXXXXX\nXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 25,
+   "y": 7,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_big",
+   "x": 24,
+   "y": 4,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 20,
+   "y": 5,
+   "shape": "XXX\nX.X\nX.X\n...\n...\nX.X\nX.X\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 25,
+   "y": 18,
+   "shape": "XX.\n.X.\n.X.\n.XX\n.X.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 18,
+   "y": 11,
+   "shape": "X..\nX..\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 29,
+   "y": 2,
+   "shape": "X.\nXX\n.X\n.X\n.X\n.X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 25,
+   "y": 22,
+   "shape": "X\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 6,
+   "y": 7,
+   "shape": "XXXXX\n..X..\n..X..\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 11,
+   "y": 20,
+   "shape": ".....X\n.....X\n.....X\nXXXXXX\n.....X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

@@ -1,0 +1,167 @@
+{
+ "name": "viking2",
+ "width": 53,
+ "height": 29,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": ".........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.......\n........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX........\n........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX........\n.........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.......\n........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.......\n..........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX........\n.........XXXXXX..........XXXXXXXXXXXXXXXXXXX........\n.........XX................XX......XXXXXXXXX........\n...........................XX...........XXXXX.......\n..XXXX.....................XX.............XXXX......\n...X.X......................................X.......\n..XXXX.....................XX.......................\n....XX.....................XX.......................\n....XX.....................XX.......................\n....XX.....................XX.......................\n....XX.....................X........................\n....XXX.............................................\n....XXXX...........................................X\n....XXXXX..........................................X\n.....XXXXXX.......................................XX\n......XXXXXXX...................................XXXX\n......XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n.......XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n.........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.\n..........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX..\n...........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX...\n.................XXXXXXXXXXXXXXXXXXXXXXXXXXX........\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 14,
+   "y": 17,
+   "shape": "XXX\nXXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 22,
+   "y": 17,
+   "shape": "XXX\nXXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 26,
+   "y": 17,
+   "shape": "XXX\nXXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 30,
+   "y": 17,
+   "shape": "XXX\nXXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 34,
+   "y": 17,
+   "shape": "XXX\nXXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 38,
+   "y": 17,
+   "shape": "XXX\nXXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 39,
+   "y": 14,
+   "shape": "......\n......\n......\n...XXX\n...XXX\n...XXX\n...XXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 4,
+   "y": 2,
+   "shape": ".X..\nXXXX\n...X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 25,
+   "y": 16,
+   "shape": "XXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 0,
+   "y": 0,
+   "shape": "...XXXXXX\n..XX.....\n.XX......\nXX.......\nX........\nX........\nX........\nX........\nX........\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 25,
+   "y": 10,
+   "shape": "XXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 34,
+   "y": 15,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 45,
+   "y": 17,
+   "shape": ".XX\n.X.\n.XX\nXX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 25,
+   "y": 8,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 28,
+   "y": 15,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 16,
+   "y": 11,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_big",
+   "x": 15,
+   "y": 13,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 18,
+   "y": 17,
+   "shape": "XXX\nXXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 2,
+   "y": 9,
+   "shape": "...\n..X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

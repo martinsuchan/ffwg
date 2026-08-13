@@ -1,0 +1,295 @@
+{
+ "name": "aztec",
+ "width": 48,
+ "height": 39,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXX...XXXXX............XX\nXXXXXXXXXXXXX..XXXXXXXXX.......XXX.X..........XX\nXXXXXXXXXXXXX.XXXXXXXX...........XXX..........XX\nXXXXX..............................X..........XX\nXXXXX.XXXX.........................X..........XX\nXXXXX..............................X..........XX\nXXXXX..............................X..........XX\nXXXXX..............................X..........XX\nXXXXX..............................XX.XX....X.XX\nXXXXX.......XXXXXXXXX.XXXXXXXXXXXX.XX.XX....X.XX\nXXXXX.......X.........................XX....X.XX\nXXXXX......X..........................XX....X.XX\nXXXXX......X.....XX...................XX......XX\nXXXXX......X.....XX...................XX......XX\nXXXXX......X..........................XX....X.XX\nXXXX.......X................................X.XX\nXXXXX......X................................X.XX\nXXXXX......X..................X.............X.XX\nXXXXX......X..........................XX....X.XX\nXXXXX........................X..............X.XX\nXXXXX......X................................X.XX\nXXXX.......X................X...............X.XX\nXXXXX......X..........................XX....X.XX\nXXXXX......X.............X............XX....X.XX\nXXXXX......X..........................XX....X.XX\nXXXXX......X............X.............XX......XX\nXXXXX.................................XX......XX\nXXXXX..................X..............XX....X.XX\nXXX...................................XX....X.XX\nXXX.......................XX..........XX....X.XX\nXXX...................................XX....X.XX\nXXXXXXXXX..XX.XXXXXX...XXXXXXXXX......XX....X.XX\nXXXXXXX....XX.XXX.........XXXXXX......XX....X.XX\nXXXXXXX...XXX.XXX........XXXXXXXXX..XXXX....X.XX\n.............X................................XX\n..............................................XX\n...X...........................................X\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 3,
+   "y": 29,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "fish_big",
+   "x": 3,
+   "y": 30,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "item_heavy",
+   "x": 8,
+   "y": 27,
+   "shape": "XX\nX.\nX.\nX.\nX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 8,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 28,
+   "y": 8,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 28,
+   "y": 4,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 12,
+   "y": 15,
+   "shape": "X\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 12,
+   "y": 29,
+   "shape": "X\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 12,
+   "y": 11,
+   "shape": "..X..X...\n..XXXXXXX\n.XX......\n..X......\n..XX.....\n...X.....\n...X.....\nXXXXX....\n....X....\n..XXX....\n..X......\n.XXX.....\n.X.......\n.X.......\nXX.......\n.X.......\n.X.......\n.X.......\n.X.......\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 34,
+   "y": 15,
+   "shape": "..XX..\n..XX..\nXXXXXX\nXXXXXX\n..XX..\n..XX..\n..XX..\n..XX..\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 30,
+   "y": 35,
+   "shape": "...XX\nXXXX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 44,
+   "y": 26,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 9,
+   "y": 4,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 39,
+   "y": 2,
+   "shape": "X\nX\nX\nX\nX\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 11,
+   "y": 20,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 26,
+   "y": 8,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 25,
+   "y": 8,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 24,
+   "y": 8,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 25,
+   "y": 6,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 26,
+   "y": 6,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 2,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 6,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 26,
+   "y": 4,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 29,
+   "y": 6,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 6,
+   "y": 4,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 4,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 7,
+   "y": 4,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 35,
+   "y": 1,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 44,
+   "y": 14,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 32,
+   "y": 37,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 42,
+   "y": 2,
+   "shape": "XXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 4,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 29,
+   "y": 8,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 28,
+   "y": 6,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 30,
+   "y": 8,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

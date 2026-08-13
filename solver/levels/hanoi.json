@@ -1,0 +1,167 @@
+{
+ "name": "hanoi",
+ "width": 57,
+ "height": 21,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX......\nX........................................................\nX........................................................\nX................XX..................XX..................\nX................XX..................XX..................\nX................XX..................XX..................\nX................XX..................XX..................\nX................XX..................XX..................\nX................XX..................XX..................\nX................XX..................XX..................\nX................XX..................XX..................\nX................XX..................XX..................\nX................XX..................XX..................\nXXXXXXXXX..XXXXXXXXXXXXXXXX..XXXXXXXXXXXXXXXX..XXXXXXXX..\nX........................................................\nX........................................................\nX.....X......X..........X......X..........X......X.....X.\nX.....XX....XX..........XX....XX..........XX....XX.......\nX........................................................\nX........................................................\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 7,
+   "y": 16,
+   "shape": "XXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 25,
+   "y": 16,
+   "shape": "XXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 43,
+   "y": 16,
+   "shape": "XXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 3,
+   "shape": ".X.........X.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 5,
+   "shape": "..X.......X..\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 7,
+   "shape": "...X.....X...\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 9,
+   "shape": "....X...X....\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 11,
+   "shape": ".....X.X.....\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 9,
+   "y": 0,
+   "shape": ".\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 0,
+   "shape": ".\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 46,
+   "y": 0,
+   "shape": ".\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 3,
+   "shape": "X...........X\n.XXXXX.XXXXX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 5,
+   "shape": "XX.........XX\n..XXXX.XXXX..\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 7,
+   "shape": "XXX.......XXX\n...XXX.XXX...\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 9,
+   "shape": "XXXX.....XXXX\n....XX.XX....\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 3,
+   "y": 11,
+   "shape": "XXXXX...XXXXX\n.....X.X.....\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 51,
+   "y": 0,
+   "shape": "XXXXX\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n....X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 43,
+   "y": 1,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "fish_big",
+   "x": 51,
+   "y": 14,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  }
+ ]
+}

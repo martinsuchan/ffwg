@@ -1,0 +1,151 @@
+{
+ "name": "city",
+ "width": 50,
+ "height": 23,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXX...........XXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXX............XXXXXX.XXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXX..........XXXX...XXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXX.....XX.........XXXXXXXXXXXX\nXXX.....XXXXX..........................XX......XXX\nXX.......XXX....................................XX\nXX.......XXX....................................XX\nXX........XX....................................XX\nXX.........X...........XXXX.............X.......XX\nXX...................XXXXXXXX.........X.X.......XX\nXX..................XXXXXXXXXX........XXX.......XX\nXX..................XXX....XXX........XXX.......XX\nXX.................XXX......XXX.......XXX......XXX\nXX.................XXX......XXX.......XXX.......XX\nXX.........X.......XXX......XX........XXX.......XX\nXX........XX.......X.X.......X........XXX.......XX\nXX.......XXX..........................XXX.......XX\nXX.......XXX..........................X.........XX\nXX.......XXX.......XX...........................XX\nXX.......XXX.......XXX......X.........XXX.......XX\nXXX.....XXXXX.....XXXXX....XX.XX.....XXXXX.....XXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 24,
+   "y": 5,
+   "shape": "XX\nXX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 27,
+   "y": 5,
+   "shape": "X\nX\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 20,
+   "y": 4,
+   "shape": "X\nX\nX\nX\nX\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 34,
+   "y": 20,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 23,
+   "y": 18,
+   "shape": "XXXXX\n.XXX.\n..X..\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 14,
+   "y": 18,
+   "shape": "XXXXX\n.XXX.\n..X..\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 35,
+   "y": 7,
+   "shape": "XXXX.\n.XXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 9,
+   "y": 13,
+   "shape": "XXXXX\nX....\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 21,
+   "y": 17,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_big",
+   "x": 25,
+   "y": 16,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "item_light",
+   "x": 20,
+   "y": 2,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 24,
+   "y": 4,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 30,
+   "y": 11,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 25,
+   "y": 15,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 10,
+   "y": 12,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 15,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 41,
+   "y": 19,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

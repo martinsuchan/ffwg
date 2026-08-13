@@ -1,0 +1,95 @@
+{
+ "name": "hole",
+ "width": 50,
+ "height": 40,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXX...................XXXXXXXXXXXXXX\nXXXXXXXX.................................XXXXXXXXX\nXXXXXXX.....................................XXXXXX\nXXXXXX.......................................XXXXX\nXXXXX.........................................XXXX\nXX.............................................XXX\nX...............................................XX\nX................XX..X.X.X.X.X..XX..............XX\nX...............XXXX.X.X.X.X.X.XXXX.............XX\nX................XX..X.X.X.X.X..XX..............XX\nX...............................................XX\nX................................................X\nX................................................X\nX...............................................XX\nX...............................................XX\nXX..............................................XX\nXXX...........................................XXXX\nXXX.............................................XX\nXXXX..............................................\nXXXX..............................................\nXXXXX............XX......XX......XX................\nXXXXXXXXXXXXXXX..XX......XX......XX..XXXXXXXXX....\nXXXXXXXXXXXXXXX..XX......XX......XX..XXXXXXXXXX...\nXXXXXXXXXXXXXXX..XX......XX......XX..XXXXXXXXXXX..\nXXXXXXXXXXXXXXX..XX......XX......XX..XXXXXXXXXXX..\nXXXXXXXXXXXXXXX..XX......XX......XX..XXXXXXXXXXX..\nXXXXXXXXXXXXXXX..XX......XX......XX..XXXXXXXXXXX..\nXXXXXXXXXXXXXXX..XXX.....XX......XX..XXXXXXXXXXXXX\nXXXXXXXXXXXXXXX...XX.....XX..X...XX..XXXXXXXXXXXXX\nXXXXXXXXXXXXXXX...XX.....XX..X...XX..XXXXXXXXXXXXX\nXXXXXXXXXXXXXXX...XX.....XX..X...XX..XXXXXXXXXXXXX\nXXXXXXXXXXXXXXX...XXX....XX..X...XX..XXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXX..XX....XX..X...XX..XXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXX..XX....XX..X...XX..XXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXX..XX...XX..X...XX..XXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXX...XX..X...XXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXX..XX..XXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXX..XXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 11,
+   "y": 18,
+   "shape": ".X\nXX\n.X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 47,
+   "y": 21,
+   "shape": ".X\n.X\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 4,
+   "y": 17,
+   "shape": ".X.\n.X.\nXXX\n.X.\n.X.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 10,
+   "y": 20,
+   "shape": ".X\nX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 10,
+   "y": 20,
+   "shape": "X.\n.X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 48,
+   "y": 19,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 43,
+   "y": 20,
+   "shape": "XXX\n..X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_big",
+   "x": 39,
+   "y": 8,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 29,
+   "y": 12,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 11,
+   "y": 13,
+   "shape": "...\n.XX\n..X\n..X\n..X\n..X\n..X\n..X\n.XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

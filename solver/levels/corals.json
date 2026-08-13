@@ -1,0 +1,71 @@
+{
+ "name": "corals",
+ "width": 28,
+ "height": 25,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXX.....XXXXXXXXXXX\nXXXXXXXXXX..............XXXX\nXXX..XX..................XXX\nXXX......................XXX\nXXX.......................XX\nXXX...XX..................XX\nXXX...XX..................XX\nXX........................XX\nXX........................XX\nXX........................XX\nXX........................XX\nXX........................XX\nXX........................XX\nXX.................XXXXXXXXX\nXXX................X......XX\nXXX.......................XX\nXXXX......................XX\nXXXXXXXXXXXXX...XXXXXX....XX\nXXXXXXXXX.................XX\nXXXX......................XX\n................XXXXXXXXXXXX\n..............XXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 20,
+   "y": 8,
+   "shape": ".XX\n.X.\n.X.\n.X.\n.XX\nXX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 9,
+   "y": 8,
+   "shape": ".X.\n.X.\n.XX\n.X.\nXX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 13,
+   "y": 3,
+   "shape": "XX\nX.\nX.\nX.\nX.\nX.\nX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 6,
+   "y": 13,
+   "shape": ".XXXXX\n..X..X\n..X...\n..X...\nXXX...\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 6,
+   "y": 5,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 15,
+   "y": 6,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_big",
+   "x": 9,
+   "y": 5,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  }
+ ]
+}

@@ -1,0 +1,55 @@
+{
+ "name": "labyrinth",
+ "width": 43,
+ "height": 38,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXX............XXXXX....XXXXXXXXXXXXXXX\nXXXX.............................XXX.XXXXXX\nXXX...............................X...XXXXX\nXXX.....................................XXX\nXX.......................................XX\nXX.......................................XX\nXXX.......................................X\nXXX.......................................X\nXXX......................................XX\nXXXX.....................................XX\nXXXX.....................................XX\nXXXX.....................................XX\nXXX......................................XX\nXXX......................................XX\nXXX................X....................XXX\nXXX.....................................XXX\nXXXX...................................XXXX\nXXXX...................................XXXX\nXXXX...................................XXXX\nXXX....................................XXXX\nXXX....................................XXXX\nXX.....................................XXXX\nXX....................................XXXXX\nXX....................................XXXXX\nXX....................................XXXXX\nXX....................................XXXXX\nXXX...................................XXXXX\nXXX..................................XXXXXX\nXXXX.................................XXXXXX\nXXXX..................................XXXXX\nXXX......................................XX\nXX.........................................\nXXXX.......................................\nXXXXXXX..XXXXXX..XXXX.........XXXX.X.......\nXXXXX....XXXXXXXXXXXXXXXX..XXXXXXXXX.X.....\nXXXX....XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX....\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX...\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 18,
+   "y": 14,
+   "shape": "XXXXXXXXXXXXXXX\nX...X.........X\nXXX.X.XXX.XXX.X\nX.X.X...X.X.X.X\nX.X.XXXXX.X.X.X\nX...X.....X...X\nX.XXX.X.XXX.XXX\nX.X...X...X.X.X\nX.X.XXXXXXX.X.X\nX.X.X.........X\nX.X.X.XXX.X.XXX\nX...X.X.X.X.X.X\nX.X.X.XXX.XXX.X\nX.X.X...X......\nXXXXXXXXXXXXXXX\nX..............\nXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 19,
+   "y": 29,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 19,
+   "y": 31,
+   "shape": "XXXXXXXXXXXXXXX\n..............X\n..............X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 34,
+   "y": 31,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "fish_big",
+   "x": 33,
+   "y": 29,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  }
+ ]
+}

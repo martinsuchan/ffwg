@@ -1,0 +1,95 @@
+{
+ "name": "briefcase",
+ "width": 48,
+ "height": 37,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": ".XXXX...........................................\n..XXXXXX........XXXXXXX.........................\n...XXXXXXXXXXXXXXXXXXXXX.....XXX.......XX.......\nX....XXXXXXXXXXXXXXXXXXXXXXXXXXXXX..XXXXXXX.....\nX.....XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX...\nX.............XXXXX......XXXX..XXXXXXXXXXXXXXX..\nXX..............XX...............XXXXXXXXXXXXXXX\nXXX..............................XXXXXXXXXXXXXXX\nXXX...................................XXXXXXXXXX\nXXXX...................................XXXXXXXXX\nXXXXXXXXXXXXXXXXX.......................XXXXXXXX\nXXXXXXXXXXXXXXXXX.......................XXXXXXXX\nXXXXXXXXXXXXXXXXX........................XXXXXXX\nXXXX.....XXXXXXXX........................XXXXXXX\nXX.......XXXXXXXXXXXXXXXXXXXX.............XXXXXX\nX..............XXXXXXXXXXXXX..............XXXXXX\nX...............XXXXXXXXXXXX...XX.........XXXXXX\nX...............XXXXXXXXXXXX...XXXX.......XXXXXX\nX..........XX...XXXX...X...X...XXXX.......XXXXXX\nXX...............X............XXXX........XXXXXX\nXXXXX............X.............XXX........XXXXXX\nXX...............X.............XX.........XXXXXX\nX.........................................XXXXXX\nX........................................XXXXXXX\nX........................XXXX............XXXXXXX\nXX.......................XXXX...........XXXXXXXX\nXXXXXX...................XXXXXX........XXXXXXXXX\nXX.......................XXXXXXXX....XXXXXXXXXXX\nX................X.......XXXXXXXXXXXXXXXXXXXXXXX\nX...............XX....XX.XXXXXXXXXXXXXXXXXXXXXXX\nX............XXXXX....XXXXXXXXXXXXXXXXXXXXXXXXXX\nX...............XX....XXXXXXXXXXXXXXXXXXXXXXXXXX\nXX...............X.....XXXXXXXXXXXXXXXXXXX......\nXX...............X........XXXXXXXXXXXXX.........\nXXXX...........XXXX.............................\nXXXXXXXXXXXXXXXXXXXX........................XXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 10,
+   "y": 3,
+   "shape": "........\n........\n........\n........\nXXXXXXXX\nXXXXXXXX\nXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 2,
+   "y": 4,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "fish_big",
+   "x": 3,
+   "y": 6,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "item_heavy",
+   "x": 28,
+   "y": 18,
+   "shape": "X.\nX.\nX.\nX.\nX.\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 24,
+   "y": 18,
+   "shape": "XXX\nXXX\nXXX\nXXX\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 25,
+   "y": 23,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 5,
+   "y": 23,
+   "shape": "X...\nXXXX\nX...\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 11,
+   "y": 27,
+   "shape": "XXXXX\nXX...\nXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 11,
+   "y": 15,
+   "shape": ".X\nXX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 13,
+   "y": 26,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

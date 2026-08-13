@@ -1,0 +1,79 @@
+{
+ "name": "submarine",
+ "width": 37,
+ "height": 15,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "..................................\n..................................\n..................................\n................................XX\n..............................XXXX\n...XXXXX.XXXXXX..XXXXX.XXXXXXXXXX.\n.........X.....................XX.\n.XXX...........................XXX\n.XXX.XXXXXXX..XXXXXXXXXXXXXXXXXXXX\n..XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.\n...XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.\n..............................XXXX\n................................XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_heavy",
+   "x": 21,
+   "y": 2,
+   "shape": "XX.\n.X.\n.X.\n.X.\n.X.\n.XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 5,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 8,
+   "y": 6,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 13,
+   "y": 7,
+   "shape": "XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 7,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 17,
+   "y": 7,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_big",
+   "x": 3,
+   "y": 2,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "item_light",
+   "x": 11,
+   "y": 2,
+   "shape": "XX\nXX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  }
+ ]
+}

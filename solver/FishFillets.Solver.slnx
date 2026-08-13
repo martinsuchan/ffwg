@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FishFillets.Cli/FishFillets.Cli.csproj" />
+    <Project Path="src/FishFillets.Physics/FishFillets.Physics.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FishFillets.Physics.Tests/FishFillets.Physics.Tests.csproj" />
+  </Folder>
+</Solution>
