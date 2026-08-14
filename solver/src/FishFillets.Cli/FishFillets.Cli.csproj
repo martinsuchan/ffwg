@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FishFillets.Physics\FishFillets.Physics.csproj" />
+    <ProjectReference Include="..\FishFillets.Search\FishFillets.Search.csproj" />
   </ItemGroup>
 
 </Project>

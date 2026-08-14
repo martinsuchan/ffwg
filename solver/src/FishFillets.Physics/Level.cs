@@ -32,6 +32,24 @@ public sealed class Level
     public UnitDef[] Units { get; }
 
     /// <summary>
+    /// Models whose state can ever change - everything a search's state key has
+    /// to carry. A model is excluded only when it provably cannot move, die or
+    /// leave:
+    /// <list type="bullet">
+    /// <item>not alive, so it can never die or turn;</item>
+    /// <item>FIXED weight, so no fish can push it - <c>Rules::canDir()</c> needs
+    ///   <c>power &gt;= weight</c> and the strongest fish is only HEAVY;</item>
+    /// <item>no goal_out/goal_escape, so it is never walked out through the
+    ///   border (which is the one path that moves a FIXED model);</item>
+    /// <item>not an output_* plug, which starts FIXED but turns into a normal
+    ///   LIGHT item once its capacity is spent (windoze's spuntik).</item>
+    /// </list>
+    /// In practice this drops each level's room-shape model, and any scenery
+    /// welded to it.
+    /// </summary>
+    public int[] MutableModels { get; }
+
+    /// <summary>
     /// Index of the shared border model. Unlike the browser port (which keeps a
     /// separate Cube with index -1), the border lives at the end of the model
     /// arrays here so every recursive rule can walk into it without a special
@@ -50,6 +68,22 @@ public sealed class Level
         Height = height;
         Models = models;
         Units = units;
+
+        var mutable = new List<int>(models.Length);
+        for (int i = 0; i < models.Length - 1; i++)
+        {
+            ModelDef def = models[i];
+            bool immovable = !def.IsAlive
+                             && def.Weight >= Weight.Fixed
+                             && def.Goal is not (GoalKind.Out or GoalKind.Escape)
+                             && def.OutDir == Dir.No;
+            if (!immovable)
+            {
+                mutable.Add(i);
+            }
+        }
+
+        MutableModels = mutable.ToArray();
     }
 
     public static Level Build(LevelJson json)

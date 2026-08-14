@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/FishFillets.Cli/FishFillets.Cli.csproj" />
     <Project Path="src/FishFillets.Physics/FishFillets.Physics.csproj" />
+    <Project Path="src/FishFillets.Search/FishFillets.Search.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FishFillets.Physics.Tests/FishFillets.Physics.Tests.csproj" />
