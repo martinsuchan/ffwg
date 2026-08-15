@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- WPF is Windows-only, so this project alone carries the -windows TFM.
+         FishFillets.Physics stays plain net10.0 and AOT-compatible. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>ffedit</AssemblyName>
+    <RootNamespace>FishFillets.Editor</RootNamespace>
+
+    <!-- The UI is built in code rather than XAML: it is one window with a
+         toolbar and a custom-drawn grid, and hand-writing it avoids the
+         designer, the generated App class and the XAML build step entirely. -->
+    <StartupObject>FishFillets.Editor.Program</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FishFillets.Physics\FishFillets.Physics.csproj" />
+    <ProjectReference Include="..\FishFillets.Search\FishFillets.Search.csproj" />
+  </ItemGroup>
+
+</Project>

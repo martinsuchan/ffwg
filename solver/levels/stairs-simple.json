@@ -1,0 +1,48 @@
+{
+  "name": "stairs-simple",
+  "width": 40,
+  "height": 30,
+  "models": [
+    {
+      "kind": "item_fixed",
+      "x": 0,
+      "y": 0,
+      "shape": "........................................\nXXX...................XXX.............XX\nXXXXXXXXX.............XXXXX.........XXXX\nXXXXXXXXXXX..XXXXX...XXXXXX...XXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n....XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n.......XXXXXXXXXXXXXXXXXXXXX......XXXXXX\n............XXXXXXX........X..........XX\n..............XXXXX........X..........XX\nXXXX.......................X..........XX\nXXXXXX.....................X..........XX\nXXXXXXXX...................X..........XX\nXXXXXXXXXX.................X..........XX\nXXXXXXXXXXX.XXXXXXXX.......X....XXXXXXXX\nXXXXXXXXXXXXXXXXXXXX.......X..XXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXX.......XXXXXXXXXXXXX\nXX........................XXXXXX......XX\nXX......................XXXXXX........XX\nXX....................XXXXXX............\nXX..................XXXXXX..............\nXX................XXXXXX................\nXX..............XXXXXX..................\nXX............XXXXXX..................XX\nXX..........XXXXXX....................XX\nXX........XXXXXX......................XX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 6,
+      "y": 25,
+      "shape": "XX\n.X\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 9,
+      "y": 10,
+      "shape": "X\nX\nX\nX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "fish_small",
+      "x": 6,
+      "y": 22,
+      "shape": "XXX\n",
+      "goal": "goal_escape",
+      "isLeft": false
+    },
+    {
+      "kind": "fish_big",
+      "x": 6,
+      "y": 20,
+      "shape": "XXXX\nXXXX\n",
+      "goal": "goal_escape",
+      "isLeft": false
+    }
+  ],
+  "sourceLevel": "stairs"
+}

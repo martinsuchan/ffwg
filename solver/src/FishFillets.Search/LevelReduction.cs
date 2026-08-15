@@ -57,12 +57,26 @@ public sealed class LevelReduction
 {
     private readonly Level _level;
 
+    private readonly bool[] _frozen;
+
     private LevelReduction(Level level, bool[] walls, int[] mobileModels, int[] frozenModels)
     {
         _level = level;
         Walls = walls;
         MobileModels = mobileModels;
         FrozenModels = frozenModels;
+
+        _frozen = new bool[level.Models.Length];
+        Array.Fill(_frozen, true);
+        foreach (int i in mobileModels)
+        {
+            _frozen[i] = false;
+        }
+
+        foreach (UnitDef unit in level.Units)
+        {
+            _frozen[unit.Model] = false;
+        }
     }
 
     /// <summary>Cells occupied by something that can never move.</summary>
@@ -75,6 +89,13 @@ public sealed class LevelReduction
     public int[] FrozenModels { get; }
 
     public int StateKeySize => MobileModels.Length * 5;
+
+    /// <summary>
+    /// Whether this model is scenery to the search - proven immobile either by
+    /// the type rules or by the analysis. Precomputed: this is called from inside
+    /// the router's per-cell scans.
+    /// </summary>
+    public bool IsFrozen(int model) => _frozen[model];
 
     /// <summary>
     /// The type-level reduction only: drops what the model kinds alone prove

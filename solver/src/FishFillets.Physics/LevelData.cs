@@ -21,6 +21,20 @@ public sealed class LevelJson
     public int Height { get; set; }
 
     public List<ModelJson> Models { get; set; } = [];
+
+    /// <summary>
+    /// The level this one was derived from, if it was hand-simplified in the
+    /// editor. Absent for exported levels.
+    ///
+    /// This matters for more than provenance. Simplifying a level - freezing an
+    /// item into the wall, deleting it, moving it - <b>changes the physics</b>, so
+    /// a solution found on the simplified room is not automatically legal in the
+    /// real one. A frozen item cannot fall, for instance, so a solution that
+    /// relies on it staying put may fall apart when it is a light item again.
+    /// Recording the origin lets the solver re-check its answer against the real
+    /// level automatically rather than relying on the user to remember.
+    /// </summary>
+    public string? SourceLevel { get; set; }
 }
 
 /// <summary>One model as declared by the level's addModel() call.</summary>

@@ -18,6 +18,14 @@ public sealed record SolveOptions
     public TimeSpan? TimeLimit { get; init; }
 
     public Action<string>? Progress { get; init; }
+
+    /// <summary>
+    /// How often to call <see cref="Progress"/>, in seconds. Time-based rather
+    /// than counted in nodes: a level that expands 2 M/s and one that manages
+    /// 20 k/s should both report at a readable pace, and the whole point of a
+    /// progress line is to show that a slow search is alive.
+    /// </summary>
+    public double ProgressSeconds { get; init; } = 1.0;
 }
 
 public sealed record SolveResult(
@@ -62,10 +70,7 @@ public sealed class Solver
     private readonly byte[] _key;
     private readonly StateSet _visited;
 
-    /// <summary>Relaxed distance-to-exit for each model that has to leave the room.</summary>
-    private readonly int[] _exitModels;
-    private readonly RelaxedDistance[] _exitDistance;
-    private readonly bool[] _exitIsFish;
+    private readonly ExitHeuristic _heuristic;
 
     private Node[] _nodes = new Node[1 << 16];
     private int _nodeCount;
@@ -92,29 +97,7 @@ public sealed class Solver
         _room.GetMoveSymbols(_symbols, out int count);
         Array.Resize(ref _symbols, count);
 
-        // Anything with goal_escape or goal_out has to reach the border. Fish
-        // must swim every cell; a pushed item gets downward moves free from
-        // gravity, so its relaxation is cheaper.
-        var models = new List<int>();
-        var distances = new List<RelaxedDistance>();
-        var isFish = new List<bool>();
-        for (int i = 0; i < level.ModelCount; i++)
-        {
-            GoalKind goal = level.Models[i].Goal;
-            if (goal is not (GoalKind.Escape or GoalKind.Out))
-            {
-                continue;
-            }
-
-            bool fish = level.Models[i].IsAlive;
-            models.Add(i);
-            distances.Add(RelaxedDistance.ToExit(level, i, _reduction.Walls, freeFall: !fish));
-            isFish.Add(fish);
-        }
-
-        _exitModels = models.ToArray();
-        _exitDistance = distances.ToArray();
-        _exitIsFish = isFish.ToArray();
+        _heuristic = new ExitHeuristic(level, _reduction);
     }
 
     public LevelReduction Reduction => _reduction;
@@ -131,7 +114,7 @@ public sealed class Solver
         }
 
         _room.WriteStateKey(_key, _mobile);
-        int startH = Heuristic();
+        int startH = _heuristic.Estimate(_room);
         if (startH >= RelaxedDistance.Unreachable)
         {
             return new SolveResult(null, false, "unsolvable: a goal is unreachable from the start", 0, 0, 0, 0, stopwatch.Elapsed);
@@ -144,7 +127,7 @@ public sealed class Solver
 
         long expanded = 0, generated = 1;
         int deepestF = 0;
-        long nextReport = 500_000;
+        double nextReport = options.ProgressSeconds;
 
         for (int f = 0; f < _open.Length; f++)
         {
@@ -233,13 +216,7 @@ public sealed class Solver
                     Push(NewNode(nodeIndex, keyOffset, g + 1, symbol), childF);
                 }
 
-                if (expanded >= nextReport)
-                {
-                    nextReport += 500_000;
-                    options.Progress?.Invoke(
-                        $"  f={f} expanded={expanded:N0} stored={_visited.Count:N0} " +
-                        $"{stopwatch.Elapsed.TotalSeconds:F0}s");
-                }
+                ReportProgress(options, stopwatch, expanded, f, ref nextReport);
 
                 if (expanded >= options.MaxNodes)
                 {
@@ -293,49 +270,37 @@ public sealed class Solver
             return true;
         }
 
-        h = Heuristic();
+        h = _heuristic.Estimate(_room);
         return h >= RelaxedDistance.Unreachable;
     }
 
+
     /// <summary>
-    /// A lower bound on the moves still needed.
+    /// Emits a progress line if enough time has passed.
     ///
-    /// Fish distances add up: one symbol steps exactly one fish, so no move can
-    /// make progress for two of them at once. Items do not add - a single push
-    /// can shift a whole chain, and gravity moves them for nothing - so the
-    /// bound takes the largest item distance rather than their sum, and the
-    /// larger of that and the fish total overall.
+    /// The clock is only read every few thousand expansions - a timestamp costs
+    /// a system call, and at over a million expansions a second, checking on
+    /// every one of them is a measurable tax for something the user reads a few
+    /// times a minute.
     /// </summary>
-    private int Heuristic()
+    private void ReportProgress(
+        SolveOptions options, Stopwatch stopwatch, long expanded, int f, ref double nextReport)
     {
-        int fishTotal = 0;
-        int itemMax = 0;
-
-        for (int i = 0; i < _exitModels.Length; i++)
+        if (options.Progress is null || (expanded & 0xFFF) != 0)
         {
-            ref readonly ModelState m = ref _room.State(_exitModels[i]);
-            if (m.IsOut)
-            {
-                continue;
-            }
-
-            int d = _exitDistance[i].At(m.X, m.Y, m.IsLeft);
-            if (d >= RelaxedDistance.Unreachable)
-            {
-                return RelaxedDistance.Unreachable;
-            }
-
-            if (_exitIsFish[i])
-            {
-                fishTotal += d;
-            }
-            else if (d > itemMax)
-            {
-                itemMax = d;
-            }
+            return;
         }
 
-        return Math.Max(fishTotal, itemMax);
+        double elapsed = stopwatch.Elapsed.TotalSeconds;
+        if (elapsed < nextReport)
+        {
+            return;
+        }
+
+        nextReport = elapsed + options.ProgressSeconds;
+        options.Progress(
+            $"  {elapsed,6:F0}s  f={f,-4} expanded {expanded,12:N0}  stored {_visited.Count,12:N0}  " +
+            $"{expanded / Math.Max(elapsed, 0.001) / 1000,7:F0}k/s  {GC.GetTotalMemory(false) / (1024.0 * 1024),6:F0} MB");
     }
 
     /// <summary>

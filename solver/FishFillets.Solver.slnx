@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/FishFillets.Cli/FishFillets.Cli.csproj" />
+    <Project Path="src/FishFillets.Editor/FishFillets.Editor.csproj" />
     <Project Path="src/FishFillets.Physics/FishFillets.Physics.csproj" />
     <Project Path="src/FishFillets.Search/FishFillets.Search.csproj" />
   </Folder>

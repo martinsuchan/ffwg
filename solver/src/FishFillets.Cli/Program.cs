@@ -1,5 +1,6 @@
 using System.Diagnostics;
 
+using FishFillets.Cli;
 using FishFillets.Physics;
 using FishFillets.Search;
 
@@ -52,6 +53,7 @@ try
         "improve" => Improve(corpus, argv),
         "solve" => Solve(corpus, argv),
         "reduce" => Reduce(corpus, argv),
+        "results" => Results(corpus, argv),
         _ => Unknown(command),
     };
 }
@@ -71,30 +73,49 @@ static int Unknown(string command)
 static void PrintUsage()
 {
     Console.WriteLine("""
-        ffsolve - Fish Fillets level solver
+        ffsolve - Fish Fillets level solver     (full guide: solver/README.md)
 
-        Usage:
-          ffsolve verify <level>            replay that level's reference solution
-          ffsolve verify --all              replay every reference solution
-          ffsolve verify <level> --moves S  replay the move string S instead
-          ffsolve info <level>              room size, models, goals, move symbols
-          ffsolve bench <level> [--rounds N]  time the simulation
-          ffsolve improve <level>           shorten a solution by re-solving windows of it
-                    [--window N] [--stride N] [--nodes N] [--moves S] [--out F] [--quiet]
-          ffsolve solve <level>             solve from scratch (A*, shortest at weight 1)
-                    [--weight W] [--nodes N] [--seconds N] [--out F] [--quiet]
-          ffsolve solve --all               solve every level, several at a time
-          ffsolve solve --levels-list a,b,c solve just these
-                    [--parallel N] [--weight W] [--nodes N] [--seconds N] [--out-dir D]
-          ffsolve reduce <level>|--all      report which models the analysis can freeze
+        SOLVE
+          ffsolve solve <level>             A*; provably shortest at weight 1
+                    [--seconds N] [--nodes N] (default 20,000,000)
+                    [--weight W]   >1 = faster, no optimality proof
+                    [--macro]      macro-move search (slower; see docs/005)
+                    [--out FILE] [--progress SECONDS] [--quiet] [--no-record]
+          ffsolve solve --all               every level with a reference solution
+          ffsolve solve --levels-list a,b,c just these
+                    [--parallel N] (default min(cores,4) - memory binds first)
+                    [--seconds N] (default 60) [--nodes N] [--out-dir DIR]
 
-        Note: briefcase and windoze run level scripting that affects play
-        (docs/031, docs/035), so a physics-only solution for them is not
-        necessarily reachable in the real game - see solver/docs/004.
+        IMPROVE
+          ffsolve improve <level>           shorten a known solution by re-solving
+                                            windows of it (local shortcuts only)
+                    [--window N] (16) [--stride N] (1) [--nodes N] (2,000,000)
+                    [--moves S] [--out FILE] [--quiet] [--no-record]
 
-        Options:
-          --levels <dir>      level JSON directory (default <repo>/solver/levels)
-          --solutions <dir>   reference solutions  (default <repo>/legacy/solution)
+        INSPECT
+          ffsolve results [--unsolved]      what has been solved, and how close
+                                            the bound got on what has not
+          ffsolve verify <level> | --all | <level> --moves S
+          ffsolve reduce <level> | --all    models the analysis proves immobile
+          ffsolve info <level>              size, models, goals, branching factor
+          ffsolve bench <level> [--rounds N] (200)
+
+        OPTIONS (any command)
+          --levels <dir>      level JSON     (default <repo>/solver/levels)
+          --solutions <dir>   reference sols (default <repo>/legacy/solution)
+
+        NOTES
+          Memory runs out before CPU: roughly 130 bytes per stored state, so
+          --nodes 20000000 is about 2.5 GB. That is what --parallel is limited by.
+
+          A level edited in ffedit records where it came from, and solve
+          re-verifies its answer against that original automatically - freezing
+          or deleting an item changes the physics, so an answer found on a
+          simplified room may not be legal in the real one.
+
+          briefcase and windoze run level scripting that drives play (docs/031,
+          docs/035), so a physics-only answer for them need not be reachable in
+          the real game. Batch runs skip them.
         """);
 }
 
@@ -247,27 +268,38 @@ static int Solve(Corpus corpus, string[] argv)
     string? outPath = TakeOption(argv, "--out");
     bool quiet = argv.Contains("--quiet");
 
+    bool macro = argv.Contains("--macro");
     Level level = corpus.LoadLevel(name);
     string? known = corpus.TryReadSolution(name, out string bundledSolution) ? bundledSolution : null;
-    var solver = new Solver(level, LevelReduction.Verified(level, known));
+    LevelReduction reduction = LevelReduction.Verified(level, known);
 
     Console.WriteLine($"level      {name} ({level.Width}x{level.Height})");
-    Console.WriteLine($"reduction  {solver.Reduction}");
-    Console.WriteLine($"search     weight {weight}, node limit {maxNodes:N0}" +
-                      (seconds > 0 ? $", {seconds}s limit" : ""));
+    Console.WriteLine($"reduction  {reduction}");
+    Console.WriteLine($"search     {(macro ? "macro-moves" : "per-symbol A*")}, weight {weight}, " +
+                      $"node limit {maxNodes:N0}" + (seconds > 0 ? $", {seconds}s limit" : ""));
     Console.WriteLine();
 
-    SolveResult result = solver.Solve(new SolveOptions
+    var options = new SolveOptions
     {
         Weight = weight,
         MaxNodes = maxNodes,
         TimeLimit = seconds > 0 ? TimeSpan.FromSeconds(seconds) : null,
         Progress = quiet ? null : Console.WriteLine,
-    });
+        ProgressSeconds = double.TryParse(TakeOption(argv, "--progress"), out double ps) ? ps : 1.0,
+    };
+
+    SolveResult result = macro
+        ? new MacroSolver(level, reduction).Solve(options)
+        : new Solver(level, reduction).Solve(options);
 
     Console.WriteLine(
         $"{result.Status}: expanded {result.Expanded:N0}, stored {result.StatesStored:N0}, " +
         $"f={result.DeepestF}, {result.Elapsed.TotalSeconds:F1} s");
+
+    if (!argv.Contains("--no-record"))
+    {
+        Record(corpus, name, ToRecord(result, macro));
+    }
 
     if (!result.Solved)
     {
@@ -282,6 +314,23 @@ static int Solve(Corpus corpus, string[] argv)
         return 3;
     }
 
+    // A hand-simplified level is a search aid, not the game. Freezing an item
+    // stops it falling and deleting one removes something a fish might have stood
+    // on, so an answer found here has to be replayed against the real level before
+    // it means anything. Doing it automatically beats relying on memory.
+    LevelJson raw = LevelLoader.LoadFile(corpus.LevelPath(name));
+    if (raw.SourceLevel is { } origin && corpus.HasLevel(origin))
+    {
+        SolutionResult onOriginal = SolutionValidator.Validate(
+            new Room(corpus.LoadLevel(origin)), result.Moves!);
+
+        Console.WriteLine(
+            onOriginal.Solved
+                ? $"source     also solves '{origin}' - the simplification did not change the answer"
+                : $"source     DOES NOT solve '{origin}' ({onOriginal.Error ?? "played out unsolved"}) - " +
+                  "this answer is only valid for the simplified room");
+    }
+
     int reference = corpus.TryReadSolution(name, out string bundled) ? bundled.Length : -1;
     string compared = reference < 0
         ? ""
@@ -290,7 +339,9 @@ static int Solve(Corpus corpus, string[] argv)
         : $"  ({result.Moves.Length - reference} longer than the bundled {reference})";
 
     Console.WriteLine($"solution   {result.Moves!.Length} moves - verified" +
-                      (result.Optimal ? ", PROVABLY SHORTEST" : ", not proven optimal") + compared);
+                      (result.Optimal
+                          ? macro ? ", shortest among macro-expressible" : ", PROVABLY SHORTEST"
+                          : ", not proven optimal") + compared);
     Console.WriteLine();
     Console.WriteLine(result.Moves);
 
@@ -327,6 +378,9 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
     int parallel = int.TryParse(TakeOption(argv, "--parallel"), out int p)
         ? p
         : Math.Max(1, Math.Min(Environment.ProcessorCount, 4));
+    // Workers interleave, so batch progress is prefixed with the level and paced
+    // slower than a single run - four levels each shouting once a second is noise.
+    double progressSeconds = double.TryParse(TakeOption(argv, "--progress"), out double bps) ? bps : 10.0;
 
     List<string> levels = list is not null
         ? [.. list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)]
@@ -339,16 +393,18 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
 
     Console.WriteLine(
         $"solving {levels.Count} level(s), {parallel} at a time " +
-        $"(weight {weight}, {maxNodes:N0} nodes, {seconds}s each)");
+        $"(weight {weight}, {maxNodes:N0} nodes, {seconds}s each, progress every {progressSeconds:F0}s)");
     Console.WriteLine();
 
     var consoleLock = new object();
+    var runs = new Dictionary<string, LevelResult>();
     int solved = 0, optimal = 0, shorter = 0, gaveUp = 0, done = 0;
     var sw = Stopwatch.StartNew();
 
     Parallel.ForEach(levels, new ParallelOptions { MaxDegreeOfParallelism = parallel }, name =>
     {
         string line;
+        LevelResult? record = null;
         try
         {
             Level level = corpus.LoadLevel(name);
@@ -360,7 +416,19 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
                 Weight = weight,
                 MaxNodes = maxNodes,
                 TimeLimit = TimeSpan.FromSeconds(seconds),
+                ProgressSeconds = progressSeconds,
+                Progress = progressSeconds <= 0
+                    ? null
+                    : text =>
+                    {
+                        lock (consoleLock)
+                        {
+                            Console.WriteLine($"{name,-14}{text}");
+                        }
+                    },
             });
+
+            record = ToRecord(result, macro: false);
 
             if (!result.Solved)
             {
@@ -408,6 +476,16 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
 
         lock (consoleLock)
         {
+            // Saved as each level lands rather than once at the end: a long batch
+            // is likely to be interrupted, and losing an hour of search because
+            // the run was stopped is a bad trade for one extra file write per
+            // level.
+            if (record is not null)
+            {
+                runs[name] = record;
+                Record(corpus, name, record);
+            }
+
             Console.WriteLine($"[{Interlocked.Increment(ref done),3}/{levels.Count}] {line}");
         }
     });
@@ -417,6 +495,96 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
     Console.WriteLine(
         $"{solved} solved ({optimal} proven shortest, {shorter} shorter than bundled), " +
         $"{gaveUp} unfinished - {sw.Elapsed.TotalMinutes:F1} min wall clock");
+    return 0;
+}
+
+// ----------------------------------------------------------------- results --
+
+/// <summary>Turns one search into a record entry.</summary>
+static LevelResult ToRecord(SolveResult result, bool macro) => new()
+{
+    Moves = result.Moves?.Length ?? 0,
+    Proven = result.Solved && result.Optimal && !macro,
+    Method = macro ? "macro" : "astar",
+    Bound = result.DeepestF,
+    Expanded = result.Expanded,
+    Stored = result.StatesStored,
+    Seconds = Math.Round(result.Elapsed.TotalSeconds, 1),
+    Status = result.Status,
+    Recorded = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+};
+
+static void Record(Corpus corpus, string level, LevelResult run) =>
+    ResultsFile.Update(corpus.DocsDir, document => ResultsFile.Merge(document, level, run));
+
+static int Results(Corpus corpus, string[] argv)
+{
+    ResultsDocument document = ResultsFile.Load(corpus.DocsDir);
+    if (document.Levels.Count == 0)
+    {
+        Console.WriteLine($"no results recorded yet ({ResultsFile.PathFor(corpus.DocsDir)})");
+        return 0;
+    }
+
+    bool unsolvedOnly = argv.Contains("--unsolved");
+
+    Console.WriteLine($"recorded {document.Updated}   ({ResultsFile.PathFor(corpus.DocsDir)})");
+    Console.WriteLine();
+    Console.WriteLine($"{"level",-14} {"best",5} {"record",6} {"bundled",7} {"bound",5} {"method",6} " +
+                      $"{"expanded",10} {"stored",10} {"sec",7}  status");
+    Console.WriteLine(new string('-', 104));
+
+    int solved = 0, proven = 0, matchesRecord = 0, beatsBundled = 0, provesRecord = 0;
+
+    foreach ((string level, LevelResult r) in document.Levels.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+    {
+        corpus.HallOfFame.TryGetValue(level, out (int Steps, string Author) fame);
+        int bundled = corpus.TryReadSolution(level, out string b) ? b.Length : 0;
+
+        if (r.Moves > 0)
+        {
+            solved++;
+            if (r.Proven) proven++;
+            if (fame.Steps > 0 && r.Moves == fame.Steps) matchesRecord++;
+            if (bundled > 0 && r.Moves < bundled) beatsBundled++;
+        }
+        else if (!unsolvedOnly && false)
+        {
+            continue;
+        }
+
+        if (unsolvedOnly && r.Moves > 0)
+        {
+            continue;
+        }
+
+        string best = r.Moves > 0 ? r.Moves.ToString() : "-";
+        // A bound that reaches the record proves the record optimal, even when we
+        // never produced the solution ourselves: everything cheaper was expanded
+        // and nothing finished.
+        bool boundProvesRecord = fame.Steps > 0 && r.Bound >= fame.Steps;
+        if (boundProvesRecord && r.Moves == 0)
+        {
+            provesRecord++;
+        }
+
+        string mark = r.Moves > 0 && r.Proven ? " *" : boundProvesRecord ? " ~" : "";
+        Console.WriteLine(
+            $"{level,-14} {best,5}{mark,-2} {(fame.Steps > 0 ? fame.Steps : 0),4} {(bundled > 0 ? bundled : 0),7} " +
+            $"{r.Bound,5} {r.Method,6} {r.Expanded,10:N0} {r.Stored,10:N0} {r.Seconds,7:F1}  {r.Status}");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(
+        $"{solved} solved, {proven} proven shortest (*), {matchesRecord} match the hall of fame, " +
+        $"{beatsBundled} shorter than the bundled solution");
+    if (provesRecord > 0)
+    {
+        Console.WriteLine(
+            $"{provesRecord} more (~) have a bound that reaches the hall-of-fame number, " +
+            "which proves that number optimal even though we did not find the moves");
+    }
+
     return 0;
 }
 
@@ -495,6 +663,23 @@ static int Improve(Corpus corpus, string[] argv)
     {
         Console.Error.WriteLine($"BUG: the improved solution does not solve the level ({check.Error})");
         return 3;
+    }
+
+    if (!argv.Contains("--no-record"))
+    {
+        // Window results are never proven optimal - they are the best the
+        // decomposition found, not a bound. Recorded so the table shows how a
+        // level's best was reached, not just its length.
+        Record(corpus, name, new LevelResult
+        {
+            Moves = result.Moves.Length,
+            Proven = false,
+            Method = "window",
+            Expanded = result.NodesExplored,
+            Seconds = Math.Round(sw.Elapsed.TotalSeconds, 1),
+            Status = result.Saved > 0 ? $"improved by {result.Saved}" : "no improvement",
+            Recorded = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+        });
     }
 
     Console.WriteLine();
