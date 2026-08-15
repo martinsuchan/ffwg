@@ -1,7 +1,11 @@
-# Improved solutions
+# Solver-found solutions
 
-Solutions found by the solver that are **shorter than the one bundled in
-`legacy/solution/`**. One file per level, in the game's own format:
+Solutions the solver produced and that are worth keeping: **shorter than the one
+bundled in `legacy/solution/`**, or the solver's own independent answer for a
+level it solved outright (`gems`, matching the hall of fame). One file per level,
+named after the **real** level even when the search ran on a hand-simplified copy
+— the move string is only kept here once it has been replayed against the real
+one. In the game's own format:
 
 ```lua
 saved_moves = 'uuuuuulllDDDRRR...'

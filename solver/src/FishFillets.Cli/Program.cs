@@ -59,7 +59,10 @@ try
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"error: {ex.Message}");
+    // The stack is worth having when something unexpected breaks; the message
+    // alone is enough for the errors this tool raises on purpose.
+    Console.Error.WriteLine(
+        Environment.GetEnvironmentVariable("FFSOLVE_TRACE") is null ? $"error: {ex.Message}" : ex.ToString());
     return 3;
 }
 
@@ -95,6 +98,11 @@ static void PrintUsage()
         INSPECT
           ffsolve results [--unsolved]      what has been solved, and how close
                                             the bound got on what has not
+                    [--rebuild]   refresh docs/results.csv from the corpus
+                    [--separator culture|comma|semicolon|tab]
+                                  rewrite it with that field separator; "culture"
+                                  is the local Windows one, which is what Excel
+                                  opens a CSV with. Sticks for later writes.
           ffsolve verify <level> | --all | <level> --moves S
           ffsolve reduce <level> | --all    models the analysis proves immobile
           ffsolve info <level>              size, models, goals, branching factor
@@ -111,7 +119,9 @@ static void PrintUsage()
           A level edited in ffedit records where it came from, and solve
           re-verifies its answer against that original automatically - freezing
           or deleting an item changes the physics, so an answer found on a
-          simplified room may not be legal in the real one.
+          simplified room may not be legal in the real one. When it does replay
+          on the original, it is recorded against that level too, as a solution
+          but not a proof.
 
           briefcase and windoze run level scripting that drives play (docs/031,
           docs/035), so a physics-only answer for them need not be reachable in
@@ -329,9 +339,41 @@ static int Solve(Corpus corpus, string[] argv)
                 ? $"source     also solves '{origin}' - the simplification did not change the answer"
                 : $"source     DOES NOT solve '{origin}' ({onOriginal.Error ?? "played out unsolved"}) - " +
                   "this answer is only valid for the simplified room");
+
+        if (onOriginal.Solved && !argv.Contains("--no-record"))
+        {
+            // A solution that replays on the real level IS a solution to the real
+            // level, so it belongs on that row - otherwise the work hides under a
+            // name that is not in the game.
+            //
+            // What does NOT carry across is optimality. The simplified room has a
+            // different state space (a frozen item cannot fall, a deleted one
+            // cannot be stood on), so "shortest here" is only an upper bound
+            // there, and the bound the search proved is about the wrong level
+            // entirely - hence Proven false and no Bound.
+            Record(corpus, origin, new LevelResult
+            {
+                Moves = result.Moves!.Length,
+                Proven = false,
+                Method = macro ? "macro" : "astar",
+                Source = name,
+                // The provenance lives in Source, so the status stays plain -
+                // "solved" is what happened, and the missing proof is already
+                // visible in the proven column.
+                Status = "solved",
+                Seconds = Math.Round(result.Elapsed.TotalSeconds, 1),
+                Recorded = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+            });
+
+            Console.WriteLine($"           recorded against '{origin}' as well" +
+                              (outPath is null ? $" - save the moves with:  --out solutions\\{origin}.lua" : ""));
+        }
     }
 
-    int reference = corpus.TryReadSolution(name, out string bundled) ? bundled.Length : -1;
+    // A simplified room has no bundled solution of its own, so it is measured
+    // against the one for the level it came from - which is the number that
+    // actually says whether the detour was worth taking.
+    int reference = corpus.TryReadSolution(raw.SourceLevel ?? name, out string bundled) ? bundled.Length : -1;
     string compared = reference < 0
         ? ""
         : result.Moves!.Length < reference ? $"  ({reference - result.Moves.Length} SHORTER than the bundled {reference})"
@@ -515,42 +557,66 @@ static LevelResult ToRecord(SolveResult result, bool macro) => new()
 };
 
 static void Record(Corpus corpus, string level, LevelResult run) =>
-    ResultsFile.Update(corpus.DocsDir, document => ResultsFile.Merge(document, level, run));
+    ResultsFile.Update(corpus, runs => ResultsFile.Merge(runs, level, run));
 
 static int Results(Corpus corpus, string[] argv)
 {
-    ResultsDocument document = ResultsFile.Load(corpus.DocsDir);
-    if (document.Levels.Count == 0)
+    Dictionary<string, LevelResult> runs = ResultsFile.Load(corpus.DocsDir);
+
+    if (argv.Contains("--rebuild"))
     {
-        Console.WriteLine($"no results recorded yet ({ResultsFile.PathFor(corpus.DocsDir)})");
+        // The derived columns - branch, hall of fame, size, item count - are
+        // recomputed on every write anyway. This just forces one without a
+        // search, for after worldfame.lua changes or a level is added.
+        char? separator = ParseSeparator(TakeOption(argv, "--separator"));
+        if (separator is null && TakeOption(argv, "--separator") is { } bad)
+        {
+            Console.Error.WriteLine($"--separator must be one of: comma , semicolon ; tab, or culture (got '{bad}')");
+            return 2;
+        }
+
+        ResultsFile.Update(corpus, _ => { }, separator);
+
+        char used = ResultsFile.DetectSeparator(ResultsFile.PathFor(corpus.DocsDir)) ?? ',';
+        Console.WriteLine(
+            $"rebuilt {ResultsFile.PathFor(corpus.DocsDir)} ({runs.Count} recorded runs, " +
+            $"{(used == '\t' ? "tab" : used == ';' ? "semicolon" : "comma")}-separated)");
         return 0;
     }
 
+    List<ResultsRow> rows = ResultsFile.Rows(corpus, runs);
     bool unsolvedOnly = argv.Contains("--unsolved");
 
-    Console.WriteLine($"recorded {document.Updated}   ({ResultsFile.PathFor(corpus.DocsDir)})");
+    Console.WriteLine(ResultsFile.PathFor(corpus.DocsDir));
     Console.WriteLine();
-    Console.WriteLine($"{"level",-14} {"best",5} {"record",6} {"bundled",7} {"bound",5} {"method",6} " +
-                      $"{"expanded",10} {"stored",10} {"sec",7}  status");
-    Console.WriteLine(new string('-', 104));
+    Console.WriteLine($"{"level",-14} {"our",5}   {"best",5} {"bundled",7} {"bound",5} {"method",6} " +
+                      $"{"expanded",10} {"stored",10} {"sec",8}  status");
 
     int solved = 0, proven = 0, matchesRecord = 0, beatsBundled = 0, provesRecord = 0;
+    string branch = "";
 
-    foreach ((string level, LevelResult r) in document.Levels.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+    foreach (ResultsRow row in rows)
     {
-        corpus.HallOfFame.TryGetValue(level, out (int Steps, string Author) fame);
-        int bundled = corpus.TryReadSolution(level, out string b) ? b.Length : 0;
+        LevelResult r = row.Run ?? new LevelResult();
 
-        if (r.Moves > 0)
+        // A simplified room is a search aid, not a level: it is shown, but it
+        // does not count towards what the solver has achieved on the game.
+        if (!row.IsDerived && r.Moves > 0)
         {
             solved++;
             if (r.Proven) proven++;
-            if (fame.Steps > 0 && r.Moves == fame.Steps) matchesRecord++;
-            if (bundled > 0 && r.Moves < bundled) beatsBundled++;
+            if (row.Best > 0 && r.Moves <= row.Best) matchesRecord++;
+            if (row.Bundled > 0 && r.Moves < row.Bundled) beatsBundled++;
         }
-        else if (!unsolvedOnly && false)
+
+        // A bound that reaches the record proves the record optimal, even when we
+        // never produced the solution ourselves: everything cheaper was expanded
+        // and nothing finished. Only on the real level, though - a bound proved
+        // against a simplified room says nothing about the game.
+        bool boundProvesRecord = !row.IsDerived && row.Best > 0 && r.Bound >= row.Best;
+        if (boundProvesRecord && r.Moves == 0)
         {
-            continue;
+            provesRecord++;
         }
 
         if (unsolvedOnly && r.Moves > 0)
@@ -558,25 +624,24 @@ static int Results(Corpus corpus, string[] argv)
             continue;
         }
 
-        string best = r.Moves > 0 ? r.Moves.ToString() : "-";
-        // A bound that reaches the record proves the record optimal, even when we
-        // never produced the solution ourselves: everything cheaper was expanded
-        // and nothing finished.
-        bool boundProvesRecord = fame.Steps > 0 && r.Bound >= fame.Steps;
-        if (boundProvesRecord && r.Moves == 0)
+        if (row.Branch != branch)
         {
-            provesRecord++;
+            branch = row.Branch;
+            Console.WriteLine();
+            Console.WriteLine($"-- {(branch.Length > 0 ? branch : "not on the map")} " +
+                              new string('-', Math.Max(0, 100 - branch.Length)));
         }
 
         string mark = r.Moves > 0 && r.Proven ? " *" : boundProvesRecord ? " ~" : "";
         Console.WriteLine(
-            $"{level,-14} {best,5}{mark,-2} {(fame.Steps > 0 ? fame.Steps : 0),4} {(bundled > 0 ? bundled : 0),7} " +
-            $"{r.Bound,5} {r.Method,6} {r.Expanded,10:N0} {r.Stored,10:N0} {r.Seconds,7:F1}  {r.Status}");
+            $"{row.Name,-14} {(r.Moves > 0 ? r.Moves.ToString() : "-"),5}{mark,-2} {row.Best,5} {row.Bundled,7} " +
+            $"{r.Bound,5} {r.Method,6} {r.Expanded,10:N0} {r.Stored,10:N0} {r.Seconds,8:F1}  " +
+            $"{r.Status}{(r.Source.Length > 0 ? $" (on {r.Source})" : "")}");
     }
 
     Console.WriteLine();
     Console.WriteLine(
-        $"{solved} solved, {proven} proven shortest (*), {matchesRecord} match the hall of fame, " +
+        $"{solved} solved, {proven} proven shortest (*), {matchesRecord} match or beat the hall of fame, " +
         $"{beatsBundled} shorter than the bundled solution");
     if (provesRecord > 0)
     {
@@ -748,6 +813,21 @@ static int Bench(Corpus corpus, string[] argv)
 }
 
 // ----------------------------------------------------------------- options --
+
+/// <summary>
+/// Reads --separator: a literal character, a name, or "culture" for whatever the
+/// local Windows list separator is (a semicolon in cs/de/fr, a comma in en) -
+/// which is the setting Excel opens a CSV with. Null means "leave it alone".
+/// </summary>
+static char? ParseSeparator(string? text) => text?.ToLowerInvariant() switch
+{
+    null => null,
+    "culture" or "windows" or "local" => ResultsFile.CultureSeparator(),
+    "comma" or "," => ',',
+    "semicolon" or ";" => ';',
+    "tab" or "\t" => '\t',
+    _ => null,
+};
 
 /// <summary>Reads "--name value" out of the argument list (absent -> null).</summary>
 static string? TakeOption(string[] argv, string name)

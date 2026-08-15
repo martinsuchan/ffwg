@@ -1,0 +1,84 @@
+﻿name;derivedFrom;branch;best;bestAuthor;bundled;our;width;height;items;proven;method;source;bound;expanded;stored;seconds;status;recorded
+start;;Fish House;54;Pavel Danihelka;54;54;29;27;5;yes;astar;;54;217622;302388;1,4;solved;2026-08-14
+briefcase;;Fish House;225;Pavel Danihelka;225;;48;37;8;;;;;;;;;
+cellar;;Fish House;375;Pavel Danihelka;375;;40;35;14;no;astar;;281;14483103;16779686;900,2;time limit reached;2026-08-15
+library;;Fish House;111;Pavel Danihelka;111;111;21;37;18;yes;astar;;111;8073221;8800275;55,4;solved;2026-08-14
+stairs;;Fish House;163;Pavel Danihelka;163;163;40;30;6;yes;astar;;163;22581029;23552378;105,2;solved;2026-08-15
+stairs-simple;stairs;Fish House;163;Pavel Danihelka;163;163;40;30;2;yes;astar;;163;10570581;10847465;73,6;solved;2026-08-15
+broom;;Fish House;193;Ivo Danihelka;193;;36;33;11;no;astar;;102;9851470;12006173;90,0;time limit reached;2026-08-14
+reef;;Fish House;169;Pavel Danihelka;169;;52;15;6;no;astar;;72;16745856;20742005;90,0;time limit reached;2026-08-14
+wc;;Fish House;100;Pavel Danihelka;100;100;23;22;4;yes;astar;;100;197164;198820;1,2;solved;2026-08-14
+hanoi;;Branch of the New Generation;402;David Glass;432;;57;21;17;no;astar;;153;6656102;7281664;90,0;time limit reached;2026-08-14
+rush;;Branch of the New Generation;852;Miroslav Olšák;852;;37;37;15;no;astar;;125;6857564;7786383;90,0;time limit reached;2026-08-14
+fdto;;Branch of the New Generation;243;Masaaki Irie;243;;33;23;21;no;astar;;107;5458013;8849773;90,0;time limit reached;2026-08-14
+rotate;;Branch of the New Generation;213;Masaaki Irie;213;;28;14;15;no;astar;;77;3321932;4573471;90,0;time limit reached;2026-08-14
+nowall;;Branch of the New Generation;413;Bertram Felgenhauer;420;;30;34;12;no;astar;;38;657231;980601;90,0;time limit reached;2026-08-15
+hole;;Branch of the New Generation;459;Masaaki Irie;465;463;50;40;8;no;window;;87;1901487;0;148,9;improved by 2;2026-08-15
+key;;Branch of the New Generation;524;David Glass;524;;37;36;23;no;astar;;68;1385011;1727379;90,0;time limit reached;2026-08-15
+keys;;Branch of the New Generation;281;Erik Hajduk;281;;22;22;15;no;astar;;61;1437390;2214365;90,0;time limit reached;2026-08-15
+linux;;Branch of the New Generation;596;Zmiter Nikitin;656;652;29;32;13;no;window;;86;1116521;0;51,1;improved by 4;2026-08-15
+submarine;;Ship Wrecks;83;Pavel Danihelka;83;83;37;15;6;yes;astar;;83;162860;174487;3,8;solved;2026-08-15
+party1;;Ship Wrecks;236;Mark Byers;236;;52;33;16;no;astar;;122;2123903;3319597;90,0;time limit reached;2026-08-15
+elk;;Ship Wrecks;257;Pavel Danihelka;257;;45;32;7;no;astar;;94;2677611;3599955;90,0;time limit reached;2026-08-15
+wreck;;Ship Wrecks;91;Hynek Vychodil;91;91;28;20;7;yes;astar;;91;756029;884792;20,5;solved;2026-08-15
+viking1;;Ship Wrecks;119;Pavel Danihelka;119;;36;29;11;no;astar;;50;2239237;3047400;90,0;time limit reached;2026-08-15
+airplane;;Ship Wrecks;235;Johannes Drescher;235;;45;27;9;no;astar;;60;2701372;3797580;90,0;time limit reached;2026-08-15
+bathyscaph;;Ship Wrecks;82;Pavel Danihelka;82;;46;20;10;no;astar;;82;23387109;33554809;904,7;time limit reached;2026-08-15
+tank;;Ship Wrecks;402;Josef Peterka;402;;50;37;17;no;astar;;134;2205355;2769535;90,0;time limit reached;2026-08-15
+viking2;;Ship Wrecks;341;Uoti Urpala;341;;53;29;17;no;astar;;105;1731769;2297227;90,0;time limit reached;2026-08-15
+party2;;Ship Wrecks;283;Gabor Braun;283;;52;33;21;no;astar;;120;1837053;2620534;90,0;time limit reached;2026-08-15
+gods;;Ship Wrecks;533;Félix Marcotte-Gagnon;533;;46;38;13;no;astar;;116;10215942;11273414;90,0;time limit reached;2026-08-14
+cabin1;;Silver's Ship;168;Pavel Danihelka;168;;24;22;7;no;astar;;162;28473243;33555044;901,5;time limit reached;2026-08-15
+snowman;;Silver's Ship;66;Pavel Danihelka;66;66;29;22;4;yes;astar;;66;27043049;29761441;171,6;solved;2026-08-15
+cannons;;Silver's Ship;39;Pavel Danihelka;39;39;30;27;16;yes;astar;;39;215117;353262;2,1;solved;2026-08-14
+kitchen;;Silver's Ship;564;Josef Peterka;564;;51;34;19;no;astar;;140;7766794;9019996;90,0;time limit reached;2026-08-14
+cabin2;;Silver's Ship;383;David Glass;383;;28;24;8;no;astar;;154;14259609;15769102;90,0;time limit reached;2026-08-14
+captain;;Silver's Ship;417;Erik Hajduk;417;;41;29;22;no;astar;;150;6819799;8898756;90,0;time limit reached;2026-08-14
+map;;Silver's Ship;1541;Gabor Braun;2127;2097;48;33;23;no;window;;38;31855792;0;19005,8;improved by 30;2026-08-15
+elevator1;;City In the Deep;200;Pavel Danihelka;200;;34;36;7;no;astar;;103;8378120;9840160;90,0;time limit reached;2026-08-14
+city;;City In the Deep;481;Gabor Braun;485;;50;23;15;no;astar;;85;2206133;2980693;90,0;time limit reached;2026-08-15
+ufo;;City In the Deep;283;Gabor Braun;283;;48;30;16;no;astar;;112;2118035;2559979;90,0;time limit reached;2026-08-15
+columns;;City In the Deep;283;Josef Peterka;283;;40;30;51;no;astar;;70;1224211;1533034;90,0;time limit reached;2026-08-15
+pavement;;City In the Deep;500;Erik Hajduk;512;;47;36;21;no;astar;;131;1690273;2147970;90,0;time limit reached;2026-08-15
+pyramid;;City In the Deep;246;Johan Rönnblom;246;;43;28;16;no;astar;;81;2395137;2990208;90,0;time limit reached;2026-08-15
+music;;City In the Deep;393;Josef Peterka;393;;40;30;15;no;astar;;191;1945430;2062220;90,0;time limit reached;2026-08-15
+crabshow;;City In the Deep;340;Gabor Braun;340;;39;32;17;no;astar;;121;2571271;3414819;90,0;time limit reached;2026-08-15
+elevator2;;City In the Deep;455;Gabor Braun;455;;34;36;7;no;astar;;100;2666081;3441184;90,0;time limit reached;2026-08-15
+atlantis;;City In the Deep;531;Uoti Urpala;572;;50;35;17;no;astar;;71;2073695;2543698;90,0;time limit reached;2026-08-15
+reactor;;UFO;163;Pavel Danihelka;163;;44;30;16;no;astar;;87;2007067;2557618;90,0;time limit reached;2026-08-15
+magnet;;UFO;408;Josef Peterka;408;;35;31;7;no;astar;;58;2996528;3782662;90,0;time limit reached;2026-08-15
+engine;;UFO;256;Gabor Braun;256;;41;27;12;no;astar;;69;1420601;2159435;90,0;time limit reached;2026-08-15
+steel;;UFO;185;Josef Peterka;185;;42;25;23;no;astar;;153;12431467;16777969;901,7;time limit reached;2026-08-15
+corridor;;UFO;523;Amic Frouvelle;523;;34;37;25;no;astar;;103;1676573;1895140;90,0;time limit reached;2026-08-15
+experiments;;UFO;706;Zmiter Nikitin;706;;48;35;76;no;astar;;67;616036;935971;90,0;time limit reached;2026-08-15
+propulsion;;UFO;1964;Zmiter Nikitin;1964;;41;38;20;no;astar;;47;1386947;1700346;90,0;time limit reached;2026-08-15
+electromagnet;;UFO Exit;458;David Glass;458;;48;20;21;no;astar;;46;1190593;1895538;90,0;time limit reached;2026-08-15
+corals;;Coral reef;242;David Glass;252;;28;25;5;no;astar;;114;14716883;18832995;90,0;time limit reached;2026-08-14
+labyrinth;;Coral reef;278;Mark Byers;278;;43;38;3;no;astar;;128;6386472;7156450;90,0;time limit reached;2026-08-14
+imprisoned;;Coral reef;275;Josef Peterka;275;;47;39;22;no;astar;;153;5091537;8481700;90,0;time limit reached;2026-08-14
+society;;Coral reef;110;Radovan Málek;110;;24;14;10;no;astar;;86;24803942;33554546;901,3;time limit reached;2026-08-15
+creatures;;Coral reef;447;Josef Peterka;447;;43;35;19;no;astar;;161;10385263;12089759;90,0;time limit reached;2026-08-14
+cancan;;Coral reef;578;Mark Byers;578;;41;35;19;no;astar;;186;9473093;11790902;90,0;time limit reached;2026-08-14
+pearls;;Coral reef;475;Erik Hajduk;475;;33;32;22;no;astar;;72;10749948;13670895;90,0;time limit reached;2026-08-14
+turtle;;Coral reef;620;Zmiter Nikitin;620;;50;37;24;no;astar;;74;4133110;4798176;90,0;time limit reached;2026-08-14
+aztec;;Treasure Cave;376;Mark Byers;376;;48;39;33;no;astar;;186;1405711;1753390;90,0;time limit reached;2026-08-15
+gems;;Treasure Cave;59;Mark Byers;59;59;29;18;109;no;astar;gems-simple;57;0;0;54,3;solved;2026-08-15
+gems-simple;gems;Treasure Cave;59;Mark Byers;59;59;29;18;88;yes;astar;;59;996968;1742549;71,6;solved;2026-08-15
+chest;;Treasure Cave;271;Zmiter Nikitin;271;;39;31;22;no;astar;;76;956145;1736705;90,0;time limit reached;2026-08-15
+alibaba;;Treasure Cave;459;Gabor Braun;459;;40;30;42;no;astar;;205;1222149;2104713;90,0;time limit reached;2026-08-15
+cave;;Treasure Cave;186;Josef Peterka;186;;32;28;10;no;astar;;110;2553325;3549226;90,0;time limit reached;2026-08-15
+grail;;Treasure Cave;1681;Zmiter Nikitin;1691;;51;36;40;no;astar;;62;991879;1223327;90,0;time limit reached;2026-08-15
+computer;;Dump;156;Josef Peterka;156;;36;27;10;no;astar;;79;1607020;2272373;90,0;time limit reached;2026-08-15
+noground;;Dump;44;Heiko Luettges;44;44;19;19;5;yes;astar;;44;94036;104106;4,5;solved;2026-08-15
+bathroom;;Dump;90;Josef Peterka;90;;31;32;26;no;astar;;64;1283257;2756096;90,0;time limit reached;2026-08-15
+duckie;;Dump;98;Ronny Standtke;98;;27;21;10;no;astar;;85;25795524;33554913;902,2;time limit reached;2026-08-15
+puzzle;;Dump;142;Fern Lopesbr;142;;53;39;31;no;astar;;59;525829;761098;90,0;time limit reached;2026-08-15
+dump;;Dump;426;Josef Peterka;426;;43;32;34;no;astar;;182;1065078;1424149;90,0;time limit reached;2026-08-15
+barrel;;Dump;1229;Zmiter Nikitin;1237;1231;50;39;17;no;window;;83;3841163;0;390,6;improved by 6;2026-08-15
+tetris;;Secret Computer;134;Gabor Braun;134;;51;32;13;no;astar;;71;1677639;3036730;90,0;time limit reached;2026-08-15
+emulator;;Secret Computer;620;Gabor Braun;620;;47;36;20;no;astar;;174;1274823;2165660;90,0;time limit reached;2026-08-15
+warcraft;;Secret Computer;573;Josef Peterka;573;;52;37;21;no;astar;;137;1387047;1591026;90,0;time limit reached;2026-08-15
+windoze;;Secret Computer;525;Zmiter Nikitin;525;;45;33;35;;;;;;;;;
+hardware;;Secret Computer;629;Zmiter Nikitin;629;;40;27;17;no;astar;;113;1255069;1587356;90,0;time limit reached;2026-08-15
+floppy;;Secret Computer;890;Aleš Zimmermann;946;;51;35;12;no;astar;;49;2089133;2678504;90,0;time limit reached;2026-08-15
+ending;;;;;;;29;27;5;;;;;;;;;

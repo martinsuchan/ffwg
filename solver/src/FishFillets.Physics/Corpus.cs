@@ -1,5 +1,10 @@
 namespace FishFillets.Physics;
 
+/// <summary>A level's place on the world map: its branch, and its play order.</summary>
+/// <param name="Branch">The game's own section name, in English ("Ship Wrecks").</param>
+/// <param name="Order">Position in worldmap.lua's declaration order.</param>
+public readonly record struct LevelPlace(string Branch, int Order);
+
 /// <summary>
 /// Locates and reads the level corpus: the exported levels in
 /// <c>solver/levels</c> and the game's own recorded solutions in
@@ -18,8 +23,10 @@ public sealed class Corpus
         LevelsDir = levelsDir;
         SolutionsDir = solutionsDir;
         DocsDir = docsDir;
+        ScriptDir = Path.Combine(Path.GetDirectoryName(solutionsDir) ?? ".", "script");
         _levelNames = new Lazy<IReadOnlyList<string>>(() => LevelLoader.LoadIndex(LevelsDir));
         _hallOfFame = new Lazy<IReadOnlyDictionary<string, (int, string)>>(LoadHallOfFame);
+        _worldMap = new Lazy<IReadOnlyDictionary<string, LevelPlace>>(LoadWorldMap);
     }
 
     /// <summary>Where the solver's own reference data lives (the hall of fame, results).</summary>
@@ -28,6 +35,9 @@ public sealed class Corpus
     public string LevelsDir { get; }
 
     public string SolutionsDir { get; }
+
+    /// <summary>The game's own Lua tree (legacy/script), read only for level metadata.</summary>
+    public string ScriptDir { get; }
 
     /// <summary>Level codenames from the export's index.json, in export order.</summary>
     public IReadOnlyList<string> LevelNames => _levelNames.Value;
@@ -118,30 +128,122 @@ public sealed class Corpus
     private IReadOnlyDictionary<string, (int, string)> LoadHallOfFame()
     {
         var best = new Dictionary<string, (int, string)>(StringComparer.Ordinal);
-        string path = Path.Combine(DocsDir, "worldfame.lua");
+
+        foreach (string[] args in LuaCalls(Path.Combine(DocsDir, "worldfame.lua"), "node_bestSolution"))
+        {
+            if (args.Length >= 3 && int.TryParse(args[1], out int steps))
+            {
+                best[args[0]] = (steps, args[2]);
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Where a level sits on the world map: which branch (the game's own section
+    /// name) and how far along the map it is. Purely descriptive - the solver
+    /// never navigates the map - but it is what turns the results table from an
+    /// alphabetical list into the order the game is actually played in.
+    /// </summary>
+    public IReadOnlyDictionary<string, LevelPlace> WorldMap => _worldMap.Value;
+
+    private readonly Lazy<IReadOnlyDictionary<string, LevelPlace>> _worldMap;
+
+    private IReadOnlyDictionary<string, LevelPlace> LoadWorldMap()
+    {
+        // Branch names come from worlddesc.lua's 4th argument (the section a
+        // level belongs to), read in English so the table does not change
+        // meaning with the port's language setting:
+        //   worldmap_addDesc("start", "en", "How It All Started", "Fish House")
+        var branches = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string[] args in LuaCalls(Path.Combine(ScriptDir, "worlddesc.lua"), "worldmap_addDesc"))
+        {
+            if (args.Length >= 4 && args[1] == "en")
+            {
+                branches[args[0]] = args[3];
+            }
+        }
+
+        // Play order is the order the nodes are declared in worldmap.lua:
+        //   branch_addNode(parent, codename, datafile, x, y, hidden, poster)
+        var places = new Dictionary<string, LevelPlace>(StringComparer.Ordinal);
+        int order = 0;
+        foreach (string[] args in LuaCalls(Path.Combine(ScriptDir, "worldmap.lua"), "branch_addNode"))
+        {
+            if (args.Length >= 2)
+            {
+                places[args[1]] = new LevelPlace(branches.GetValueOrDefault(args[1], ""), order++);
+            }
+        }
+
+        return places;
+    }
+
+    /// <summary>
+    /// Yields the arguments of every <paramref name="call"/> in a Lua file, with
+    /// quotes stripped.
+    ///
+    /// Not a Lua parser: these files are flat lists of one call per line with
+    /// literal arguments, and reading them this way keeps the solver free of a
+    /// Lua runtime (the browser port needs one; this does not). Commas inside
+    /// string literals are respected, since a level name may well contain one.
+    /// </summary>
+    private static IEnumerable<string[]> LuaCalls(string path, string call)
+    {
         if (!File.Exists(path))
         {
-            return best;
+            yield break;
         }
 
         foreach (string line in File.ReadLines(path))
         {
-            int open = line.IndexOf("node_bestSolution(", StringComparison.Ordinal);
-            if (open < 0)
+            int open = line.IndexOf(call + "(", StringComparison.Ordinal);
+
+            // Both files open with a commented-out signature line
+            // ("-- branch_addNode(parent, codename, ...)"), which otherwise reads
+            // as a real call declaring a level named "codename".
+            if (open < 0 || line.AsSpan().TrimStart().StartsWith("--"))
             {
                 continue;
             }
 
-            string[] parts = line[(open + 18)..].Split(',');
-            if (parts.Length < 3 || !int.TryParse(parts[1].Trim(), out int steps))
+            var args = new List<string>(4);
+            var current = new System.Text.StringBuilder();
+            bool quoted = false;
+
+            for (int i = open + call.Length + 1; i < line.Length; i++)
             {
-                continue;
+                char c = line[i];
+                if (c == '"')
+                {
+                    quoted = !quoted;
+                }
+                else if (!quoted && (c == ',' || c == ')'))
+                {
+                    args.Add(current.ToString().Trim());
+                    current.Clear();
+                    if (c == ')')
+                    {
+                        break;
+                    }
+                }
+                else
+                {
+                    current.Append(c);
+                }
             }
 
-            best[parts[0].Trim().Trim('"')] = (steps, parts[2].Trim().TrimEnd(')').Trim('"'));
+            // A call continued on the next line (worldmap.lua wraps the long ones)
+            // still yields every argument up to the break, which is all any caller
+            // here reads.
+            if (current.Length > 0)
+            {
+                args.Add(current.ToString().Trim());
+            }
+
+            yield return args.ToArray();
         }
-
-        return best;
     }
 
     /// <summary>Levels that have both exported geometry and a recorded solution.</summary>

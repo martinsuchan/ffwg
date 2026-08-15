@@ -1,0 +1,80 @@
+{
+  "name": "cabin1-simple",
+  "width": 24,
+  "height": 22,
+  "models": [
+    {
+      "kind": "item_fixed",
+      "x": 0,
+      "y": 0,
+      "shape": "XXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXX\nXXX.............XXXXXXXX\nXXX.............X...XXXX\nXXX..................XXX\nXXX..................XXX\nXXX..................XXX\nXXX....X.............XXX\nXXX....XXXX.....XXXXXXXX\nXXX....X.............XXX\nXXX....X.............XXX\nXXX....X.............XXX\nXXX....X......XXXXXXXXXX\nXXX....X.............XXX\nX......X.............XXX\nX....................XXX\nX............XXXXXXXXXXX\nXXX....XXXXX............\nXXX.....................\nXXX..............XXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 2,
+      "y": 15,
+      "shape": "XX\nXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 8,
+      "y": 15,
+      "shape": "XX.\nXXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 3,
+      "y": 5,
+      "shape": "X...X\nXXXXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 13,
+      "y": 10,
+      "shape": "XX\n.X\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_heavy",
+      "x": 14,
+      "y": 14,
+      "shape": "X\nX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_heavy",
+      "x": 10,
+      "y": 7,
+      "shape": "XXXXXXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "fish_small",
+      "x": 17,
+      "y": 13,
+      "shape": "XXX\n",
+      "goal": "goal_escape",
+      "isLeft": true
+    },
+    {
+      "kind": "fish_big",
+      "x": 16,
+      "y": 14,
+      "shape": "XXXX\nXXXX\n",
+      "goal": "goal_escape",
+      "isLeft": true
+    }
+  ],
+  "sourceLevel": "cabin1"
+}

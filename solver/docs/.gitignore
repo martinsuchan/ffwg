@@ -1,0 +1,6 @@
+# Written beside results.csv by the solver, not part of the record:
+#   .results.lock   cross-process write lock
+#   *.bak / *.tmp   the previous table, and a half-written new one
+.results.lock
+results.csv.bak
+results.csv.tmp

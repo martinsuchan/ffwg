@@ -16,6 +16,10 @@
          / `dotnet run` works without it. -->
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- For the one P/Invoke in WindowsLocale.cs: reading the Windows list and
+         decimal separators, which InvariantGlobalization hides from .NET. The
+         LibraryImport source generator emits unsafe code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OptimizationPreference>Speed</OptimizationPreference>
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>

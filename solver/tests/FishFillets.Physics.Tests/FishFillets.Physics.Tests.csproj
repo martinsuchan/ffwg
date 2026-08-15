@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FishFillets.Physics\FishFillets.Physics.csproj" />
     <ProjectReference Include="..\..\src\FishFillets.Search\FishFillets.Search.csproj" />
+    <ProjectReference Include="..\..\src\FishFillets.Cli\FishFillets.Cli.csproj" />
   </ItemGroup>
 
 </Project>

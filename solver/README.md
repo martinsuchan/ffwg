@@ -26,7 +26,7 @@ solver/
   tests/                     MSTest suite (dotnet test)
   levels/                    exported level geometry (checked in, 81 levels)
   solutions/                 solutions shorter than the bundled ones
-  docs/                      milestone log, hall of fame, results.json
+  docs/                      milestone log, hall of fame, results.csv
 ```
 
 ## Getting started
@@ -87,7 +87,7 @@ shorter solution exists.
 | `--out FILE` | — | write the solution as `saved_moves = '…'` |
 | `--progress N` | 1 | progress line every N seconds (`0` silences) |
 | `--quiet` | off | no progress lines |
-| `--no-record` | off | don't merge the run into `results.json` |
+| `--no-record` | off | don't merge the run into `docs/results.csv` |
 
 ```
 ffsolve solve start                                  # solves in ~1.5 s
@@ -182,14 +182,59 @@ this is for checking one by hand, or for confirming a solution against a
 ```
 ffsolve results              # every level, with the hall of fame alongside
 ffsolve results --unsolved   # only what is still open, and how close the bound got
+ffsolve results --rebuild    # refresh the file from the corpus, without searching
+ffsolve results --rebuild --separator culture   # rewrite it for the local Excel
 ```
 
-`docs/results.json`, written by the solver itself. `*` marks proven shortest; `~`
-marks a level where the **bound alone reaches the hall-of-fame number**, which
-proves that number optimal even though we never found the moves.
+The record is **[`docs/results.csv`](docs/results.csv)**, written by the solver
+itself — one row per level, in the order the game is played, grouped by branch:
 
+| column | |
+| --- | --- |
+| `name`, `derivedFrom` | the level; the real level it was simplified from, if any |
+| `branch` | the game's own section name (`Ship Wrecks`, `Treasure Cave`…) |
+| `best`, `bestAuthor` | the hall of fame (`docs/worldfame.lua`) |
+| `bundled` | the solution shipped in `legacy/solution` |
+| `our` | the shortest we have found |
+| `width`, `height`, `items` | room size, and models excluding fish and fixed scenery |
+| `proven` … `recorded` | the run: method, bound, expanded, stored, seconds, status |
+
+Only the run columns are recorded data — everything else is recomputed from the
+levels and the hall of fame on every write, so the table cannot drift, and
+editing those columns in a spreadsheet changes nothing. `--rebuild` forces that
+refresh after `worldfame.lua` changes or a level is added.
+
+In the printed table `*` marks proven shortest, and `~` marks a level where the
+**bound alone reaches the hall-of-fame number**, which proves that number optimal
+even though we never found the moves.
+
+### Separator
+
+A Czech, German or French Windows expects a CSV to use **semicolons**, and opens
+a comma-separated one as a single column. So the file follows the local setting
+(Region ► Additional settings ► *List separator*), and pairs it with the local
+decimal separator — `171,6` seconds under `;`, `171.6` under `,`:
+
+| `--separator` | |
+| --- | --- |
+| `culture` | whatever Windows is set to — the same one Excel reads with |
+| `comma`, `semicolon`, `tab` | pin it explicitly |
+| *omitted* | keep what the file already uses |
+
+**The choice sticks.** Only a brand-new file follows the culture; after that,
+writes preserve whatever separator the file has, so a solve run on a machine in
+another locale never reflows the committed record. Reading detects the separator
+from the header line and accepts a decimal comma or point either way, so a file
+written in Prague opens correctly on an English machine and back again.
+
+**Writes are protected.** They take an exclusive lock (`.results.lock`) across
+read-modify-write, so two solvers running at once cannot drop each other's work;
+the previous table is kept as `results.csv.bak`; the new one is written to a temp
+file and renamed over the target, so a crash cannot leave a half-written record.
 Merging keeps the best of each dimension independently — shortest solution, and
-separately highest bound — so re-running is always safe.
+separately highest bound — so re-running is always safe. If the CSV is open in
+Excel the rename fails; the solver says so and leaves the new table as
+`results.csv.tmp` rather than throwing the run away.
 
 ## `reduce` — what the analysis can freeze
 
@@ -255,8 +300,16 @@ solution   34 moves - verified, PROVABLY SHORTEST
 
 That example is real: freezing one pillar in `start` gave a 34-move answer
 against the real optimum of 54 — and it was worthless. Treat a modified level as
-a way to explore; the `source` line is what says whether you found anything. To
-check a solution against any level by hand:
+a way to explore; the `source` line is what says whether you found anything.
+
+When the answer **does** replay on the original, it is recorded against that
+level too — a move string that solves `gems` is a solution to `gems` whichever
+room it was found in. The proof is not transferred, though: the simplified room
+has a different state space, so the row is marked unproven, keeps the bound the
+real level earned on its own, and names the room it came from in `source`. Save
+the moves with `--out solutions\<real level>.lua`; they are not kept otherwise.
+
+To check a solution against any level by hand:
 
 ```
 ffsolve verify start --moves <the move string>
@@ -289,8 +342,8 @@ reports overlapping models exactly as the solver would reject them. Watching
 
 # Tests
 
-`dotnet test` is the regression suite — 200 tests, a few seconds. Run it after any
-change to `FishFillets.Physics`. It covers four things (see
+`dotnet test` is the regression suite — 204 tests, about a minute. Run it after
+any change to `FishFillets.Physics`. It covers five things (see
 [`docs/002`](docs/002-2026-08-14-test-project.md), [`docs/004`](docs/004-2026-08-14-from-scratch-solver.md)):
 
 - **the corpus**, one case per level: all 80 recorded solutions must replay to
@@ -302,6 +355,9 @@ change to `FishFillets.Physics`. It covers four things (see
   automatic escape, death by stress.
 - **the level reduction**, checked against all 80 solutions — nothing it freezes
   may ever move during real play.
+- **the results record**, that a run survives the CSV round trip, that a merge
+  never loses a better result, and that the world-map parse still yields a branch
+  for every level.
 
 `ffsolve verify --all` does the corpus half on its own, which is what
 `build-solver.ps1 -Publish` uses to smoke-test the AOT binary.

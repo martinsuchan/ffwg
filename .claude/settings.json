@@ -61,7 +61,19 @@
       "PowerShell(cd c:\\\\git\\\\ffwg\\\\solver; foreach \\($l in \"hole\",\"linux\",\"barrel\",\"map\"\\) { dotnet run --project src\\\\FishFillets.Cli -c Release -- improve $l --window 18 --quiet --out \"solutions\\\\$l.lua\" 2>&1 | Select-String \"moves \\\\\\(|written to\" })",
       "Bash(python -c ' *)",
       "PowerShell(cd c:\\\\git\\\\ffwg\\\\solver; dotnet run --project src\\\\FishFillets.Cli -c Release --no-build -- reduce --all 2>&1 | Select-Object -First 14; \"\"; \"-- totals --\"; $r = dotnet run --project src\\\\FishFillets.Cli -c Release --no-build -- reduce --all 2>&1 | Select-String \"^\\\\w\" | Select-Object -Skip 1; $tot=0; $fro=0; foreach\\($l in $r\\){ $p = \\($l -split '\\\\s+'\\); if\\($p.Count -ge 4\\){ $tot += [int]$p[2]; $fro += \\([int]$p[2] - [int]$p[3]\\) } }; \"mutable total: $tot, frozen by analysis: $fro\")",
-      "PowerShell(cd c:\\\\git\\\\ffwg\\\\solver; Measure-Command { dotnet run --project src\\\\FishFillets.Cli -c Release --no-build -- solve --levels-list cannons,noground,start,submarine,wreck,wc --parallel 6 --seconds 60 2>&1 | Tee-Object -Variable o } | Select-Object -ExpandProperty TotalSeconds; $o)"
+      "PowerShell(cd c:\\\\git\\\\ffwg\\\\solver; Measure-Command { dotnet run --project src\\\\FishFillets.Cli -c Release --no-build -- solve --levels-list cannons,noground,start,submarine,wreck,wc --parallel 6 --seconds 60 2>&1 | Tee-Object -Variable o } | Select-Object -ExpandProperty TotalSeconds; $o)",
+      "Bash(head -60 /c/git/ffwg/legacy/script/worldmap.lua)",
+      "Read(//c/git/ffwg/legacy/script/**)",
+      "Bash(grep -n \"worldmap_addDesc\" /c/git/ffwg/legacy/script/worlddesc.lua | head -20)",
+      "Bash(cd /c/git/ffwg/legacy/script && grep -c 'worldmap_addDesc' worlddesc.lua && grep '\"en\"' worlddesc.lua | head -5 && echo \"--- commas inside en strings? ---\" && grep '\"en\"' worlddesc.lua | grep -c ',[^ ]*\"' ; echo \"--- distinct branches \\(en\\) ---\" && grep '\"en\"' worlddesc.lua | sed 's/.*, *\"\\\\\\([^\"]*\\\\\\)\"\\)$/\\\\1/' | sort -u && echo \"--- node count ---\" && grep -c 'branch_addNode' worldmap.lua)",
+      "Bash(cd /c/git/ffwg && cat solver/solutions/README.md && echo \"=== gitignore ===\" && cat .gitignore 2>/dev/null | head -30 && ls solver/.gitignore 2>/dev/null)",
+      "Bash(cd /c/git/ffwg && grep -rn \"ResultsDocument\\\\|ResultsFile\\\\|results\\\\.json\\\\|ResultsJsonContext\" --include=*.cs --include=*.md --include=*.ps1 --include=*.csproj . | grep -v \"/bin/\\\\|/obj/\")",
+      "Bash(dotnet build *)",
+      "Bash(dotnet run *)",
+      "Bash(dotnet test *)",
+      "Read(//c/git/ffwg/solver/**)",
+      "Bash(powershell -NoProfile -Command \"\\(Get-Culture\\).Name + ' -> list separator [' + \\(Get-Culture\\).TextInfo.ListSeparator + ']'\")",
+      "Bash(FFSOLVE_TRACE=1 dotnet run --project src/FishFillets.Cli -c Release --no-build -- results --rebuild)"
     ],
     "additionalDirectories": [
       "C:\\Users\\marti\\AppData\\Local\\Temp\\claude\\c--git-ffwg\\b2a322cc-e3f1-42b8-8cc7-fd02968defb3\\scratchpad",
