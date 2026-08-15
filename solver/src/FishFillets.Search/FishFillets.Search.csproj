@@ -15,4 +15,13 @@
     <ProjectReference Include="..\FishFillets.Physics\FishFillets.Physics.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The tests check the macro decomposition's own pieces - notably whether a
+         known optimal solution is expressible by InertRouter's rules at all,
+         which is how a completeness leak gets located rather than guessed at. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>FishFillets.Physics.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

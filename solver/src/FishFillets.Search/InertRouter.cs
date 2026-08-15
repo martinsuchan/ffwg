@@ -78,7 +78,12 @@ internal sealed class InertRouter
     /// Explores everywhere <paramref name="fish"/> can reach inertly from where it
     /// stands in <paramref name="room"/>. Call <see cref="Reached"/> afterwards.
     /// </summary>
-    public void Route(Room room, int fish)
+    /// <param name="ignore">
+    /// A model to route as though it were not there. Used to ask what a fish
+    /// could reach if the other one moved out of the way - see
+    /// <c>MacroSolver.BlocksAnotherUnit</c>.
+    /// </param>
+    public void Route(Room room, int fish, int ignore = -1)
     {
         _reached.Clear();
         _head = _tail = 0;
@@ -103,21 +108,21 @@ internal sealed class InertRouter
             // Vertical moves keep facing. Horizontal ones only happen when
             // already facing that way - otherwise the key press is the turn
             // above, not a move.
-            TryStep(room, fish, placement, px, py, pLeft, 0, -1, cost);
-            TryStep(room, fish, placement, px, py, pLeft, 0, 1, cost);
-            TryStep(room, fish, placement, px, py, pLeft, pLeft ? -1 : 1, 0, cost);
+            TryStep(room, fish, placement, px, py, pLeft, 0, -1, cost, ignore);
+            TryStep(room, fish, placement, px, py, pLeft, 0, 1, cost, ignore);
+            TryStep(room, fish, placement, px, py, pLeft, pLeft ? -1 : 1, 0, cost, ignore);
         }
     }
 
     private void TryStep(
-        Room room, int fish, int placement, int px, int py, bool pLeft, int dx, int dy, int cost)
+        Room room, int fish, int placement, int px, int py, bool pLeft, int dx, int dy, int cost, int ignore)
     {
         int nx = px + dx, ny = py + dy;
 
         // Only a genuinely free step is travel. Anything else - a push, a drop, or
         // arriving at the border - is an action the search has to see, and
         // MacroExpander picks those up separately.
-        if (!IsFreeStep(room, fish, px, py, nx, ny))
+        if (!IsFreeStep(room, fish, px, py, nx, ny, ignore))
         {
             return;
         }
@@ -130,9 +135,9 @@ internal sealed class InertRouter
     /// destination is clear, the fish is holding nothing up, and it is not
     /// stepping onto the border.
     /// </summary>
-    public bool IsFreeStep(Room room, int fish, int px, int py, int nx, int ny)
+    public bool IsFreeStep(Room room, int fish, int px, int py, int nx, int ny, int ignore = -1)
     {
-        if (IsHoldingSomethingUp(room, fish, px, py))
+        if (IsHoldingSomethingUp(room, fish, px, py, ignore))
         {
             return false;
         }
@@ -147,7 +152,7 @@ internal sealed class InertRouter
             }
 
             int other = room.GetModel(cx, cy);
-            if (other != Room.Empty && other != fish)
+            if (other != Room.Empty && other != fish && other != ignore)
             {
                 return false;
             }
@@ -229,14 +234,14 @@ internal sealed class InertRouter
     /// purpose - it does not ask whether that thing is also propped up elsewhere,
     /// because guessing wrong in this direction only costs a search node.
     /// </summary>
-    public bool IsHoldingSomethingUp(Room room, int fish, int x, int y)
+    public bool IsHoldingSomethingUp(Room room, int fish, int x, int y, int ignore = -1)
     {
         Shape shape = _level.Models[fish].Shape;
         for (int m = 0; m < shape.MarkX.Length; m++)
         {
             int cx = x + shape.MarkX[m], cy = y + shape.MarkY[m] - 1;
             int above = room.GetModel(cx, cy);
-            if (above != Room.Empty && above != fish && above < _level.ModelCount
+            if (above != Room.Empty && above != fish && above != ignore && above < _level.ModelCount
                 && !_reduction.IsFrozen(above))
             {
                 return true;
@@ -250,61 +255,40 @@ internal sealed class InertRouter
     /// Whether the fish standing here is worth recording as a state in its own
     /// right, even though it has not done anything.
     ///
-    /// This is the part of the decomposition that can lose solutions, so it errs
-    /// wide. A fish that has parked matters only because it is solid, and it can
-    /// only be solid in someone's way if it is either touching something now, or
-    /// waiting underneath something that could later fall onto it. Both are
-    /// included; open water with nothing near it is not, because a fish sitting
-    /// there affects nothing and the route can always be recomputed later.
+    /// <para>There is exactly one such placement: <b>under something</b>. Support
+    /// can change hands without anything falling - one fish slides in under part
+    /// of a wide item's footprint, the fish that was holding it leaves, and the
+    /// item never moves. That is a real maneuver and the search has to be able to
+    /// express it, so arriving beneath a mobile model is a state.</para>
+    ///
+    /// <para><b>Nothing else is.</b> The earlier rule kept any placement with line
+    /// of sight to something mobile, on the reasoning that a parked fish is solid
+    /// and could catch a falling item or stop a push. Measured against the engine
+    /// (<c>FishAsObstacleTests</c>), neither happens:</para>
+    /// <list type="bullet">
+    /// <item>a falling item <b>kills</b> whatever it lands on - any weight, either
+    ///   fish - and a dead fish fails its goal, so the state is pruned as
+    ///   unsolvable regardless;</item>
+    /// <item>a fish <b>cannot be pushed</b>, directly or through a chain: the push
+    ///   is simply refused, so a fish in the way only forbids a move that would
+    ///   otherwise be available, which never helps.</item>
+    /// </list>
+    /// <para>So a fish parked anywhere else affects nothing, and its route can
+    /// always be recomputed later from wherever it actually needs to be.</para>
     /// </summary>
     public bool IsParking(Room room, int fish, int x, int y)
     {
-        Shape shape = _level.Models[fish].Shape;
-
-        for (int m = 0; m < shape.MarkX.Length; m++)
+        if (IsHoldingSomethingUp(room, fish, x, y))
         {
-            int cx = x + shape.MarkX[m], cy = y + shape.MarkY[m];
-
-            // Line of sight, in each direction, to anything that can move. A
-            // parked fish only matters because it is solid, and it can only end
-            // up in something's way if that something can travel to it: falling
-            // from above, or being pushed along a clear lane. Adjacency is just
-            // the distance-1 case of the same test.
-            if (SeesMobile(room, fish, cx, cy, -1, 0) || SeesMobile(room, fish, cx, cy, 1, 0)
-                || SeesMobile(room, fish, cx, cy, 0, -1) || SeesMobile(room, fish, cx, cy, 0, 1))
-            {
-                return true;
-            }
+            return true;
         }
 
+        // Nothing else. Three wider rules were measured (solver/docs/008) - "in
+        // another fish's way", "beside an item", "on an item's push lane" - and
+        // every one of them bought wc a few moves while costing every other level
+        // an order of magnitude in states. Only the original see-anything rule
+        // reaches wc's optimum, and it is the slowest of the lot.
         return false;
-    }
-
-    /// <summary>The first thing along this ray, if any, is something that can move.</summary>
-    private bool SeesMobile(Room room, int fish, int x, int y, int dx, int dy)
-    {
-        for (int cx = x + dx, cy = y + dy; ; cx += dx, cy += dy)
-        {
-            if ((uint)cx >= (uint)_width || (uint)cy >= (uint)_height)
-            {
-                return false;
-            }
-
-            int other = room.GetModel(cx, cy);
-            if (other == Room.Empty || other == fish)
-            {
-                continue;
-            }
-
-            return other < _level.ModelCount && !_reduction.IsFrozen(other);
-        }
-    }
-
-    private bool IsMobileAt(Room room, int fish, int x, int y)
-    {
-        int other = room.GetModel(x, y);
-        return other != Room.Empty && other != fish && other < _level.ModelCount
-               && !_reduction.IsFrozen(other);
     }
 
     /// <summary>Rebuilds the move symbols for the shortest inert route to a placement.</summary>

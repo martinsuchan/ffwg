@@ -548,7 +548,11 @@ static LevelResult ToRecord(SolveResult result, bool macro) => new()
     Moves = result.Moves?.Length ?? 0,
     Proven = result.Solved && result.Optimal && !macro,
     Method = macro ? "macro" : "astar",
-    Bound = result.DeepestF,
+    // A macro run's f is only a bound on solutions the decomposition can
+    // express, and that expansion is knowingly incomplete (docs/008). Recording
+    // it as this level's lower bound would be a false claim - the table uses
+    // `bound` to argue that a hall-of-fame number is optimal.
+    Bound = macro ? 0 : result.DeepestF,
     Expanded = result.Expanded,
     Stored = result.StatesStored,
     Seconds = Math.Round(result.Elapsed.TotalSeconds, 1),

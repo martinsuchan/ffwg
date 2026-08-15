@@ -83,7 +83,7 @@ shorter solution exists.
 | `--seconds N` | none | give up after N seconds |
 | `--nodes N` | 20,000,000 | give up after N expansions (this is also the memory cap in practice) |
 | `--weight W` | 1.0 | inflate the heuristic. >1 finds solutions on levels A\* can't finish, but drops the optimality proof |
-| `--macro` | off | macro-move search instead of per-symbol. Correct but slower — see [`docs/005`](docs/005-2026-08-15-macro-moves-negative-result.md) |
+| `--macro` | off | search over decisions (travel, then one thing that changes the world) instead of key presses — see below |
 | `--out FILE` | — | write the solution as `saved_moves = '…'` |
 | `--progress N` | 1 | progress line every N seconds (`0` silences) |
 | `--quiet` | off | no progress lines |
@@ -95,6 +95,25 @@ ffsolve solve stairs --nodes 60000000 --seconds 600  # needs a bigger budget
 ffsolve solve gems --weight 2 --seconds 300          # give up optimality for reach
 ffsolve solve cellar --out solutions\cellar.lua
 ```
+
+### `--macro`
+
+An edge is *an inert route followed by one thing that changes the world* — a
+push, a drop, or leaving the room — so the search stores states only at decision
+points rather than at every cell a fish swims through. Cost is still counted in
+symbols, so lengths stay comparable.
+
+**It is not a proof.** A route may only end where the expansion says it may, and
+that rule is argued rather than proven complete: it currently misses `wc`'s
+optimum by 20 (`docs/008` has the measurements, and why every attempt to widen
+the rule cost far more than it bought). So a `--macro` answer is a *solution*, not
+a shortest one — `results` records no lower bound for these runs, and
+"shortest among macro-expressible" means exactly that and nothing more.
+
+Where it wins is reach: `start` goes from unsolved at 60 s under plain A\* macro
+settings to solved in a second on a 150× smaller state space. The intended use is
+as a **finder** on levels nothing else cracks, with `improve` shortening whatever
+it returns.
 
 Progress lines show elapsed, current bound, expansions, states stored, rate and
 memory:

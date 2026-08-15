@@ -29,6 +29,7 @@ viking2;;Ship Wrecks;341;Uoti Urpala;341;;53;29;17;no;astar;;105;1731769;2297227
 party2;;Ship Wrecks;283;Gabor Braun;283;;52;33;21;no;astar;;120;1837053;2620534;90,0;time limit reached;2026-08-15
 gods;;Ship Wrecks;533;Félix Marcotte-Gagnon;533;;46;38;13;no;astar;;116;10215942;11273414;90,0;time limit reached;2026-08-14
 cabin1;;Silver's Ship;168;Pavel Danihelka;168;;24;22;7;no;astar;;162;28473243;33555044;901,5;time limit reached;2026-08-15
+cabin1-simple;cabin1;Silver's Ship;168;Pavel Danihelka;168;;24;22;6;no;astar;;166;29721945;33555504;600,1;time limit reached;2026-08-15
 snowman;;Silver's Ship;66;Pavel Danihelka;66;66;29;22;4;yes;astar;;66;27043049;29761441;171,6;solved;2026-08-15
 cannons;;Silver's Ship;39;Pavel Danihelka;39;39;30;27;16;yes;astar;;39;215117;353262;2,1;solved;2026-08-14
 kitchen;;Silver's Ship;564;Josef Peterka;564;;51;34;19;no;astar;;140;7766794;9019996;90,0;time limit reached;2026-08-14
@@ -62,7 +63,7 @@ cancan;;Coral reef;578;Mark Byers;578;;41;35;19;no;astar;;186;9473093;11790902;9
 pearls;;Coral reef;475;Erik Hajduk;475;;33;32;22;no;astar;;72;10749948;13670895;90,0;time limit reached;2026-08-14
 turtle;;Coral reef;620;Zmiter Nikitin;620;;50;37;24;no;astar;;74;4133110;4798176;90,0;time limit reached;2026-08-14
 aztec;;Treasure Cave;376;Mark Byers;376;;48;39;33;no;astar;;186;1405711;1753390;90,0;time limit reached;2026-08-15
-gems;;Treasure Cave;59;Mark Byers;59;59;29;18;109;no;astar;gems-simple;57;0;0;54,3;solved;2026-08-15
+gems;;Treasure Cave;59;Mark Byers;59;59;29;18;109;no;macro;;57;1137719;2168882;205,4;solved;2026-08-15
 gems-simple;gems;Treasure Cave;59;Mark Byers;59;59;29;18;88;yes;astar;;59;996968;1742549;71,6;solved;2026-08-15
 chest;;Treasure Cave;271;Zmiter Nikitin;271;;39;31;22;no;astar;;76;956145;1736705;90,0;time limit reached;2026-08-15
 alibaba;;Treasure Cave;459;Gabor Braun;459;;40;30;42;no;astar;;205;1222149;2104713;90,0;time limit reached;2026-08-15

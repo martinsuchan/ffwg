@@ -43,6 +43,23 @@ public sealed class MacroSolver
     private int[] _placements = new int[1024];
     private readonly int[] _placementCosts;
 
+    /// <summary>
+    /// Whether to treat "this fish is shutting the other one out of somewhere" as
+    /// a reason to park anywhere it can reach.
+    ///
+    /// Measured on wc (solver/docs/008): it costs two extra routes per fish per
+    /// state, made the level 9x slower, and moved the answer only 120 -> 116
+    /// against an optimum of 100. Off, but kept because it is the only rule here
+    /// that addresses blocked <i>travel</i> rather than blocked pushes, and the
+    /// remaining gap may yet turn out to be that.
+    /// </summary>
+    private const bool UseReachabilityUnblocking = false;
+
+    /// <summary>A second router, used only to ask what another fish could reach if this one moved.</summary>
+    private readonly InertRouter _analysis;
+    private readonly int[] _reachMark;
+    private int _reachGeneration;
+
     private Node[] _nodes = new Node[1 << 16];
     private int _nodeCount;
     private List<int>[] _open = [];
@@ -84,6 +101,8 @@ public sealed class MacroSolver
         }
 
         _placementCosts = new int[level.Width * level.Height * 2];
+        _analysis = new InertRouter(level, _reduction);
+        _reachMark = new int[level.Width * level.Height * 2];
     }
 
     public LevelReduction Reduction => _reduction;
@@ -186,6 +205,12 @@ public sealed class MacroSolver
                 continue;
             }
 
+            // Is this fish standing in another's way? If so, where it moves to
+            // matters in its own right, because getting out of the way is the one
+            // reason to swim somewhere and do nothing when you are not going to
+            // end up holding anything (solver/docs/008).
+            bool blocking = UseReachabilityUnblocking && BlocksAnotherUnit(fish);
+
             _router.Route(_room, fish);
 
             // Snapshot the reached placements: evaluating them restores the room
@@ -215,7 +240,7 @@ public sealed class MacroSolver
                 _room.RestoreMobile(_routeKey, _mobile);
 
                 // Parking: worth a state of its own even with nothing done.
-                if (routeCost > 0 && _router.IsParking(_room, fish, px, py))
+                if (routeCost > 0 && (blocking || _router.IsParking(_room, fish, px, py)))
                 {
                     generated++;
                     int parkH = _heuristic.Estimate(_room);
@@ -235,6 +260,64 @@ public sealed class MacroSolver
                     pLeft ? unit.Left : unit.Right, pLeft ? -1 : 1, 0, px, py, fish, ref generated);
             }
         }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="fish"/> is standing in another unit's way: would
+    /// removing it let that unit reach somewhere it currently cannot?
+    ///
+    /// <para>A fish cannot be pushed and cannot be swum through, so it is an
+    /// obstacle to <i>movement</i> even though it is not an obstacle to being
+    /// pushed. That is the third reason to park (docs/008): not to be anywhere in
+    /// particular, but to stop being where you are.</para>
+    ///
+    /// <para>Two routes decide it - one as the room stands, one with this fish
+    /// treated as absent. Placements that appear only in the second, and that are
+    /// not simply the cells this fish is standing on, are exactly the places it is
+    /// keeping the other unit out of.</para>
+    /// </summary>
+    private bool BlocksAnotherUnit(int fish)
+    {
+        foreach (UnitDef other in _level.Units)
+        {
+            if (other.Model == fish)
+            {
+                continue;
+            }
+
+            ref readonly ModelState state = ref _room.State(other.Model);
+            if (!state.IsAlive || state.IsLost)
+            {
+                continue;
+            }
+
+            _analysis.Route(_room, other.Model);
+            _reachGeneration++;
+            foreach (int placement in _analysis.Reached)
+            {
+                _reachMark[placement] = _reachGeneration;
+            }
+
+            _analysis.Route(_room, other.Model, ignore: fish);
+            foreach (int placement in _analysis.Reached)
+            {
+                if (_reachMark[placement] == _reachGeneration)
+                {
+                    continue;
+                }
+
+                // Newly reachable. If it is a cell this fish occupies, that is
+                // just the hole it would leave behind, not somewhere it is
+                // shutting the other unit out of.
+                (int x, int y, _) = _analysis.Decode(placement);
+                if (_room.GetModel(x, y) != fish)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private void TryAction(
