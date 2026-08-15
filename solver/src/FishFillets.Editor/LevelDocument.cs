@@ -153,6 +153,40 @@ internal sealed class LevelDocument
         }
     }
 
+    /// <summary>
+    /// Removes a single cell from a model's shape, for trimming an item down
+    /// rather than losing it altogether - a four-cell crate cut to one cell still
+    /// falls and still blocks, but occupies far less of the room.
+    ///
+    /// <para>The anchor deliberately stays where it is. Marks are relative to it,
+    /// so leaving it alone keeps every remaining cell at the same absolute
+    /// position; <see cref="Serialise"/> pads the gap with '.' instead.</para>
+    /// </summary>
+    /// <returns>True if that was the last cell and the model was removed.</returns>
+    public bool RemoveTile(int index, int x, int y)
+    {
+        if (index < 0 || index == WallIndex || index >= Json.Models.Count)
+        {
+            return false;
+        }
+
+        ModelJson model = Json.Models[index];
+        HashSet<(int, int)> marks = [.. Marks(model.Shape)];
+        if (!marks.Remove((x - model.X, y - model.Y)))
+        {
+            return false;
+        }
+
+        if (marks.Count == 0)
+        {
+            Delete(index);
+            return true;
+        }
+
+        model.Shape = Serialise(marks);
+        return false;
+    }
+
     /// <summary>Adds or removes a single wall cell, for drawing barriers by hand.</summary>
     public void PaintWall(int x, int y, bool solid)
     {

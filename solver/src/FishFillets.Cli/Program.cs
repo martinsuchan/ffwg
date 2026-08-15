@@ -279,14 +279,19 @@ static int Solve(Corpus corpus, string[] argv)
     bool quiet = argv.Contains("--quiet");
 
     bool macro = argv.Contains("--macro");
+    bool items = argv.Contains("--items");
     Level level = corpus.LoadLevel(name);
     string? known = corpus.TryReadSolution(name, out string bundledSolution) ? bundledSolution : null;
     LevelReduction reduction = LevelReduction.Verified(level, known);
 
+    LevelJson raw = LevelLoader.LoadFile(corpus.LevelPath(name));
+
     Console.WriteLine($"level      {name} ({level.Width}x{level.Height})");
+    ReportOriginalSolution(corpus, raw, level);
     Console.WriteLine($"reduction  {reduction}");
-    Console.WriteLine($"search     {(macro ? "macro-moves" : "per-symbol A*")}, weight {weight}, " +
-                      $"node limit {maxNodes:N0}" + (seconds > 0 ? $", {seconds}s limit" : ""));
+    Console.WriteLine($"search     {(items ? "item-moves" : macro ? "macro-moves" : "per-symbol A*")}, " +
+                      $"weight {weight}, node limit {maxNodes:N0}" +
+                      (seconds > 0 ? $", {seconds}s limit" : ""));
     Console.WriteLine();
 
     var options = new SolveOptions
@@ -298,9 +303,11 @@ static int Solve(Corpus corpus, string[] argv)
         ProgressSeconds = double.TryParse(TakeOption(argv, "--progress"), out double ps) ? ps : 1.0,
     };
 
-    SolveResult result = macro
-        ? new MacroSolver(level, reduction).Solve(options)
-        : new Solver(level, reduction).Solve(options);
+    SolveResult result = items
+        ? new ItemSolver(level, reduction).Solve(options)
+        : macro
+            ? new MacroSolver(level, reduction).Solve(options)
+            : new Solver(level, reduction).Solve(options);
 
     Console.WriteLine(
         $"{result.Status}: expanded {result.Expanded:N0}, stored {result.StatesStored:N0}, " +
@@ -308,7 +315,7 @@ static int Solve(Corpus corpus, string[] argv)
 
     if (!argv.Contains("--no-record"))
     {
-        Record(corpus, name, ToRecord(result, macro));
+        Record(corpus, name, ToRecord(result, macro || items, items ? "items" : "macro"));
     }
 
     if (!result.Solved)
@@ -328,7 +335,6 @@ static int Solve(Corpus corpus, string[] argv)
     // stops it falling and deleting one removes something a fish might have stood
     // on, so an answer found here has to be replayed against the real level before
     // it means anything. Doing it automatically beats relying on memory.
-    LevelJson raw = LevelLoader.LoadFile(corpus.LevelPath(name));
     if (raw.SourceLevel is { } origin && corpus.HasLevel(origin))
     {
         SolutionResult onOriginal = SolutionValidator.Validate(
@@ -394,6 +400,41 @@ static int Solve(Corpus corpus, string[] argv)
     }
 
     return 0;
+}
+
+/// <summary>
+/// For a hand-simplified level, replays the <b>original</b> level's own solution
+/// against the simplified room before the search starts.
+///
+/// <para>It answers the question you actually want answered before spending an
+/// hour on a search: is this still the same puzzle? A pass means the original
+/// path survived the edit, so the room is definitely solvable and that solution's
+/// length is already an upper bound. A failure means the edit removed something
+/// the original path used.</para>
+///
+/// <para><b>A failure is not an error, and does not stop the search.</b> Freezing
+/// an item stops it falling and deleting one removes something a fish stood on,
+/// so breaking the original path is often the whole point of the edit - and the
+/// simplified room can still be solvable by a different, shorter route. What it
+/// does predict is that an answer found here is less likely to replay back on the
+/// real level, which is the check that runs after the search.</para>
+/// </summary>
+static void ReportOriginalSolution(Corpus corpus, LevelJson raw, Level level)
+{
+    if (raw.SourceLevel is not { } origin
+        || !corpus.HasLevel(origin)
+        || !corpus.TryReadSolution(origin, out string moves))
+    {
+        return;
+    }
+
+    SolutionResult replay = SolutionValidator.Validate(new Room(level), moves);
+    Console.WriteLine(
+        replay.Solved
+            ? $"source     '{origin}' - its {moves.Length}-move solution still solves this room, " +
+              "so the edit kept the original path (and that is an upper bound)"
+            : $"source     '{origin}' - its {moves.Length}-move solution NO LONGER solves this room " +
+              $"({replay.Error ?? "played out unsolved"}); the edit changed the puzzle");
 }
 
 // ------------------------------------------------------------- solve batch --
@@ -470,7 +511,7 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
                     },
             });
 
-            record = ToRecord(result, macro: false);
+            record = ToRecord(result, approximate: false);
 
             if (!result.Solved)
             {
@@ -542,17 +583,20 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
 
 // ----------------------------------------------------------------- results --
 
-/// <summary>Turns one search into a record entry.</summary>
-static LevelResult ToRecord(SolveResult result, bool macro) => new()
+/// <summary>
+/// Turns one search into a record entry. <paramref name="approximate"/> covers
+/// the decomposed searches, whose expansions are knowingly incomplete.
+/// </summary>
+static LevelResult ToRecord(SolveResult result, bool approximate, string method = "macro") => new()
 {
     Moves = result.Moves?.Length ?? 0,
-    Proven = result.Solved && result.Optimal && !macro,
-    Method = macro ? "macro" : "astar",
+    Proven = result.Solved && result.Optimal && !approximate,
+    Method = approximate ? method : "astar",
     // A macro run's f is only a bound on solutions the decomposition can
     // express, and that expansion is knowingly incomplete (docs/008). Recording
     // it as this level's lower bound would be a false claim - the table uses
     // `bound` to argue that a hall-of-fame number is optimal.
-    Bound = macro ? 0 : result.DeepestF,
+    Bound = approximate ? 0 : result.DeepestF,
     Expanded = result.Expanded,
     Stored = result.StatesStored,
     Seconds = Math.Round(result.Elapsed.TotalSeconds, 1),

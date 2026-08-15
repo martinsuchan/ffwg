@@ -23,13 +23,14 @@ elk;;Ship Wrecks;257;Pavel Danihelka;257;;45;32;7;no;astar;;94;2677611;3599955;9
 wreck;;Ship Wrecks;91;Hynek Vychodil;91;91;28;20;7;yes;astar;;91;756029;884792;20,5;solved;2026-08-15
 viking1;;Ship Wrecks;119;Pavel Danihelka;119;;36;29;11;no;astar;;50;2239237;3047400;90,0;time limit reached;2026-08-15
 airplane;;Ship Wrecks;235;Johannes Drescher;235;;45;27;9;no;astar;;60;2701372;3797580;90,0;time limit reached;2026-08-15
-bathyscaph;;Ship Wrecks;82;Pavel Danihelka;82;;46;20;10;no;astar;;82;23387109;33554809;904,7;time limit reached;2026-08-15
+bathyscaph;;Ship Wrecks;82;Pavel Danihelka;82;82;46;20;10;no;astar;bathyscaph-simple;82;0;0;283,3;solved;2026-08-15
+bathyscaph-simple;bathyscaph;Ship Wrecks;82;Pavel Danihelka;82;82;46;20;8;yes;astar;;82;12248529;17342219;283,3;solved;2026-08-15
 tank;;Ship Wrecks;402;Josef Peterka;402;;50;37;17;no;astar;;134;2205355;2769535;90,0;time limit reached;2026-08-15
 viking2;;Ship Wrecks;341;Uoti Urpala;341;;53;29;17;no;astar;;105;1731769;2297227;90,0;time limit reached;2026-08-15
 party2;;Ship Wrecks;283;Gabor Braun;283;;52;33;21;no;astar;;120;1837053;2620534;90,0;time limit reached;2026-08-15
 gods;;Ship Wrecks;533;Félix Marcotte-Gagnon;533;;46;38;13;no;astar;;116;10215942;11273414;90,0;time limit reached;2026-08-14
-cabin1;;Silver's Ship;168;Pavel Danihelka;168;;24;22;7;no;astar;;162;28473243;33555044;901,5;time limit reached;2026-08-15
-cabin1-simple;cabin1;Silver's Ship;168;Pavel Danihelka;168;;24;22;6;no;astar;;166;29721945;33555504;600,1;time limit reached;2026-08-15
+cabin1;;Silver's Ship;168;Pavel Danihelka;168;168;24;22;7;no;astar;cabin1-simple;162;0;0;226,0;solved;2026-08-15
+cabin1-simple;cabin1;Silver's Ship;168;Pavel Danihelka;168;168;24;22;6;yes;astar;;168;20888513;24160644;226,0;solved;2026-08-15
 snowman;;Silver's Ship;66;Pavel Danihelka;66;66;29;22;4;yes;astar;;66;27043049;29761441;171,6;solved;2026-08-15
 cannons;;Silver's Ship;39;Pavel Danihelka;39;39;30;27;16;yes;astar;;39;215117;353262;2,1;solved;2026-08-14
 kitchen;;Silver's Ship;564;Josef Peterka;564;;51;34;19;no;astar;;140;7766794;9019996;90,0;time limit reached;2026-08-14

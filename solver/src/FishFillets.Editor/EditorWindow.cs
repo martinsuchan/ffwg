@@ -24,15 +24,39 @@ namespace FishFillets.Editor;
 /// </summary>
 internal sealed class EditorWindow : Window
 {
+    /// <summary>
+    /// What a click does. One mode at a time, because every one of these is
+    /// destructive and a click that does the wrong thing is not undoable.
+    /// </summary>
+    private enum Tool
+    {
+        /// <summary>Click selects an item, drag moves it.</summary>
+        Select,
+
+        /// <summary>Click paints a wall cell.</summary>
+        DrawWall,
+
+        /// <summary>Click clears a wall cell.</summary>
+        EraseWall,
+
+        /// <summary>Click removes one cell from an item's shape.</summary>
+        EraseTile,
+
+        /// <summary>Click merges the item into the room shape.</summary>
+        FreezeItem,
+    }
+
     private readonly RoomView _view = new();
     private readonly ListBox _models = new();
     private readonly TextBlock _status = new();
     private readonly TextBlock _stats = new();
-    private readonly ToggleButton _paintWalls = new() { Content = "_Draw walls" };
+    private readonly TextBlock _hint = new();
+    private readonly Dictionary<Tool, ToggleButton> _toolButtons = [];
 
     private LevelDocument? _document;
     private string _sourceLevel = "";
     private string _levelsDir = "";
+    private Tool _tool = Tool.Select;
     private bool _dragging;
     private (int X, int Y) _dragCell;
     private bool _suppressListSync;
@@ -68,8 +92,10 @@ internal sealed class EditorWindow : Window
         Content = root;
 
         _view.MouseLeftButtonDown += OnViewMouseDown;
+        _view.MouseRightButtonDown += OnViewRightMouseDown;
         _view.MouseMove += OnViewMouseMove;
         _view.MouseLeftButtonUp += (_, _) => _dragging = false;
+        _view.MouseRightButtonUp += (_, _) => _dragging = false;
         _view.Focusable = true;
         PreviewKeyDown += OnKeyDown;
 
@@ -87,13 +113,16 @@ internal sealed class EditorWindow : Window
         bar.Items.Add(Button("_Freeze into wall", () => Apply(d => d.FreezeToWall(_view.SelectedIndex))));
         bar.Items.Add(Button("_Delete item", () => Apply(d => d.Delete(_view.SelectedIndex))));
         bar.Items.Add(new Separator());
-        bar.Items.Add(_paintWalls);
-        bar.Items.Add(new TextBlock
-        {
-            Text = "  click a cell to add wall, right-click to erase   |   arrows move the selected item",
-            Foreground = Brushes.Silver,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
+        // Alt-D is already "Delete item", so walls take W.
+        bar.Items.Add(ToolButton("Draw _walls", Tool.DrawWall));
+        bar.Items.Add(ToolButton("_Erase walls", Tool.EraseWall));
+        bar.Items.Add(ToolButton("Erase _tile", Tool.EraseTile));
+        bar.Items.Add(ToolButton("Freeze on _click", Tool.FreezeItem));
+        bar.Items.Add(new Separator());
+
+        _hint.Foreground = Brushes.Silver;
+        _hint.VerticalAlignment = VerticalAlignment.Center;
+        bar.Items.Add(_hint);
 
         return bar;
     }
@@ -104,6 +133,53 @@ internal sealed class EditorWindow : Window
         button.Click += (_, _) => action();
         return button;
     }
+
+    /// <summary>A tool toggle: checking one turns the others off, unchecking returns to selecting.</summary>
+    private ToggleButton ToolButton(string text, Tool tool)
+    {
+        var button = new ToggleButton
+        {
+            Content = text,
+            Padding = new Thickness(10, 2, 10, 2),
+            Margin = new Thickness(2, 0, 2, 0),
+        };
+
+        button.Click += (_, _) => SetTool(button.IsChecked == true ? tool : Tool.Select);
+        _toolButtons[tool] = button;
+        return button;
+    }
+
+    private void SetTool(Tool tool)
+    {
+        _tool = tool;
+        _dragging = false;
+
+        foreach ((Tool which, ToggleButton button) in _toolButtons)
+        {
+            button.IsChecked = which == tool;
+        }
+
+        Refresh();
+    }
+
+    private static string NameOf(Tool tool) => tool switch
+    {
+        Tool.DrawWall => "drawing walls",
+        Tool.EraseWall => "erasing walls",
+        Tool.EraseTile => "erasing item cells",
+        Tool.FreezeItem => "freezing items on click",
+        _ => "selecting",
+    };
+
+    private string HintFor(Tool tool) => tool switch
+    {
+        Tool.DrawWall => "  click or drag to add wall   |   right-click erases",
+        Tool.EraseWall => "  click or drag to clear wall cells",
+        Tool.EraseTile => "  click a cell of the selected item to cut it away"
+                          + "   |   with nothing selected, click an item to start on it",
+        Tool.FreezeItem => "  click any item to merge it into the wall",
+        _ => "  click an item to select it   |   arrows or drag move it   |   F freezes, Delete removes",
+    };
 
     // ---------------------------------------------------------------- files --
 
@@ -221,11 +297,31 @@ internal sealed class EditorWindow : Window
             return;
         }
 
-        if (_paintWalls.IsChecked == true)
+        switch (_tool)
         {
-            Apply(d => d.PaintWall(x, y, solid: true));
-            _dragging = true;
-            return;
+            case Tool.DrawWall:
+                Apply(d => d.PaintWall(x, y, solid: true));
+                _dragging = true;
+                return;
+
+            case Tool.EraseWall:
+                Apply(d => d.PaintWall(x, y, solid: false));
+                _dragging = true;
+                return;
+
+            case Tool.EraseTile:
+                EraseTileAt(x, y);
+                _dragging = true;
+                return;
+
+            case Tool.FreezeItem:
+                int item = _document.ModelAt(x, y);
+                if (item >= 0 && item != _document.WallIndex)
+                {
+                    Apply(d => d.FreezeToWall(item));
+                }
+
+                return;
         }
 
         int index = _document.ModelAt(x, y);
@@ -241,6 +337,57 @@ internal sealed class EditorWindow : Window
         }
     }
 
+    /// <summary>Right-click erases wall while drawing, so the two are one tool.</summary>
+    private void OnViewRightMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_document is null || _tool != Tool.DrawWall)
+        {
+            return;
+        }
+
+        _view.Focus();
+        (int x, int y) = _view.CellAt(e.GetPosition(_view));
+        if (x < 0)
+        {
+            return;
+        }
+
+        Apply(d => d.PaintWall(x, y, solid: false));
+        _dragging = true;
+    }
+
+    /// <summary>
+    /// Cuts one cell out of an item. The selection scopes it: with an item
+    /// selected only that item is cut, so a click that strays onto a neighbour
+    /// does nothing instead of quietly damaging it. With nothing selected, the
+    /// first click picks up whatever it lands on.
+    /// </summary>
+    private void EraseTileAt(int x, int y)
+    {
+        if (_document is null)
+        {
+            return;
+        }
+
+        int index = _view.SelectedIndex;
+        if (index < 0 || index >= _document.Models.Count || index == _document.WallIndex)
+        {
+            index = _document.ModelAt(x, y);
+            if (index < 0 || index == _document.WallIndex)
+            {
+                return;
+            }
+
+            Select(index);
+        }
+        else if (!_document.Covers(_document.Models[index], x, y))
+        {
+            return;
+        }
+
+        Apply(d => d.RemoveTile(index, x, y));
+    }
+
     private void OnViewMouseMove(object sender, MouseEventArgs e)
     {
         if (_document is null)
@@ -254,7 +401,7 @@ internal sealed class EditorWindow : Window
             return;
         }
 
-        if (e.RightButton == MouseButtonState.Pressed && _paintWalls.IsChecked == true)
+        if (e.RightButton == MouseButtonState.Pressed && _tool == Tool.DrawWall)
         {
             Apply(d => d.PaintWall(x, y, solid: false));
             return;
@@ -265,10 +412,22 @@ internal sealed class EditorWindow : Window
             return;
         }
 
-        if (_paintWalls.IsChecked == true)
+        switch (_tool)
         {
-            Apply(d => d.PaintWall(x, y, solid: true));
-            return;
+            case Tool.DrawWall:
+                Apply(d => d.PaintWall(x, y, solid: true));
+                return;
+
+            case Tool.EraseWall:
+                Apply(d => d.PaintWall(x, y, solid: false));
+                return;
+
+            case Tool.EraseTile:
+                EraseTileAt(x, y);
+                return;
+
+            case Tool.FreezeItem:
+                return; // freezing is a click, never a sweep
         }
 
         // Dragging moves by whole cells, tracking how far the pointer has come
@@ -290,7 +449,7 @@ internal sealed class EditorWindow : Window
             return;
         }
 
-        if (_paintWalls.IsChecked != true && _view.SelectedIndex >= 0)
+        if (_tool == Tool.Select && _view.SelectedIndex >= 0)
         {
             (int dx, int dy) = e.Key switch
             {
@@ -320,7 +479,17 @@ internal sealed class EditorWindow : Window
                 e.Handled = true;
                 break;
             case Key.Escape:
-                Select(-1);
+                // One step back at a time: leave the tool first, then the
+                // selection, so Escape never does two things at once.
+                if (_tool != Tool.Select)
+                {
+                    SetTool(Tool.Select);
+                }
+                else
+                {
+                    Select(-1);
+                }
+
                 e.Handled = true;
                 break;
         }
@@ -387,6 +556,8 @@ internal sealed class EditorWindow : Window
             return;
         }
 
+        _hint.Text = HintFor(_tool);
+
         string? error = _document.Validate(out int mobile, out int frozen);
 
         // The mobile count is the number that matters: it is exactly what goes
@@ -403,14 +574,18 @@ internal sealed class EditorWindow : Window
         }
         else if (_view.SelectedIndex >= 0 && _view.SelectedIndex < _document.Models.Count)
         {
+            ModelJson selected = _document.Models[_view.SelectedIndex];
+            int tiles = LevelDocument.Marks(selected.Shape).Count();
             _status.Text =
-                $"selected [{_view.SelectedIndex}] {LevelDocument.Describe(_document.Models[_view.SelectedIndex])}" +
-                "    F = freeze into wall, Delete = remove, arrows = move";
+                $"selected [{_view.SelectedIndex}] {LevelDocument.Describe(selected)}, {tiles} cells" +
+                "    F = freeze into wall, Delete = remove, arrows = move, Esc = deselect";
             _status.Foreground = Brushes.Gainsboro;
         }
         else
         {
-            _status.Text = "click an item to select it";
+            _status.Text = _tool == Tool.Select
+                ? "click an item to select it"
+                : $"{NameOf(_tool)} - Esc leaves the tool";
             _status.Foreground = Brushes.Gainsboro;
         }
     }

@@ -7,7 +7,7 @@
       "kind": "item_fixed",
       "x": 0,
       "y": 0,
-      "shape": "XXXXXXXXXXXXXXXXXXXXXXX....XX\nXXXXXXXXXXXX...XXX.XXXX....XX\nXX......XXXX...XX..XXXX....XX\nXX........XX...X...X.......XX\nXXX........X...X...........XX\nXXXXX...................XXXXX\nXXXXXXXX...............XXXXXX\nXX....XX..................X.X\nXXXXXXXX..............XX...XX\nXX..X.................XX...XX\nXX..X.................XX...XX\nXX....XXXX............XX.....\nXX....XXXXXXXXXXXXXXXXXX.....\nXX....XXXXXXXXXXXXXXXXXX.....\nXX..........................X\nXX..........................X\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+      "shape": "XXXXXXXXXXXXXXXXXXXXXXX....XX\nXXXXXXXXXXXX...XXX.XXXX....XX\nXX......XXXX...XX..XXXX....XX\nXX........XX...X...X.......XX\nXXX........X...X...........XX\nXXXXX...................XXXXX\nXXXXXXXX...............XXXXXX\nXX....XX..................X.X\nXXXXXXXX..............XX...XX\nXX.X..................XX...XX\nXX.X..................XX...XX\nXX....XXXX............XX.....\nXX....XXXXXXXXXXXXXXXXXX.....\nXX....XXXXXXXXXXXXXXXXXX.....\nXX..........................X\nXX..........................X\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
       "goal": "goal_no",
       "isLeft": true
     },

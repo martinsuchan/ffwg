@@ -73,7 +73,9 @@
       "Bash(dotnet test *)",
       "Read(//c/git/ffwg/solver/**)",
       "Bash(powershell -NoProfile -Command \"\\(Get-Culture\\).Name + ' -> list separator [' + \\(Get-Culture\\).TextInfo.ListSeparator + ']'\")",
-      "Bash(FFSOLVE_TRACE=1 dotnet run --project src/FishFillets.Cli -c Release --no-build -- results --rebuild)"
+      "Bash(FFSOLVE_TRACE=1 dotnet run --project src/FishFillets.Cli -c Release --no-build -- results --rebuild)",
+      "Bash(cd /c/git/ffwg/solver && grep -rn \"IsMobileAt\\\\|MacroSolver\" --include=*.cs src tests | grep -v \"^src/FishFillets.Search/InertRouter.cs:30[0-9]\" && echo \"=== docs/005 ===\" && sed -n '1,40p' docs/005-2026-08-15-macro-moves-negative-result.md)",
+      "Bash(cd /c/git/ffwg/solver && grep -n \"WriteStateKey\\\\|public.*RestoreMobile\\\\|struct ModelState\\\\|public.*Position\\(\" src/FishFillets.Physics/Room.State.cs src/FishFillets.Physics/Room.cs | head -20)"
     ],
     "additionalDirectories": [
       "C:\\Users\\marti\\AppData\\Local\\Temp\\claude\\c--git-ffwg\\b2a322cc-e3f1-42b8-8cc7-fd02968defb3\\scratchpad",

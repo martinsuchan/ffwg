@@ -305,6 +305,22 @@ ffsolve solve corals-simple --levels D:\experiments\levels
 Modified levels are deliberately *not* added to `levels/index.json`, so `--all`
 and the test sweep ignore them.
 
+**Before it searches**, `solve` replays the *original* level's own solution
+against the modified room, which says whether you are still looking at the same
+puzzle:
+
+```
+level      stairs-simple (40x30)
+source     'stairs' - its 163-move solution still solves this room, so the edit
+           kept the original path (and that is an upper bound)
+```
+
+A pass means the room is definitely solvable and you already have an upper bound.
+A failure is **not** an error and does not stop the search — breaking the original
+path is often the whole point of the edit, and the simplified room may well have a
+different, shorter route. What it does predict is that an answer found here is
+less likely to replay back on the real level, which is the check below.
+
 **The important part:** simplifying changes the physics — a frozen item cannot
 fall, a deleted one cannot be stood on — so a solution found on a modified level
 is not automatically legal in the real one. Saved levels record where they came
@@ -351,8 +367,19 @@ judgement be applied.
 | move it | arrow keys, or drag |
 | **freeze into the wall** | **F** — cells stay solid, model leaves the state space |
 | delete it | **Delete** |
-| draw walls | toggle **Draw walls**, then click/drag; right-drag erases |
+| draw walls | toggle **Draw walls**, then click/drag; right-click or right-drag erases |
+| erase walls | toggle **Erase walls**, then click/drag |
+| **cut one cell off an item** | toggle **Erase tile**, then click cells of the selected item |
+| **freeze by clicking** | toggle **Freeze on click**, then click any item |
+| leave a tool | **Esc** (again to deselect) |
 | save | **Save as…** — writes a level JSON and stamps the source level |
+
+The tools are mutually exclusive and none of this is undoable, so only one click
+behaviour is ever live at a time. **Erase tile** is scoped by the selection: with
+an item selected only that item is cut, so a click that strays onto a neighbour
+does nothing; with nothing selected the first click picks up whatever it lands
+on. Cutting the last cell removes the model outright, and the anchor never moves,
+so the cells that remain stay exactly where they were.
 
 The status bar runs the real `LevelReduction` and builds the level through the
 actual engine after every edit, so it shows the live **mobile-model count** and
