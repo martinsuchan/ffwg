@@ -51,6 +51,7 @@ reactor;;UFO;163;Pavel Danihelka;163;;44;30;16;no;astar;;87;2007067;2557618;90,0
 magnet;;UFO;408;Josef Peterka;408;;35;31;7;no;astar;;58;2996528;3782662;90,0;time limit reached;2026-08-15
 engine;;UFO;256;Gabor Braun;256;;41;27;12;no;astar;;69;1420601;2159435;90,0;time limit reached;2026-08-15
 steel;;UFO;185;Josef Peterka;185;;42;25;23;no;astar;;153;12431467;16777969;901,7;time limit reached;2026-08-15
+steel-simple;steel;UFO;185;Josef Peterka;185;;42;25;21;no;astar;;153;12430797;16777219;600,8;time limit reached;2026-08-15
 corridor;;UFO;523;Amic Frouvelle;523;;34;37;25;no;astar;;103;1676573;1895140;90,0;time limit reached;2026-08-15
 experiments;;UFO;706;Zmiter Nikitin;706;;48;35;76;no;astar;;67;616036;935971;90,0;time limit reached;2026-08-15
 propulsion;;UFO;1964;Zmiter Nikitin;1964;;41;38;20;no;astar;;47;1386947;1700346;90,0;time limit reached;2026-08-15
@@ -73,7 +74,9 @@ grail;;Treasure Cave;1681;Zmiter Nikitin;1691;;51;36;40;no;astar;;62;991879;1223
 computer;;Dump;156;Josef Peterka;156;;36;27;10;no;astar;;79;1607020;2272373;90,0;time limit reached;2026-08-15
 noground;;Dump;44;Heiko Luettges;44;44;19;19;5;yes;astar;;44;94036;104106;4,5;solved;2026-08-15
 bathroom;;Dump;90;Josef Peterka;90;;31;32;26;no;astar;;64;1283257;2756096;90,0;time limit reached;2026-08-15
-duckie;;Dump;98;Ronny Standtke;98;;27;21;10;no;astar;;85;25795524;33554913;902,2;time limit reached;2026-08-15
+bathroom-simple;bathroom;Dump;90;Josef Peterka;90;;31;32;9;;;;;;;;;
+duckie;;Dump;98;Ronny Standtke;98;108;27;21;10;no;astar;;85;3629444;3676619;36,0;solved;2026-08-16
+duckie-simple;duckie;Dump;98;Ronny Standtke;98;;27;21;7;no;astar;;90;25858727;33555116;600,4;time limit reached;2026-08-15
 puzzle;;Dump;142;Fern Lopesbr;142;;53;39;31;no;astar;;59;525829;761098;90,0;time limit reached;2026-08-15
 dump;;Dump;426;Josef Peterka;426;;43;32;34;no;astar;;182;1065078;1424149;90,0;time limit reached;2026-08-15
 barrel;;Dump;1229;Zmiter Nikitin;1237;1231;50;39;17;no;window;;83;3841163;0;390,6;improved by 6;2026-08-15

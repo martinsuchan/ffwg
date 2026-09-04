@@ -199,6 +199,75 @@ public sealed partial class Room
         _lastDeadCount = 0;
     }
 
+    /// <summary>
+    /// Copies out the mutable state of <paramref name="models"/>, so a move can be
+    /// undone with <see cref="RestoreMobile(ReadOnlySpan{ModelState}, int[])"/>
+    /// instead of rebuilt from a key.
+    /// </summary>
+    public void SaveMobile(Span<ModelState> destination, int[] models)
+    {
+        for (int n = 0; n < models.Length; n++)
+        {
+            destination[n] = _models[models[n]];
+        }
+    }
+
+    /// <summary>
+    /// Undoes back to a snapshot taken by <see cref="SaveMobile"/>.
+    ///
+    /// <para>This is the search's inner loop. A node expansion tries every move
+    /// symbol from the same state, so all but the first need the previous move
+    /// undone first - and rebuilding from the key
+    /// (<see cref="RestoreMobile(ReadOnlySpan{byte}, int[])"/>) re-derives every
+    /// model whether it moved or not. A move touches one or two, so this copies
+    /// the struct straight back and only re-stamps the grid for models whose
+    /// position actually changed.</para>
+    ///
+    /// <para>Copying the struct also restores fields a key does not carry at all -
+    /// <c>TouchDir</c>, <c>OutDepth</c>, the <c>ReadyTo*</c> flags - so unlike a
+    /// key rebuild there is no question of what a settled state leaves behind.</para>
+    /// </summary>
+    private bool[] _restoreMoved = [];
+
+    public void RestoreMobile(ReadOnlySpan<ModelState> snapshot, int[] models)
+    {
+        if (_restoreMoved.Length < models.Length)
+        {
+            _restoreMoved = new bool[models.Length];
+        }
+
+        // Unmask before any model is written back, so a model restored into a cell
+        // another one has not yet vacated cannot be clobbered.
+        bool[] moved = _restoreMoved;
+        for (int n = 0; n < models.Length; n++)
+        {
+            int index = models[n];
+            bool differs = _models[index].X != snapshot[n].X || _models[index].Y != snapshot[n].Y;
+            moved[n] = differs;
+            if (differs)
+            {
+                Unmask(index);
+            }
+        }
+
+        for (int n = 0; n < models.Length; n++)
+        {
+            _models[models[n]] = snapshot[n];
+        }
+
+        for (int n = 0; n < models.Length; n++)
+        {
+            if (moved[n])
+            {
+                Mask(models[n]);
+            }
+        }
+
+        _lastAction = Action.No;
+        _lastImpact = Weight.None;
+        _lastDeadCount = 0;
+    }
+
     private void ResetModelToDeclared(int index)
     {
         ModelDef def = Level.Models[index];

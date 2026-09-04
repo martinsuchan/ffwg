@@ -10,11 +10,27 @@ public sealed partial class Room
     // models) every round; here the marker array is owned by the Room and just
     // cleared, so a round costs no allocation.
     //
-    // Known optimisation for later (see solver/docs/001): this is a fixpoint over
-    // ALL models each round, i.e. O(n^2) on the item-heavy levels (gems has 111
-    // movable items). Since a move only ever disturbs support locally, the search
-    // will want an incremental version that reconsiders just the models whose
-    // support actually changed. Left faithful for now - correctness first.
+    // "Stoned" means supported: fixed in place, or resting (transitively) on
+    // something that is. Everything else falls. This is a fixpoint - rescan every
+    // model until a whole pass changes nothing.
+    //
+    // It reads as O(n^2), and docs/001 recorded it as the thing to make incremental
+    // "on the item-heavy levels". Measured, that is wrong for almost every level:
+    // StoneModel short-circuits on an already-stoned model, so once the first pass
+    // has stoned nearly everything, later passes are n cheap boolean checks. The
+    // passes actually needed, per call:
+    //
+    //     start 2.00   wc 2.00   cannons 2.03   alibaba 3.39
+    //     columns 3.00   experiments 7.00   gems 8.99
+    //
+    // So it is 2 passes - not n - on the rooms that are not deep stacks.
+    //
+    // A worklist version was built and measured against this (solver/docs/011):
+    // seed in one pass, then propagate upwards from each newly stoned model, since
+    // support only ever travels up. Same answer everywhere, and **slower on all but
+    // one level**: 0.75-0.88x where the fixpoint needs 2-3.4 passes, 0.98x at 7
+    // passes, and only 1.24x on gems at 9. It was not worth a second code path in
+    // the physics hot path for one level, so this stands.
 
     /// <returns>Whether anything fell.</returns>
     private bool ComputeFall()

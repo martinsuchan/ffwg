@@ -41,6 +41,43 @@ public sealed class SolverTests
     }
 
     /// <summary>
+    /// The partial-order reduction (<see cref="SolveOptions.PartialOrder"/>) is
+    /// off by default because it does not pay for itself (solver/docs/011), but
+    /// the code stays in the tree - so its one real risk is pinned here.
+    ///
+    /// <para>What it drops is whole successors, on the argument that an equally
+    /// short ordering of the same moves survives. If that argument is wrong the
+    /// symptom is silent: the solver still returns a solution and still calls it
+    /// optimal, it is just longer than the true optimum. So the check is that the
+    /// reduced search returns the <b>same length</b> as the hall-of-fame record,
+    /// not merely that it returns something.</para>
+    /// </summary>
+    [TestMethod]
+    [DataRow("submarine", 83, PartialOrderMode.SleepSets)]
+    [DataRow("noground", 44, PartialOrderMode.SleepSets)]
+    [DataRow("wc", 100, PartialOrderMode.SleepSets)]
+    [DataRow("start", 54, PartialOrderMode.SleepSets)]
+    [DataRow("submarine", 83, PartialOrderMode.Pairwise)]
+    [DataRow("noground", 44, PartialOrderMode.Pairwise)]
+    [DataRow("wc", 100, PartialOrderMode.Pairwise)]
+    [DataRow("start", 54, PartialOrderMode.Pairwise)]
+    public void PartialOrderReductionKeepsTheOptimum(string levelName, int expected, PartialOrderMode mode)
+    {
+        Level level = TestCorpus.Instance.LoadLevel(levelName);
+        var solver = new Solver(level, LevelReduction.Verified(level, TestCorpus.Solution(levelName)));
+
+        SolveResult result = solver.Solve(
+            new SolveOptions { TimeLimit = TimeSpan.FromMinutes(2), PartialOrder = mode });
+
+        Assert.IsTrue(result.Solved, $"{levelName}: {result.Status}");
+        Assert.AreEqual(
+            expected, result.Moves!.Length, $"{levelName} under {mode}: the reduction changed the optimum");
+        Assert.IsTrue(
+            SolutionValidator.Validate(new Room(level), result.Moves).Solved,
+            $"{levelName} under {mode}: the reduced search's answer does not solve the level");
+    }
+
+    /// <summary>
     /// The goal is tested when a state is popped, not when it is generated,
     /// because a state can have h == 0 without being solved and would otherwise
     /// let a one-move-too-long finish be returned first. A returned solution must

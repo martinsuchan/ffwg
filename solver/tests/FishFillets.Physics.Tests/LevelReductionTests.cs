@@ -28,24 +28,70 @@ public sealed class LevelReductionTests
         var room = new Room(level);
         var frozen = reduction.FrozenModels;
 
-        AssertStill(room, level, frozen, levelName, -1);
+        // The baseline is where the opening settle leaves things, not what the
+        // level file declares. A level may float a model and let it fall before
+        // the first move - society writes item 11 at (7,2) and it comes to rest
+        // at (7,12) - and reading that fall as "a frozen model moved" is a false
+        // counter-example (solver/docs/012).
+        var startX = new int[level.ModelCount];
+        var startY = new int[level.ModelCount];
+        for (int i = 0; i < level.ModelCount; i++)
+        {
+            startX[i] = room.State(i).X;
+            startY[i] = room.State(i).Y;
+        }
+
         for (int i = 0; i < moves.Length; i++)
         {
             Assert.IsTrue(room.ApplyMove(moves[i]), $"{levelName}: move {i} was rejected");
-            AssertStill(room, level, frozen, levelName, i);
+            AssertStill(room, level, frozen, startX, startY, levelName, i);
         }
     }
 
-    private static void AssertStill(Room room, Level level, int[] frozen, string levelName, int move)
+    private static void AssertStill(
+        Room room, Level level, int[] frozen, int[] startX, int[] startY, string levelName, int move)
     {
         foreach (int model in frozen)
         {
             ref readonly ModelState m = ref room.State(model);
-            ModelDef def = level.Models[model];
             Assert.IsTrue(
-                m.X == def.X && m.Y == def.Y && !m.IsLost && !m.IsOut,
-                $"{levelName}: model {model} ({def.Kind}) was frozen by the analysis but moved from " +
-                $"({def.X},{def.Y}) to ({m.X},{m.Y}) after move {move}");
+                m.X == startX[model] && m.Y == startY[model] && !m.IsLost && !m.IsOut,
+                $"{levelName}: model {model} ({level.Models[model].Kind}) was frozen by the analysis but moved " +
+                $"from ({startX[model]},{startY[model]}) to ({m.X},{m.Y}) after move {move}");
+        }
+    }
+
+    /// <summary>
+    /// The analysis has to stand on its own, without the safety net.
+    ///
+    /// <see cref="LevelReduction.Verified"/> replays a known solution and throws
+    /// the whole analysis away if it is contradicted - which is only possible
+    /// where a recorded solution exists. Anything that runs the analysis on a
+    /// state reached mid-search has no such reference, so a fallback that fires
+    /// in normal use is not a safety net but a bug being papered over. It used to
+    /// fire on 7 of 80 levels; two real defects caused it (solver/docs/012).
+    /// </summary>
+    [TestMethod]
+    [DynamicData(nameof(ReferenceSolutionTests.SolvableLevels), typeof(ReferenceSolutionTests))]
+    public void UnverifiedAnalysisAgreesWithEveryReferenceSolution(string levelName)
+    {
+        Level level = TestCorpus.Instance.LoadLevel(levelName);
+        string moves = TestCorpus.Solution(levelName);
+        int[] frozen = LevelReduction.Compute(level).FrozenModels;
+
+        var room = new Room(level);
+        var startX = new int[level.ModelCount];
+        var startY = new int[level.ModelCount];
+        for (int i = 0; i < level.ModelCount; i++)
+        {
+            startX[i] = room.State(i).X;
+            startY[i] = room.State(i).Y;
+        }
+
+        for (int i = 0; i < moves.Length; i++)
+        {
+            Assert.IsTrue(room.ApplyMove(moves[i]), $"{levelName}: move {i} was rejected");
+            AssertStill(room, level, frozen, startX, startY, levelName, i);
         }
     }
 
@@ -54,11 +100,10 @@ public sealed class LevelReductionTests
     /// sound but pointless. Pins the aggregate so a regression that quietly stops
     /// freezing shows up.
     ///
-    /// The number is modest on purpose. The unchecked analysis freezes far more
-    /// (~1,055 of 1,619), but a real solution contradicts it on most levels, and
-    /// <see cref="LevelReduction.Verified"/> then falls back to the type-level
-    /// reduction there. What survives is what evidence supports. See
-    /// solver/docs/004 on why a complete reducer is not a realistic goal.
+    /// The number is modest on purpose: an analysis this cheap cannot decide
+    /// mobility exactly, and every uncertainty has to resolve towards "might
+    /// move". See solver/docs/004 on why a complete reducer is not a realistic
+    /// goal.
     /// </summary>
     [TestMethod]
     public void FreezesAMeaningfulShareOfTheCorpus()

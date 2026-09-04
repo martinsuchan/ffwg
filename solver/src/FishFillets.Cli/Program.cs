@@ -83,6 +83,11 @@ static void PrintUsage()
                     [--seconds N] [--nodes N] (default 20,000,000)
                     [--weight W]   >1 = faster, no optimality proof
                     [--macro]      macro-move search (slower; see docs/005)
+                    [--partial-order sleep|pairwise]  move-ordering reduction
+                                   (correct, but measured a net loss - docs/011)
+                    [--work N]     charge N extra per cell of a movable item on
+                                   a fish's way out (docs/013). Guides far better
+                                   on item-heavy rooms; gives up "shortest". ~5
                     [--out FILE] [--progress SECONDS] [--quiet] [--no-record]
           ffsolve solve --all               every level with a reference solution
           ffsolve solve --levels-list a,b,c just these
@@ -285,13 +290,25 @@ static int Solve(Corpus corpus, string[] argv)
     LevelReduction reduction = LevelReduction.Verified(level, known);
 
     LevelJson raw = LevelLoader.LoadFile(corpus.LevelPath(name));
+    PartialOrderMode partialOrder = TakeOption(argv, "--partial-order") switch
+    {
+        "pairwise" => PartialOrderMode.Pairwise,
+        "sleep" or "" => PartialOrderMode.SleepSets,
+        _ => PartialOrderMode.Off,
+    };
+
+    int workPenalty = int.TryParse(TakeOption(argv, "--work"), out int wp) ? wp : 0;
+    bool detectStuck = argv.Contains("--stuck");
 
     Console.WriteLine($"level      {name} ({level.Width}x{level.Height})");
     ReportOriginalSolution(corpus, raw, level);
     Console.WriteLine($"reduction  {reduction}");
     Console.WriteLine($"search     {(items ? "item-moves" : macro ? "macro-moves" : "per-symbol A*")}, " +
                       $"weight {weight}, node limit {maxNodes:N0}" +
-                      (seconds > 0 ? $", {seconds}s limit" : ""));
+                      (seconds > 0 ? $", {seconds}s limit" : "") +
+                      (!items && !macro && partialOrder != PartialOrderMode.Off ? $", partial-order {partialOrder}" : "") +
+                      (workPenalty > 0 ? $", item toll {workPenalty} (not admissible - no shortest proof)" : "") +
+                      (detectStuck ? ", stuck-item dead-end detection" : ""));
     Console.WriteLine();
 
     var options = new SolveOptions
@@ -301,6 +318,9 @@ static int Solve(Corpus corpus, string[] argv)
         TimeLimit = seconds > 0 ? TimeSpan.FromSeconds(seconds) : null,
         Progress = quiet ? null : Console.WriteLine,
         ProgressSeconds = double.TryParse(TakeOption(argv, "--progress"), out double ps) ? ps : 1.0,
+        PartialOrder = partialOrder,
+        WorkPenalty = workPenalty,
+        DetectStuck = detectStuck,
     };
 
     SolveResult result = items
@@ -457,6 +477,8 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
     double weight = double.TryParse(TakeOption(argv, "--weight"), out double wt) ? wt : 1.0;
     long maxNodes = long.TryParse(TakeOption(argv, "--nodes"), out long n) ? n : 20_000_000;
     int seconds = int.TryParse(TakeOption(argv, "--seconds"), out int sec) ? sec : 60;
+    int workPenalty = int.TryParse(TakeOption(argv, "--work"), out int wp) ? wp : 0;
+    bool detectStuck = argv.Contains("--stuck");
     string? outDir = TakeOption(argv, "--out-dir");
     int parallel = int.TryParse(TakeOption(argv, "--parallel"), out int p)
         ? p
@@ -476,7 +498,8 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
 
     Console.WriteLine(
         $"solving {levels.Count} level(s), {parallel} at a time " +
-        $"(weight {weight}, {maxNodes:N0} nodes, {seconds}s each, progress every {progressSeconds:F0}s)");
+        $"(weight {weight}, {maxNodes:N0} nodes, {seconds}s each, progress every {progressSeconds:F0}s" +
+        (workPenalty > 0 ? $", item toll {workPenalty}" : "") + ")");
     Console.WriteLine();
 
     var consoleLock = new object();
@@ -498,6 +521,8 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
             {
                 Weight = weight,
                 MaxNodes = maxNodes,
+                WorkPenalty = workPenalty,
+                DetectStuck = detectStuck,
                 TimeLimit = TimeSpan.FromSeconds(seconds),
                 ProgressSeconds = progressSeconds,
                 Progress = progressSeconds <= 0
@@ -566,7 +591,14 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
             if (record is not null)
             {
                 runs[name] = record;
-                Record(corpus, name, record);
+
+                // Honours --no-record like the single-level path does. Merging is
+                // keep-best, so writing can only improve the table - but a flag
+                // the caller passed should still do what it says.
+                if (!argv.Contains("--no-record"))
+                {
+                    Record(corpus, name, record);
+                }
             }
 
             Console.WriteLine($"[{Interlocked.Increment(ref done),3}/{levels.Count}] {line}");

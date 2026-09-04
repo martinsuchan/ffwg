@@ -1,0 +1,88 @@
+{
+  "name": "duckie-simple",
+  "width": 27,
+  "height": 21,
+  "models": [
+    {
+      "kind": "item_fixed",
+      "x": 0,
+      "y": 0,
+      "shape": "XXXXXXX.....XXXXXXXXXXXXXXX\nXXXXXXX.XX...XXXXXXXXXXXXXX\nXXXXXXXX.XX..XXXXXXXXXXXXXX\nXXXXXXXX.XXX.XXXXX.XXXXXXXX\nXXXXXXXX.XXX.X.XXX.XXXXXXXX\nXXXXX.................XXXXX\nXXXXX.................XXXXX\nXXXXX...............X.XXXXX\nXXXXX...............XXXXXXX\nXXXXX................XXXXXX\nXXXXX................XXXXXX\nXXXXX..............XXXXXXX.\nXXXXXXX.....X......X..XXXX.\n.XXXXXXXX.X.X....XXXXXXXX..\n............X..............\n............X..............\n....XXXXXXXXXXXXXXXXXXX....\n...XXXXXXXXXXXXXXXXXXXXX..X\n.XXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "fish_small",
+      "x": 9,
+      "y": 12,
+      "shape": "XXX\n",
+      "goal": "goal_escape",
+      "isLeft": true
+    },
+    {
+      "kind": "fish_big",
+      "x": 16,
+      "y": 8,
+      "shape": "XXXX\nXXXX\n",
+      "goal": "goal_escape",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 11,
+      "y": 10,
+      "shape": "XX\n.X\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 8,
+      "y": 10,
+      "shape": "XXX\nX..\nX..\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 8,
+      "y": 9,
+      "shape": "XXXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 11,
+      "y": 6,
+      "shape": ".X\nXX\nX.\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 15,
+      "y": 10,
+      "shape": "XX..\n.X.X\n.XXX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 14,
+      "y": 9,
+      "shape": "XX\n",
+      "goal": "goal_no",
+      "isLeft": true
+    },
+    {
+      "kind": "item_light",
+      "x": 14,
+      "y": 6,
+      "shape": "XXXXXX\nX....X\n",
+      "goal": "goal_no",
+      "isLeft": true
+    }
+  ],
+  "sourceLevel": "duckie"
+}

@@ -29,6 +29,14 @@ internal sealed class StateSet
         public int KeyOffset;
         public int Cost;
         public int Next;      // 1-based, 0 = end of chain
+
+        /// <summary>
+        /// The sleep set this state was last expanded under - moves that were
+        /// deliberately not explored from it (see <c>Solver</c>'s sleep sets).
+        /// Zero means "everything was explored", which is what every caller that
+        /// does not use the reduction passes.
+        /// </summary>
+        public byte Sleep;
     }
 
     public StateSet(int keySize, int initialCapacity = 1 << 12)
@@ -65,9 +73,32 @@ internal sealed class StateSet
     /// <summary>Where this key's bytes live, so a node can reference them instead of holding a second copy.</summary>
     public ReadOnlySpan<byte> KeyAt(int offset) => _keys.AsSpan(offset, _keySize);
 
-    public bool TryImprove(ReadOnlySpan<byte> key, int cost, out int keyOffset)
+    public bool TryImprove(ReadOnlySpan<byte> key, int cost, out int keyOffset) =>
+        TryImprove(key, cost, 0, out keyOffset, out _);
+
+    /// <summary>
+    /// As <see cref="TryImprove(ReadOnlySpan{byte}, int, out int)"/>, but aware of
+    /// sleep sets.
+    ///
+    /// <para>A state expanded under a sleep set is only <b>partially</b> expanded:
+    /// the sleeping moves were never tried. So reaching it again by another path
+    /// that permits more - a sleep set missing some of the bits the stored one had
+    /// - is not a duplicate, even at the same cost, and has to be expanded again
+    /// or those successors are lost. Without this, sleep sets and a transposition
+    /// table quietly drop parts of the search space.</para>
+    ///
+    /// <para>The stored sleep set is intersected on every accepted arrival, so it
+    /// only ever shrinks. That bounds the re-expansions at one per bit.</para>
+    /// </summary>
+    /// <param name="expandedSleep">
+    /// The sleep set the caller should actually expand under - the intersection of
+    /// everything seen for this state so far.
+    /// </param>
+    public bool TryImprove(
+        ReadOnlySpan<byte> key, int cost, byte sleep, out int keyOffset, out byte expandedSleep)
     {
         keyOffset = -1;
+        expandedSleep = sleep;
         int hash = Hash(key);
         int bucket = hash & _mask;
 
@@ -77,13 +108,25 @@ internal sealed class StateSet
             if (entry.HashCode == hash && key.SequenceEqual(_keys.AsSpan(entry.KeyOffset, _keySize)))
             {
                 keyOffset = entry.KeyOffset;
-                if (cost >= entry.Cost)
+                byte merged = (byte)(entry.Sleep & sleep);
+                expandedSleep = merged;
+
+                if (cost < entry.Cost)
                 {
-                    return false;
+                    entry.Cost = cost;
+                    entry.Sleep = merged;
+                    return true;
                 }
 
-                entry.Cost = cost;
-                return true;
+                // Same cost but this path forbids less: the moves the stored
+                // expansion skipped still have to be tried.
+                if (cost == entry.Cost && merged != entry.Sleep)
+                {
+                    entry.Sleep = merged;
+                    return true;
+                }
+
+                return false;
             }
         }
 
@@ -105,6 +148,7 @@ internal sealed class StateSet
             HashCode = hash,
             KeyOffset = _keyTop,
             Cost = cost,
+            Sleep = sleep,
             Next = _buckets[bucket],
         };
         _buckets[bucket] = _count + 1;

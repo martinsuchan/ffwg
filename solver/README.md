@@ -82,7 +82,9 @@ shorter solution exists.
 | --- | --- | --- |
 | `--seconds N` | none | give up after N seconds |
 | `--nodes N` | 20,000,000 | give up after N expansions (this is also the memory cap in practice) |
-| `--weight W` | 1.0 | inflate the heuristic. >1 finds solutions on levels A\* can't finish, but drops the optimality proof |
+| `--weight W` | 1.0 | inflate the heuristic. >1 drops the optimality proof. Rarely helps on its own — see `--work` |
+| `--work N` | 0 | charge N extra per cell of a movable item on a fish's way out ([docs/013](docs/013-2026-08-17-reduction-fixes-and-work-heuristic.md)). Reaches levels A\* cannot; drops the optimality proof. Try 3, then 8 |
+| `--stuck` | off | drop states where an item is stuck forever and has walled a fish in ([docs/014](docs/014-2026-08-17-stuck-item-dead-end-detection.md)). Always sound; measured a small net loss, so opt-in |
 | `--macro` | off | search over decisions (travel, then one thing that changes the world) instead of key presses — see below |
 | `--out FILE` | — | write the solution as `saved_moves = '…'` |
 | `--progress N` | 1 | progress line every N seconds (`0` silences) |
@@ -92,7 +94,7 @@ shorter solution exists.
 ```
 ffsolve solve start                                  # solves in ~1.5 s
 ffsolve solve stairs --nodes 60000000 --seconds 600  # needs a bigger budget
-ffsolve solve gems --weight 2 --seconds 300          # give up optimality for reach
+ffsolve solve cabin1 --work 3 --seconds 300          # give up optimality for reach
 ffsolve solve cellar --out solutions\cellar.lua
 ```
 
@@ -143,6 +145,7 @@ in the real game).
 | `--seconds N` | 60 | per level |
 | `--nodes N` | 20,000,000 | per level |
 | `--weight W` | 1.0 | as above |
+| `--work N` | 0 | as above |
 | `--out-dir DIR` | — | write each solution found into DIR |
 | `--progress N` | 10 | per-level progress, prefixed with the level name |
 
