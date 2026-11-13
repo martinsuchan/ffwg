@@ -31,6 +31,9 @@ public sealed class MicroBaselineTests
 
     private static string BaselinePath => Path.Combine(MicroCorpus.SourceDir, "micro-baseline.csv");
 
+    /// <summary>Corpus levels A* proves optimal in a few seconds each (see results.csv).</summary>
+    private static readonly string[] CorpusLevels = ["start", "wc", "noground", "submarine", "cannons", "wreck"];
+
     private sealed record Row(string Level, string Variant, string Status, int Length, long Expanded, int Stored);
 
     [TestMethod]
@@ -54,6 +57,20 @@ public sealed class MicroBaselineTests
                 current.Add(new Row(level.Name, variant.Id, StatusOf(r), r.Moves?.Length ?? -1, r.Expanded, r.StatesStored));
             }
         }
+
+        // Real levels with proven optima - the micro-levels are too small to
+        // show what a search change does to effort, these are not. Plain A* with
+        // the CLI's reduction, so the counts match `ffsolve solve`.
+        var corpus = new Row[CorpusLevels.Length];
+        Parallel.For(0, CorpusLevels.Length, i =>
+        {
+            string name = CorpusLevels[i];
+            Level level = TestCorpus.Instance.LoadLevel(name);
+            SolveResult r = new Solver(level, LevelReduction.Verified(level, TestCorpus.Solution(name)))
+                .Solve(new SolveOptions { MaxNodes = 3_000_000, TimeLimit = TimeSpan.FromMinutes(5) });
+            corpus[i] = new Row("corpus:" + name, "astar", StatusOf(r), r.Moves?.Length ?? -1, r.Expanded, r.StatesStored);
+        });
+        current.AddRange(corpus);
 
         if (Environment.GetEnvironmentVariable("UPDATE_BASELINE") == "1")
         {

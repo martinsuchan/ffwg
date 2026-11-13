@@ -311,6 +311,26 @@ public sealed class Solver
 
     public LevelReduction Reduction => _reduction;
 
+    /// <summary>
+    /// Bytes held by the search's own structures - visited set, node array and
+    /// open lists - at their current capacity. Excludes the per-layout caches
+    /// (<c>--work</c>/<c>--stuck</c>). Read after <see cref="Solve"/> for a
+    /// deterministic, GC-independent memory figure (<c>ffsolve bench --suite</c>).
+    /// </summary>
+    public long MemoryBytes
+    {
+        get
+        {
+            long open = 0;
+            foreach (List<int> bucket in _open)
+            {
+                open += (long)bucket.Capacity * sizeof(int);
+            }
+
+            return _visited.MemoryBytes + ((long)_nodes.Length * System.Runtime.CompilerServices.Unsafe.SizeOf<Node>()) + open;
+        }
+    }
+
     public SolveResult Solve(SolveOptions options)
     {
         var stopwatch = Stopwatch.StartNew();

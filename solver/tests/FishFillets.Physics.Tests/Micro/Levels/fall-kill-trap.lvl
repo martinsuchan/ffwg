@@ -1,0 +1,14 @@
+# expect: 11
+# tags:   gravity, death, two-fish, ordering, tier20
+# why:    the small fish must shove the item off its ledge; it drops straight
+#         down column 6. If the big fish is underneath at that moment it is
+#         crushed, so the move order matters.
+# s: fish_small >
+# b: fish_big <
+# A: item_light
+XXXXXXXXXXXX
+X.sssA.....X
+XXXXXX.....X
+X......bbbb.
+X......bbbb.
+XXXXXXXXXXXX

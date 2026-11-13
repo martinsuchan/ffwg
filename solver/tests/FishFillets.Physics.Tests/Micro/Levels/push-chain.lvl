@@ -1,0 +1,12 @@
+# expect: 9
+# tags:   push, chain, gravity, tier10
+# why:    a one-tall corridor with two light items nose to tail. One push
+#         moves both (Rules::moveDirBrute recurses), and both drop into the pit.
+# s: fish_small >
+# A: item_light
+# B: item_light
+XXXXXXXXXXXXX
+Xsss.AB......
+XXXXXX...XXXX
+XXXXXX...XXXX
+XXXXXXXXXXXXX

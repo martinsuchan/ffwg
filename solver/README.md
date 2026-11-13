@@ -292,6 +292,19 @@ Replays a reference solution repeatedly and reports moves/sec and bytes
 allocated. Allocation should stay at zero — if it doesn't, something in the hot
 path regressed.
 
+```
+ffsolve bench --suite --out before.csv          # on the old build
+ffsolve bench --suite --compare before.csv      # on the new one
+```
+
+Wall clock of fixed, node-limited A* searches (start, cannons, wreck, society,
+library; `--quick` runs only the first two), best of `--reps` (3). Prints
+expansions/s and bytes per stored state (from the solver's own array sizes, so
+exact), and with `--compare` the per-expansion speed-up and memory ratio against
+an earlier run — flagging any level whose expansion count changed, since then the
+search itself changed, not just its speed. Use it for every performance change
+([docs/017](docs/017-2026-11-13-regression-suite-phase-2.md)).
+
 ---
 
 # Working with modified levels
@@ -395,7 +408,7 @@ reports overlapping models exactly as the solver would reject them. Watching
 
 # Tests
 
-`scriptsuild-solver.ps1` runs the regression suite (`dotnet test` with
+`scripts\build-solver.ps1` runs the regression suite (`dotnet test` with
 `--filter "TestCategory!=KnownBug"`) — ~580 tests, a few seconds. Run it after
 any change to `FishFillets.Physics` or `FishFillets.Search`. It covers six things (see
 [`docs/002`](docs/002-2026-08-14-test-project.md), [`docs/004`](docs/004-2026-08-14-from-scratch-solver.md)):
@@ -416,11 +429,21 @@ any change to `FishFillets.Physics` or `FishFillets.Search`. It covers six thing
   [`docs/015`](docs/015-2026-11-13-micro-level-regression-suite.md)): every solver
   variant against an independent full-state BFS, the heuristic and the pruning
   rules checked in *every* reachable state, and a node-count baseline
-  (`Micro/micro-baseline.csv`) that fails on regressions. Accept deliberate
-  changes with `$env:UPDATE_BASELINE=1` and commit the CSV diff.
+  (`Micro/micro-baseline.csv`, which also pins the exact effort on six proven
+  corpus levels) that fails on regressions. Accept deliberate changes with
+  `$env:UPDATE_BASELINE=1` and commit the CSV diff.
+- **the physics fingerprint** (`Micro/physics-digest.csv`,
+  [`docs/017`](docs/017-2026-11-13-regression-suite-phase-2.md)): a seeded
+  6,000-move random walk per level, off any solution path, hashed - any change to
+  what any move does, from any visited state, shows up.
+- **fuzzing**: a fixed-seed smoke run of random rooms against the oracle in the
+  normal suite; violations are attributed to open findings by mechanism, anything
+  unexplained fails. For hunting, run more rooms - each new kind of failure is
+  minimised into a ready-to-commit `.lvl` under `%TEMP%\ffwg-fuzz\`:
+  `$env:FUZZ_COUNT=20000; dotnet test solver\FishFillets.Solver.slnx -c Release --filter TestCategory=Fuzz`
 
 Checks pinned to open findings carry `[TestCategory("KnownBug")]` and are
-expected to fail until fixed: `scriptsuild-solver.ps1 -KnownBugs` runs only
+expected to fail until fixed: `scripts\build-solver.ps1 -KnownBugs` runs only
 those. When a fix turns its rows green, delete the level's `known-bug:` entry.
 
 `ffsolve verify --all` does the corpus half on its own, which is what

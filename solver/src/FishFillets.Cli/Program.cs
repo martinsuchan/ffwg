@@ -111,7 +111,11 @@ static void PrintUsage()
           ffsolve verify <level> | --all | <level> --moves S
           ffsolve reduce <level> | --all    models the analysis proves immobile
           ffsolve info <level>              size, models, goals, branching factor
-          ffsolve bench <level> [--rounds N] (200)
+          ffsolve bench <level> [--rounds N] (200)   physics replay throughput
+          ffsolve bench --suite             wall clock of fixed A* searches, to
+                    [--reps N] (3)          compare builds: per-expansion speed-up
+                    [--quick]               and bytes per stored state
+                    [--out FILE] [--compare FILE]
 
         OPTIONS (any command)
           --levels <dir>      level JSON     (default <repo>/solver/levels)
@@ -852,9 +856,14 @@ static int Improve(Corpus corpus, string[] argv)
 
 static int Bench(Corpus corpus, string[] argv)
 {
+    if (argv.Contains("--suite"))
+    {
+        return BenchSuite(corpus, argv);
+    }
+
     if (argv.Length < 2)
     {
-        Console.Error.WriteLine("bench needs a level name");
+        Console.Error.WriteLine("bench needs a level name, or --suite");
         return 2;
     }
 
@@ -889,6 +898,114 @@ static int Bench(Corpus corpus, string[] argv)
     Console.WriteLine($"elapsed        {sw.Elapsed.TotalMilliseconds:F1} ms");
     Console.WriteLine($"throughput     {applied / sw.Elapsed.TotalSeconds / 1_000_000:F2} M moves/s");
     Console.WriteLine($"allocated      {allocated} bytes ({(double)allocated / applied:F3} per move)");
+    return 0;
+}
+
+/// <summary>
+/// Wall-clock benchmark of real searches, for comparing two builds of the
+/// solver (before/after an optimisation, JIT vs AOT, runtime versions).
+///
+/// <para>The workloads are node-limited plain A* at weight 1, so every build
+/// does exactly the same work - the expansion count is printed, and a mismatch
+/// against the compared file means the search itself changed, not just its
+/// speed. Time is the best of <c>--reps</c> runs, which filters out most of the
+/// noise from whatever else the machine is doing.</para>
+///
+/// <para>Bytes per state is what the search's own structures hold at their
+/// current capacity (<see cref="Solver.MemoryBytes"/>, growth headroom included)
+/// divided by the states it stored - the number the memory work (review P1) is
+/// meant to cut. Counted from array sizes, not the GC, so it is exact and
+/// repeatable.</para>
+/// </summary>
+static int BenchSuite(Corpus corpus, string[] argv)
+{
+    int reps = int.TryParse(TakeOption(argv, "--reps"), out int rp) ? Math.Max(1, rp) : 3;
+    string? outPath = TakeOption(argv, "--out");
+    string? comparePath = TakeOption(argv, "--compare");
+    bool quick = argv.Contains("--quick");
+
+    (string Level, long Nodes)[] suite = quick
+        ? [("start", 0), ("cannons", 0)]
+        : [("start", 0), ("cannons", 0), ("wreck", 0), ("society", 1_500_000), ("library", 2_000_000)];
+
+    string runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
+                     // IsDynamicCodeSupported is false under plain `dotnet run` too once a
+                     // project sets PublishAot; only an AOT image has no JIT at all.
+                     + (System.Runtime.JitInfo.GetCompiledMethodCount() > 0 ? " JIT" : " AOT");
+    Console.WriteLine($"bench suite - {runtime}, {Environment.ProcessorCount} cores, best of {reps}");
+    Console.WriteLine($"{"level",-10} {"expanded",12} {"stored",12} {"seconds",8} {"k exp/s",8} {"B/state",8}");
+
+    var rows = new List<(string Level, long Expanded, int Stored, double Seconds, double BytesPerState)>();
+    foreach ((string name, long nodes) in suite)
+    {
+        Level level = corpus.LoadLevel(name);
+        string? known = corpus.TryReadSolution(name, out string k) ? k : null;
+        LevelReduction reduction = LevelReduction.Verified(level, known);
+        var options = new SolveOptions { MaxNodes = nodes > 0 ? nodes : 20_000_000 };
+
+        double best = double.MaxValue;
+        SolveResult? result = null;
+        double bytesPerState = 0;
+        for (int rep = 0; rep < reps; rep++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+
+            var solver = new Solver(level, reduction);
+            SolveResult r = solver.Solve(options);
+            if (r.Elapsed.TotalSeconds < best)
+            {
+                best = r.Elapsed.TotalSeconds;
+                result = r;
+                bytesPerState = r.StatesStored > 0 ? (double)solver.MemoryBytes / r.StatesStored : 0;
+            }
+        }
+
+        rows.Add((name, result!.Expanded, result.StatesStored, best, bytesPerState));
+        Console.WriteLine(
+            $"{name,-10} {result.Expanded,12:N0} {result.StatesStored,12:N0} {best,8:F2} " +
+            $"{result.Expanded / best / 1000,8:F0} {bytesPerState,8:F0}");
+    }
+
+    if (outPath is not null)
+    {
+        var text = new System.Text.StringBuilder($"# {runtime}\nlevel;expanded;stored;seconds;bytesPerState\n");
+        foreach (var row in rows)
+        {
+            text.Append(System.Globalization.CultureInfo.InvariantCulture, $"{row.Level};{row.Expanded};{row.Stored};{row.Seconds:F3};{row.BytesPerState:F1}\n");
+        }
+
+        File.WriteAllText(outPath, text.ToString());
+        Console.WriteLine($"written to {outPath}");
+    }
+
+    if (comparePath is not null)
+    {
+        var before = File.ReadAllLines(comparePath)
+            .Where(l => l.Length > 0 && !l.StartsWith('#') && !l.StartsWith("level;", StringComparison.Ordinal))
+            .Select(l => l.Split(';'))
+            .ToDictionary(
+                p => p[0],
+                p => (Expanded: long.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture),
+                      Seconds: double.Parse(p[3], System.Globalization.CultureInfo.InvariantCulture),
+                      Bytes: double.Parse(p[4], System.Globalization.CultureInfo.InvariantCulture)));
+
+        Console.WriteLine();
+        Console.WriteLine($"vs {Path.GetFileName(comparePath)} ({File.ReadLines(comparePath).First().TrimStart('#', ' ')})");
+        Console.WriteLine($"{"level",-10} {"speed-up",9} {"memory",9}  note");
+        foreach (var row in rows)
+        {
+            if (!before.TryGetValue(row.Level, out var b))
+            {
+                continue;
+            }
+
+            string note = b.Expanded == row.Expanded ? "" : $"different search: {b.Expanded:N0} -> {row.Expanded:N0} expansions";
+            double speedUp = (b.Seconds / b.Expanded) / (row.Seconds / row.Expanded);
+            Console.WriteLine($"{row.Level,-10} {speedUp,8:F2}x {(b.Bytes > 0 ? row.BytesPerState / b.Bytes : 0),8:F2}x  {note}");
+        }
+    }
+
     return 0;
 }
 
