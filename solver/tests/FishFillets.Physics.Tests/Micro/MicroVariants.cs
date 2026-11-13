@@ -52,7 +52,9 @@ internal static class MicroVariants
     [
         new("astar", Promise.Optimal, 1, l => new Solver(l).Solve(Options())),
         new("astar-safe", Promise.Optimal, 1, l => new Solver(l, LevelReduction.Safe(l)).Solve(Options())),
-        new("astar-stuck", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { DetectStuck = true })),
+        // Stuck-item detection is on by default (docs/020); this column keeps the
+        // search without it, so the baseline shows what the rule saves.
+        new("astar-nostuck", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { DetectStuck = false })),
         new("astar-sleep", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { PartialOrder = PartialOrderMode.SleepSets })),
         new("astar-pairwise", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { PartialOrder = PartialOrderMode.Pairwise })),
         new("wastar-2", Promise.Bounded, 2, l => new Solver(l).Solve(Options(2))),

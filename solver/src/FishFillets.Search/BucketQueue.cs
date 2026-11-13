@@ -87,6 +87,22 @@ internal sealed class BucketQueue
         return true;
     }
 
+    /// <summary>
+    /// Takes the next item only if it comes from bucket <paramref name="priority"/>
+    /// - for gathering a batch that the serial order would expand back to back.
+    /// </summary>
+    public bool TryPopFrom(int priority, out int item)
+    {
+        if (_current == priority && priority < _buckets.Length && _drained[priority] < _buckets[priority].Count)
+        {
+            item = _buckets[priority][_drained[priority]++];
+            return true;
+        }
+
+        item = 0;
+        return false;
+    }
+
     /// <summary>Bytes held by the bucket lists at their current capacity.</summary>
     public long MemoryBytes
     {

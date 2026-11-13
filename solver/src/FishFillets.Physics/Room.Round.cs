@@ -101,6 +101,15 @@ public sealed partial class Room
     /// <returns>False if no unit owns the symbol, or the move it names is blocked.</returns>
     public bool ApplyMove(char symbol)
     {
+        // Turns and swims into open water skip the round entirely (review P2).
+        if (UseFastPath && TryFastMove(symbol))
+        {
+            LastMoveWasFast = true;
+            return true;
+        }
+
+        LastMoveWasFast = false;
+
         if (!MakeMove(symbol))
         {
             return false;

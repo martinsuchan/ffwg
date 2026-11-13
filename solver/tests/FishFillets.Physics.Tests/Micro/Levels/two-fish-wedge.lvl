@@ -1,0 +1,22 @@
+# expect: 33
+# tags:   trap, gravity, stuck, two-fish, perf, tier30
+# why:    drop-trap-well with a second fish. Both fish leave through the
+#         two-tall tunnel at the bottom. One push right sends the post down the
+#         shaft into a slot in the tunnel floor, where it wedges for good and
+#         closes the tunnel's lower row: the small fish still fits past, the big
+#         one never will. The walls-only distances cannot see it, so without the
+#         stuck-item rule the whole dead subtree is searched - every position of
+#         both fish behind the wedge.
+# s: fish_small >
+# b: fish_big <
+# A: item_light
+XXXXXXXXXXXXXX
+X.sss...bbbb.X
+X....A..bbbb.X
+X....A.......X
+XXXXXX.X.....X
+XXXXXX.X.....X
+.............X
+.............X
+XXXXXX.XXXXXXX
+XXXXXXXXXXXXXX

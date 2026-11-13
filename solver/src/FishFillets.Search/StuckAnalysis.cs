@@ -46,7 +46,18 @@ internal static class StuckAnalysis
     /// neighbours. It is also strictly more cautious, since a fish that might be
     /// anywhere can only make more models look mobile, never fewer.</para>
     /// </param>
-    public static bool[] Mobile(Level level, Room room, bool fishAnywhere = false)
+    public static bool[] Mobile(Level level, Room room, bool fishAnywhere = false) =>
+        Mobile(level, room, fishAnywhere, null, out _);
+
+    /// <inheritdoc cref="Mobile(Level, Room, bool)"/>
+    /// <param name="fixedSolid">
+    /// <see cref="FixedSolid"/> for this level, if the caller keeps it: the cells
+    /// of the models that can never move, which are the same in every state and
+    /// - with the room's own walls among them - most of what each pass would
+    /// otherwise redraw.
+    /// </param>
+    /// <param name="solid">The solid cells for the answer - <see cref="SolidCells"/> of it.</param>
+    public static bool[] Mobile(Level level, Room room, bool fishAnywhere, bool[]? fixedSolid, out bool[] solid)
     {
         var mobile = new bool[level.Models.Length];
         var gone = new bool[level.Models.Length];
@@ -80,25 +91,50 @@ internal static class StuckAnalysis
             typeImmovable[i] = !canEverMove[i];
         }
 
+        // Only for models that could join the set: the walls and the rest of
+        // the type-immovable are never asked about, and the room's own shape
+        // is by far the largest there is.
         var supportOf = new List<int>[level.ModelCount];
         for (int i = 0; i < level.ModelCount; i++)
         {
+            if (mobile[i] || gone[i] || !canEverMove[i])
+            {
+                continue;
+            }
+
             supportOf[i] = Neighbours(level, room, i, 0, 1);
+
+            // With the fish anywhere, where they actually are must not matter -
+            // and it would, through support: an item resting on a fish counted
+            // as mobile, the same item beside it did not. The answer is cached
+            // per item layout, which leaves fish positions out, so a verdict
+            // then depended on which state of a layout was analysed first, and
+            // parallel workers disagreed with the serial search (docs/020).
+            // Dropping living fish as supports is sound: an item a fish alone
+            // holds up is left resting on nothing, which counts as mobile; one
+            // that also rests on something immobile does not fall when the fish
+            // leaves, and a fish lifting it from below is a push, which
+            // MightMove already tries from every placement a fish fits.
+            if (fishAnywhere)
+            {
+                supportOf[i].RemoveAll(m => mobile[m] && level.Models[m].IsAlive);
+            }
         }
 
         Weight strongest = StrongestFish(level, room);
 
         bool changed = true;
+        solid = [];
         while (changed)
         {
             changed = false;
-            bool[] solid = SolidCells(level, room, mobile);
+            solid = fixedSolid is null ? SolidCells(level, room, mobile) : MutableSolid(level, room, mobile, fixedSolid);
             bool[]?[] reachable = PusherReachability(level, room, solid, mobile, gone, fishAnywhere);
 
             for (int i = 0; i < level.ModelCount; i++)
             {
                 if (mobile[i] || gone[i] || !canEverMove[i]
-                    || !MightMove(level, room, typeImmovable, reachable, supportOf[i], mobile, gone, strongest, i))
+                    || !MightMove(level, room, typeImmovable, solid, reachable, supportOf[i], mobile, gone, strongest, i))
                 {
                     continue;
                 }
@@ -109,6 +145,54 @@ internal static class StuckAnalysis
         }
 
         return mobile;
+    }
+
+    /// <summary>
+    /// The cells of every model that can never move (the room's walls among
+    /// them) - the part of <see cref="SolidCells"/> that is the same in every
+    /// state of a level.
+    /// </summary>
+    public static bool[] FixedSolid(Level level, Room room)
+    {
+        var mutable = new bool[level.Models.Length];
+        foreach (int i in level.MutableModels)
+        {
+            mutable[i] = true;
+        }
+
+        var all = new bool[level.Models.Length];
+        for (int i = 0; i < level.ModelCount; i++)
+        {
+            all[i] = mutable[i];
+        }
+
+        return SolidCells(level, room, all);
+    }
+
+    /// <summary><see cref="SolidCells"/>, starting from <see cref="FixedSolid"/> and adding only the models that can move.</summary>
+    private static bool[] MutableSolid(Level level, Room room, bool[] mobile, bool[] fixedSolid)
+    {
+        var solid = (bool[])fixedSolid.Clone();
+        foreach (int i in level.MutableModels)
+        {
+            if (mobile[i] || room.State(i).IsOut)
+            {
+                continue;
+            }
+
+            Shape shape = level.Models[i].Shape;
+            ref readonly ModelState at = ref room.State(i);
+            for (int m = 0; m < shape.MarkX.Length; m++)
+            {
+                int cx = at.X + shape.MarkX[m], cy = at.Y + shape.MarkY[m];
+                if ((uint)cx < (uint)level.Width && (uint)cy < (uint)level.Height)
+                {
+                    solid[(cy * level.Width) + cx] = true;
+                }
+            }
+        }
+
+        return solid;
     }
 
     /// <summary>
@@ -207,6 +291,7 @@ internal static class StuckAnalysis
         Level level,
         Room room,
         bool[] typeImmovable,
+        bool[] solid,
         bool[]?[] reachable,
         List<int> supportOf,
         bool[] mobile,
@@ -232,16 +317,43 @@ internal static class StuckAnalysis
         }
 
         // Anything already on the move could come to rest against it and shove.
-        for (int pusher = 0; pusher < level.ModelCount; pusher++)
+        // Direction first: whether the chain in front of the model can give way
+        // does not depend on who pushes, so it is worked out once per direction
+        // rather than once per pusher and direction (docs/020).
+        int[][][] faces = Faces(level);
+        var chain = new HashSet<int>();
+        for (int d = 0; d < 4; d++)
         {
-            if (pusher == model || !mobile[pusher] || gone[pusher] || reachable[pusher] is not bool[] where)
+            (int dx, int dy) = d switch
+            {
+                0 => (-1, 0),
+                1 => (1, 0),
+                2 => (0, -1),
+                _ => (0, 1),
+            };
+
+            chain.Clear();
+            Weight heaviest = Weight.None;
+            if (!CanShiftChain(level, room, typeImmovable, mobile, gone, model, dx, dy, chain, ref heaviest))
             {
                 continue;
             }
 
-            if (CanPush(level, room, typeImmovable, mobile, gone, where, strongest, pusher, model))
+            for (int pusher = 0; pusher < level.ModelCount; pusher++)
             {
-                return true;
+                if (pusher == model || !mobile[pusher] || gone[pusher] || reachable[pusher] is not bool[] where)
+                {
+                    continue;
+                }
+
+                // A fish pushing directly is held to its own strength; an item
+                // doing the pushing has whatever fish drives the chain behind it.
+                Weight power = level.Models[pusher].IsAlive ? level.Models[pusher].Power : strongest;
+                if (power >= heaviest
+                    && PusherLandsOn(level, room, solid, where, pusher, model, dx, dy, faces[pusher][d], faces[model][d ^ 1]))
+                {
+                    return true;
+                }
             }
         }
 
@@ -249,10 +361,18 @@ internal static class StuckAnalysis
     }
 
     /// <summary>
+    /// "Wherever it fits": the placements are not listed but tested on demand
+    /// (<see cref="Fits"/>), because <see cref="PusherLandsOn"/> only ever asks about
+    /// the few anchors that would land on its target. Building the full map per
+    /// model per pass was most of the analysis's cost (docs/020).
+    /// </summary>
+    private static readonly bool[] Anywhere = [];
+
+    /// <summary>
     /// Where each model that might move could be standing when it does the
     /// shoving. A fish swims, so plain connectivity from where it is; an item
     /// only goes where it is pushed, so anything tighter than "every placement
-    /// that fits" would have to model how it got there.
+    /// that fits" (<see cref="Anywhere"/>) would have to model how it got there.
     /// </summary>
     private static bool[]?[] PusherReachability(
         Level level, Room room, bool[] solid, bool[] mobile, bool[] gone, bool fishAnywhere)
@@ -277,16 +397,7 @@ internal static class StuckAnalysis
                 continue;
             }
 
-            var fits = new bool[level.Width * level.Height];
-            for (int y = 0; y < level.Height; y++)
-            {
-                for (int x = 0; x < level.Width; x++)
-                {
-                    fits[(y * level.Width) + x] = Fits(level, i, solid, x, y);
-                }
-            }
-
-            reachable[i] = fits;
+            reachable[i] = Anywhere;
         }
 
         return reachable;
@@ -355,65 +466,39 @@ internal static class StuckAnalysis
     }
 
     /// <summary>
-    /// Whether any placement of the pusher would actually shift this model.
-    /// Reaching a pushing position is not enough - the model has to have
-    /// somewhere to go. A push into a wall simply fails
-    /// (<c>Rules::canMoveOthers</c>), so a direction whose destination cells are
-    /// permanently blocked can be ruled out entirely, which is what frees a model
-    /// wedged tightly on a shelf.
+    /// Whether the pusher can stand where a step in (dx, dy) lands its shape on
+    /// the model. Reaching a pushing position is not enough on its own - the
+    /// caller has already checked that the chain in front has somewhere to go
+    /// (a push into a wall simply fails, <c>Rules::canMoveOthers</c>), which is
+    /// what frees a model wedged tightly on a shelf.
     /// </summary>
-    /// <param name="strongest">
-    /// The power available to an item doing the pushing: whatever fish drives the
-    /// chain behind it. A fish pushing directly is held to its own strength.
-    /// </param>
-    private static bool CanPush(
-        Level level,
-        Room room,
-        bool[] typeImmovable,
-        bool[] mobile,
-        bool[] gone,
-        bool[] reachable,
-        Weight strongest,
-        int pusher,
-        int model)
+    /// <param name="pusherFront">The pusher's marks with no mark of its own one step ahead (see <see cref="Faces"/>).</param>
+    /// <param name="targetBack">The target's marks with no mark of its own one step behind.</param>
+    private static bool PusherLandsOn(
+        Level level, Room room, bool[] solid, bool[] reachable, int pusher, int model, int dx, int dy,
+        int[] pusherFront, int[] targetBack)
     {
         int w = level.Width, h = level.Height;
         Shape pusherShape = level.Models[pusher].Shape;
         Shape targetShape = level.Models[model].Shape;
         ref readonly ModelState target = ref room.State(model);
-        Weight power = level.Models[pusher].IsAlive ? level.Models[pusher].Power : strongest;
 
-        for (int d = 0; d < 4; d++)
+        // A push happens when the pusher steps in this direction and its shape
+        // lands on the target - so solve for the anchor directly instead of
+        // scanning the room for it. Only the pusher's front face can make the
+        // contact, and only on the target's back face: any other pairing puts
+        // the two shapes on a common cell before the step, and the target's
+        // cells are solid, so Fits would reject that anchor anyway.
+        foreach (int t in targetBack)
         {
-            (int dx, int dy) = d switch
+            int tx = target.X + targetShape.MarkX[t], ty = target.Y + targetShape.MarkY[t];
+            foreach (int m in pusherFront)
             {
-                0 => (-1, 0),
-                1 => (1, 0),
-                2 => (0, -1),
-                _ => (0, 1),
-            };
-
-            var chain = new HashSet<int>();
-            Weight heaviest = Weight.None;
-            if (!CanShiftChain(level, room, typeImmovable, mobile, gone, model, dx, dy, chain, ref heaviest)
-                || power < heaviest)
-            {
-                continue;
-            }
-
-            // A push happens when the pusher steps in this direction and its
-            // shape lands on the target - so solve for the anchor directly
-            // instead of scanning the room for it.
-            for (int t = 0; t < targetShape.MarkX.Length; t++)
-            {
-                int tx = target.X + targetShape.MarkX[t], ty = target.Y + targetShape.MarkY[t];
-                for (int m = 0; m < pusherShape.MarkX.Length; m++)
+                int ax = tx - dx - pusherShape.MarkX[m], ay = ty - dy - pusherShape.MarkY[m];
+                if ((uint)ax < (uint)w && (uint)ay < (uint)h
+                    && (reachable == Anywhere ? Fits(level, pusher, solid, ax, ay) : reachable[(ay * w) + ax]))
                 {
-                    int ax = tx - dx - pusherShape.MarkX[m], ay = ty - dy - pusherShape.MarkY[m];
-                    if ((uint)ax < (uint)w && (uint)ay < (uint)h && reachable[(ay * w) + ax])
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
         }
@@ -504,6 +589,45 @@ internal static class StuckAnalysis
         return true;
     }
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Level, int[][][]> FaceCache = [];
+
+    /// <summary>
+    /// Per model and direction (0 left, 1 right, 2 up, 3 down - paired so that
+    /// <c>d ^ 1</c> is the opposite), the indices of the shape's marks with no
+    /// mark of the same shape one step that way: its face on that side.
+    /// Depends on the shapes only, so worked out once per level.
+    /// </summary>
+    private static int[][][] Faces(Level level) => FaceCache.GetValue(level, static l =>
+    {
+        var faces = new int[l.ModelCount][][];
+        for (int i = 0; i < l.ModelCount; i++)
+        {
+            Shape shape = l.Models[i].Shape;
+            var cells = new HashSet<(int, int)>();
+            for (int m = 0; m < shape.MarkX.Length; m++)
+            {
+                cells.Add((shape.MarkX[m], shape.MarkY[m]));
+            }
+
+            faces[i] = new int[4][];
+            for (int d = 0; d < 4; d++)
+            {
+                (int dx, int dy) = d switch
+                {
+                    0 => (-1, 0),
+                    1 => (1, 0),
+                    2 => (0, -1),
+                    _ => (0, 1),
+                };
+
+                faces[i][d] = [.. Enumerable.Range(0, shape.MarkX.Length)
+                    .Where(m => !cells.Contains((shape.MarkX[m] + dx, shape.MarkY[m] + dy)))];
+            }
+        }
+
+        return faces;
+    });
+
     /// <summary>The model's whole shape sits on cells that are not solid.</summary>
     public static bool Fits(Level level, int model, bool[] solid, int x, int y)
     {
@@ -530,7 +654,7 @@ internal static class StuckAnalysis
     /// walls-only reading of <c>MarkMask::getBorderDir()</c>: it touches an edge,
     /// and nothing solid blocks the way off it.
     /// </summary>
-    private static bool CanLeave(Level level, int model, bool[] solid, int x, int y)
+    internal static bool CanLeave(Level level, int model, bool[] solid, int x, int y)
     {
         Shape shape = level.Models[model].Shape;
         int w = level.Width, h = level.Height;

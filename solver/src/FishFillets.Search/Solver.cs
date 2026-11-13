@@ -58,13 +58,37 @@ public sealed record SolveOptions
     public int WorkPenalty { get; init; }
 
     /// <summary>
-    /// Whether to drop states in which a fish provably can no longer reach any
-    /// border, once everything <see cref="StuckAnalysis"/> proves immobile is
-    /// counted as wall. Sound - it only ever discards states that genuinely have
-    /// no solution - so it costs nothing but time, and what it saves varies a lot
-    /// by level (solver/docs/012, docs/014).
+    /// Whether to drop states that provably have no solution because something
+    /// is stuck for good - a fish that has to leave walled in, or a goal_out item
+    /// that can never move again (see <see cref="StuckDetector"/>). Sound: it
+    /// only ever discards states that genuinely have no solution, so the answer
+    /// and the shortest-solution proof are unaffected. <b>On by default</b> since
+    /// docs/020: 61-63% of everything plain A* stores on wc and society is such a
+    /// state, and the per-layout cache keeps the cost low everywhere else.
     /// </summary>
-    public bool DetectStuck { get; init; }
+    public bool DetectStuck { get; init; } = true;
+
+    /// <summary>
+    /// Expansions the stuck-item rule gets to prove itself: if it has not
+    /// discarded a single state by then, it is switched off for the rest of the
+    /// search. On a level with no dead ends it is pure cost - up to a third more
+    /// time on rooms whose items move often (docs/020). The first dead end can
+    /// come late (library: expansion 199,356; steel 78,509), hence about a
+    /// million. Decided on counts alone, at the same expansion in a serial and a
+    /// parallel run, so the two stay identical. Zero keeps the rule on throughout.
+    /// </summary>
+    public long StuckProbation { get; init; } = 1 << 20;
+
+    /// <summary>
+    /// Worker threads for expanding nodes (review P4). Above 1, each batch of
+    /// same-f nodes has its successors simulated in parallel and merged in the
+    /// order a serial search would - so at weight 1 the expansion order, every
+    /// count and the answer are identical to <c>Threads = 1</c>. With
+    /// <see cref="PartialOrder"/> or <see cref="WorkPenalty"/>, which keep
+    /// single-threaded per-search state, the search runs serially;
+    /// <see cref="DetectStuck"/> runs in parallel (its cache is thread-safe).
+    /// </summary>
+    public int Threads { get; init; } = 1;
 }
 
 public sealed record SolveResult(
@@ -110,14 +134,22 @@ public sealed record SolveResult(
 /// pedometer counts, so a weight of 1.0 returns a solution that is shortest by
 /// the game's own measure.
 /// </summary>
-public sealed class Solver
+public sealed partial class Solver
 {
     private readonly LevelReduction _reduction;
     private readonly Room _room;
     private readonly int[] _mobile;
     private readonly char[] _symbols;
     private readonly byte[] _key;
-    private readonly StateSet _visited;
+
+    // Visited set and nodes in one, keyed on the compact form of _key (review
+    // P1) - see StateStore and StateKeyCodec. _wide holds the popped state's
+    // wide key: the room is restored from it, and the partial-order reduction
+    // reads the parent's key from it.
+    private readonly StateStore _store;
+    private readonly StateKeyCodec _codec;
+    private readonly byte[] _compact;
+    private readonly byte[] _wide;
 
     private readonly ExitHeuristic _heuristic;
 
@@ -140,11 +172,18 @@ public sealed class Solver
     private readonly byte[] _layoutScratch;
     private LayoutInfo? _lastLayout;
 
-    // Per unit: whether it has to get out of the room at all (review C7).
-    private readonly bool[] _unitMustLeave;
+    // The stuck-item rule (on by default): a shared, thread-safe per-layout
+    // cache, and this thread's front for it.
+    private readonly StuckDetector _stuck;
+    private readonly StuckDetector.Probe _stuckProbe;
 
     private int _workPenalty;
-    private bool _detectStuck;
+    // The stuck-item rule: on for this search, how many states it has
+    // discarded, and when it is switched off if that is still none.
+    private bool _stuckActive;
+    private long _stuckPruned;
+    private long _stuckProbation;
+    private long _stuckFirstPrune;
 
     private const int LayoutCacheLimit = 262144;
 
@@ -153,13 +192,6 @@ public sealed class Solver
     {
         /// <summary>The guiding estimate, when a toll is in use.</summary>
         public WorkHeuristic? Work;
-
-        /// <summary>
-        /// Per unit, the anchors from which it could still get out of the room
-        /// once everything provably stuck is treated as wall. Null until asked
-        /// for; a unit's entry is null when it has already left.
-        /// </summary>
-        public bool[]?[]? CanLeave;
     }
 
     // Per-symbol lookups for the partial-order reduction: which unit a symbol
@@ -181,23 +213,22 @@ public sealed class Solver
     // rebuilt from its key - see Room.RestoreMobile(ReadOnlySpan<ModelState>, ...).
     private readonly ModelState[] _undo;
 
-    private Node[] _nodes = new Node[1 << 16];
-    private int _nodeCount;
+    // Partial-order bookkeeping per state, allocated only when that mode is on.
+    private Node[] _po = [];
     private readonly BucketQueue _queue = new();
 
     private double _weight = 1.0;
 
     /// <summary>
-    /// What a node's own incoming move disturbed, so the expansion can tell
-    /// whether the next move is independent of it. <see cref="Mover"/> is
-    /// <see cref="NoMover"/> when the move was not "simple" (see
-    /// <c>ClassifySimpleMove</c>), which disables the reduction for that node.
+    /// The partial-order reduction's view of a state: what its own incoming
+    /// move disturbed, so the expansion can tell whether the next move is
+    /// independent of it. <see cref="Mover"/> is <see cref="NoMover"/> when the
+    /// move was not "simple" (see <c>ClassifySimpleMove</c>), which disables the
+    /// reduction for that node. Parent, cost and key live in the
+    /// <see cref="StateStore"/>.
     /// </summary>
     private struct Node
     {
-        public int Parent;
-        public int KeyOffset;
-        public int G;
         public char Move;
         public byte Mover;
         public byte X0, Y0, X1, Y1;
@@ -246,7 +277,10 @@ public sealed class Solver
         _room = new Room(level);
         _mobile = _reduction.MobileModels;
         _key = new byte[_reduction.StateKeySize];
-        _visited = new StateSet(_reduction.StateKeySize, 1 << 16);
+        _codec = new StateKeyCodec(level, _mobile);
+        _store = new StateStore(_codec.CompactSize);
+        _compact = new byte[_codec.CompactSize];
+        _wide = new byte[_reduction.StateKeySize];
 
         _symbols = new char[_room.MoveSymbolCount];
         _room.GetMoveSymbols(_symbols, out int count);
@@ -285,7 +319,8 @@ public sealed class Solver
         _itemSlots = [.. itemSlots];
         _unitModel = [.. level.Units.Select(u => u.Model)];
         _unitSlots = [.. _unitModel.Select(m => Array.IndexOf(_mobile, m))];
-        _unitMustLeave = [.. _unitModel.Select(m => level.Models[m].Goal is GoalKind.Escape or GoalKind.Out)];
+        _stuck = new StuckDetector(level, _reduction, _mobile);
+        _stuckProbe = _stuck.NewProbe();
         _lastLayoutBytes = new byte[(_itemSlots.Length * 5) + _unitSlots.Length];
         _layoutScratch = new byte[_lastLayoutBytes.Length];
         _unitBounds = new (int, int, int, int)[level.Units.Length];
@@ -326,8 +361,8 @@ public sealed class Solver
     {
         get
         {
-            return _visited.MemoryBytes
-                   + ((long)_nodes.Length * System.Runtime.CompilerServices.Unsafe.SizeOf<Node>())
+            return _store.MemoryBytes
+                   + ((long)_po.Length * System.Runtime.CompilerServices.Unsafe.SizeOf<Node>())
                    + _queue.MemoryBytes;
         }
     }
@@ -338,12 +373,16 @@ public sealed class Solver
         _weight = options.Weight;
         _mode = options.PartialOrder;
         _workPenalty = options.WorkPenalty;
-        _detectStuck = options.DetectStuck;
+        _stuckActive = options.DetectStuck;
+        _stuckPruned = 0;
+        _stuckFirstPrune = 0;
+        _stuckProbation = options.StuckProbation;
         _layouts.Clear();
         _lastLayout = null;
-        _visited.Clear();
+        _stuck.Clear();
+        _stuckProbe.Reset();
+        _store.Clear();
         _queue.Clear();
-        _nodeCount = 0;
         _room.Reset();
 
         if (_room.IsSolved())
@@ -358,21 +397,35 @@ public sealed class Solver
             return new SolveResult(null, false, "unsolvable: a goal is unreachable from the start", 0, 0, 0, 0, stopwatch.Elapsed);
         }
 
-        if (_detectStuck && NoWayOut())
+        if (_stuckActive && NoWayOut())
         {
             return new SolveResult(
                 null, false, "unsolvable: a fish is already walled in", 0, 0, 0, 0, stopwatch.Elapsed);
         }
 
-        _visited.TryImprove(_key, 0, out int startKey);
         int startGuide = Guide(startH);
         if (startGuide >= WorkHeuristic.Unreachable)
         {
             return new SolveResult(null, false, "unsolvable: the guiding estimate finds no way out", 0, 0, 0, 0, stopwatch.Elapsed);
         }
 
-        int startF = Priority(0, startGuide);
-        _queue.Push(NewNode(-1, startKey, 0, '\0'), startF);
+        _codec.Encode(_key, _compact);
+        int startIndex = _store.FindOrAdd(_compact, out _);
+        _store.Parent(startIndex) = -1;
+        _store.Cost(startIndex) = 0;
+        _store.Estimate(startIndex) = (ushort)Math.Min(startGuide, ushort.MaxValue);
+        if (_mode != PartialOrderMode.Off)
+        {
+            EnsurePo(startIndex);
+            _po[startIndex] = new Node { Mover = NoMover, Move = '\0' };
+        }
+
+        _queue.Push(startIndex, Priority(0, _store.Estimate(startIndex)));
+
+        if (options.Threads > 1 && _mode == PartialOrderMode.Off && _workPenalty <= 0)
+        {
+            return SolveParallel(options, stopwatch);
+        }
 
         long expanded = 0, generated = 1;
         int deepestF = 0;
@@ -383,7 +436,14 @@ public sealed class Solver
         while (_queue.TryPop(out int nodeIndex, out int f))
         {
             {
-                int g = _nodes[nodeIndex].G;
+                int g = _store.Cost(nodeIndex);
+
+                // A state reached again more cheaply is updated in place and
+                // queued again; the older, dearer queue entry is now stale.
+                if (Priority(g, _store.Estimate(nodeIndex)) != f)
+                {
+                    continue;
+                }
 
                 // Every state with a smaller f has been expanded, so this is a
                 // proven lower bound on the answer - but only at weight 1, where
@@ -392,7 +452,8 @@ public sealed class Solver
                 // reported as a bound (see Abandoned).
                 deepestF = Math.Max(deepestF, f);
 
-                _room.RestoreMobile(_visited.KeyAt(_nodes[nodeIndex].KeyOffset), _mobile);
+                _codec.Decode(_store.Key(nodeIndex), _wide);
+                _room.RestoreMobile(_wide, _mobile);
 
                 // The goal is tested when a state is POPPED, not when it is
                 // generated, and that is what makes "shortest" true rather than
@@ -415,17 +476,22 @@ public sealed class Solver
                         "solved",
                         expanded,
                         generated,
-                        _visited.Count,
+                        _store.Count,
                         ProvenBound(f),
                         stopwatch.Elapsed);
                 }
 
                 expanded++;
 
-                byte sleep = _mode == PartialOrderMode.SleepSets ? _nodes[nodeIndex].Sleep : (byte)0;
+                byte sleep = _mode == PartialOrderMode.SleepSets ? _po[nodeIndex].Sleep : (byte)0;
                 byte done = 0;
                 bool restoreNeeded = false;
                 _room.SaveMobile(_undo, _mobile);
+
+                // The parent's stuck verdict, for every child that only moved a
+                // fish: same items, same layout, same verdict - so those skip
+                // the layout key entirely and cost one bit test.
+                StuckDetector.Verdict? parentVerdict = _stuckActive ? _stuck.LayoutVerdict(_room, _wide, _stuckProbe) : null;
 
                 for (int s = 0; s < _symbols.Length; s++)
                 {
@@ -481,8 +547,10 @@ public sealed class Solver
                     // After the key is written, because it is cached on it - and
                     // after IsDeadEnd, which is orders of magnitude cheaper and
                     // catches its own cases first.
-                    if (_detectStuck && h > 0 && NoWayOut())
+                    if (_stuckActive && h > 0
+                        && (_room.LastMoveWasFast ? _stuck.Condemns(parentVerdict!, _room) : NoWayOut()))
                     {
+                        CountStuckPrune(expanded);
                         continue;
                     }
 
@@ -492,17 +560,17 @@ public sealed class Solver
                         continue;
                     }
 
+                    guide = Math.Min(guide, ushort.MaxValue);
                     int childF = Priority(g + 1, guide);
 
                     var child = new Node { Mover = NoMover, Move = symbol };
                     if (_mode != PartialOrderMode.Off)
                     {
-                        ReadOnlySpan<byte> parentKey = _visited.KeyAt(_nodes[nodeIndex].KeyOffset);
-                        ClassifySimpleMove(parentKey, _key, symbol, ref child);
+                        ClassifySimpleMove(_wide, _key, symbol, ref child);
 
                         if (_mode == PartialOrderMode.Pairwise)
                         {
-                            if (IsRedundantOrdering(in _nodes[nodeIndex], in child, symbol))
+                            if (IsRedundantOrdering(in _po[nodeIndex], in child, symbol))
                             {
                                 continue;
                             }
@@ -515,20 +583,61 @@ public sealed class Solver
                         }
                     }
 
-                    if (!_visited.TryImprove(_key, g + 1, child.Sleep, out int keyOffset, out byte expandSleep))
+                    if (g + 1 > ushort.MaxValue)
                     {
-                        continue;
+                        throw new InvalidOperationException("path longer than 65,535 moves - the state store keeps costs in 16 bits");
                     }
 
-                    child.Parent = nodeIndex;
-                    child.KeyOffset = keyOffset;
-                    child.G = g + 1;
-                    child.Sleep = expandSleep;
+                    _codec.Encode(_key, _compact);
+                    int childIndex = _store.FindOrAdd(_compact, out bool added);
+                    if (!added)
+                    {
+                        int known = _store.Cost(childIndex);
+                        if (g + 1 > known)
+                        {
+                            continue;
+                        }
 
-                    _queue.Push(NewNode(in child), childF);
+                        if (g + 1 == known)
+                        {
+                            // Same cost: only worth expanding again if this path
+                            // forbids less than the stored expansion did - the
+                            // sleep-set rule StateSet.TryImprove used to apply.
+                            if (_mode != PartialOrderMode.SleepSets)
+                            {
+                                continue;
+                            }
+
+                            byte merged = (byte)(_po[childIndex].Sleep & child.Sleep);
+                            if (merged == _po[childIndex].Sleep)
+                            {
+                                continue;
+                            }
+
+                            child.Sleep = merged;
+                        }
+                        else if (_mode == PartialOrderMode.SleepSets)
+                        {
+                            child.Sleep = (byte)(_po[childIndex].Sleep & child.Sleep);
+                        }
+                    }
+
+                    _store.Parent(childIndex) = nodeIndex;
+                    _store.Cost(childIndex) = (ushort)(g + 1);
+                    _store.Estimate(childIndex) = (ushort)guide;
+                    _store.Move(childIndex) = (byte)s;
+                    if (_mode != PartialOrderMode.Off)
+                    {
+                        EnsurePo(childIndex);
+                        _po[childIndex] = child;
+                    }
+
+                    _queue.Push(childIndex, childF);
                 }
 
                 ReportProgress(options, stopwatch, expanded, f, ref nextReport);
+                _stuck.TrimIfFull();
+                EndStuckProbation(expanded);
 
                 if (expanded >= options.MaxNodes)
                 {
@@ -544,7 +653,7 @@ public sealed class Solver
 
         return new SolveResult(
             null, options.Weight <= 1.0 && options.WorkPenalty <= 0, "exhausted: no solution exists", expanded, generated,
-            _visited.Count, ProvenBound(deepestF), stopwatch.Elapsed);
+            _store.Count, ProvenBound(deepestF), stopwatch.Elapsed);
     }
 
     /// <summary>
@@ -567,79 +676,38 @@ public sealed class Solver
         return Math.Max(admissible, info.Work.Estimate(_room));
     }
 
-    /// <summary>
-    /// Whether some fish that still has to get out no longer can - the state has
-    /// no solution and every descendant of it is wasted work.
-    ///
-    /// <para>Everything <see cref="StuckAnalysis"/> proves immobile is scenery
-    /// from here on, so its cells count as wall exactly, not optimistically. If
-    /// the fish cannot reach any border through what is left, nothing that
-    /// happens next can change that: the items that could still move are already
-    /// treated as absent by the reachability, and the ones treated as wall are
-    /// never going anywhere.</para>
-    ///
-    /// <para>The classic case is an item dropped down a shaft it can never come
-    /// back out of. In <c>society</c>, opening with the big fish going right puts
-    /// the heavy bar into a one-wide well on top of an item that is itself walled
-    /// in on three sides; neither can move again, and the big fish - four cells
-    /// wide - is left with no route to the exit. Nothing died and no goal became
-    /// unreachable in the walls-only relaxation, so every other test in
-    /// <see cref="IsDeadEnd"/> passes it and the search explores the whole dead
-    /// subtree.</para>
-    ///
-    /// <para><c>_key</c> must already hold the current state.</para>
-    /// </summary>
-    private bool NoWayOut()
+    /// <summary>States the stuck-item rule discarded in the last <see cref="Solve"/>.</summary>
+    public long StuckPruned => _stuckPruned;
+
+    /// <summary>Whether the stuck-item rule was still on when the last <see cref="Solve"/> ended (see <see cref="SolveOptions.StuckProbation"/>).</summary>
+    public bool StuckActive => _stuckActive;
+
+    /// <summary>The expansion during which the stuck-item rule first discarded a state in the last <see cref="Solve"/>, or 0.</summary>
+    public long StuckFirstPruneAt => _stuckFirstPrune;
+
+    private void CountStuckPrune(long expanded)
     {
-        LayoutInfo info = LayoutFor();
-        if (info.CanLeave is null)
+        if (_stuckPruned++ == 0)
         {
-            // fishAnywhere: the result is cached per item arrangement, so it must
-            // not depend on where the fish happen to be standing. Measuring their
-            // reach from their actual squares made the analysis state-specific,
-            // and two states sharing an arrangement then shared an answer that was
-            // only correct for whichever of them computed it first.
-            bool[] mobile = StuckAnalysis.Mobile(_room.Level, _room, fishAnywhere: true);
-            bool[] solid = StuckAnalysis.SolidCells(_room.Level, _room, mobile);
-
-            // A model frozen at the opening position is frozen in every state
-            // reachable from it, so the two solid sets can be unioned. They are
-            // not otherwise comparable: an item resting on a fish is mobile here
-            // and was not at the start.
-            bool[] walls = _reduction.Walls;
-            for (int c = 0; c < solid.Length; c++)
-            {
-                solid[c] |= walls[c];
-            }
-
-            var canLeave = new bool[]?[_unitModel.Length];
-            for (int u = 0; u < _unitModel.Length; u++)
-            {
-                canLeave[u] = StuckAnalysis.CanStillLeave(_room.Level, _room, solid, _unitModel[u]);
-            }
-
-            info.CanLeave = canLeave;
+            _stuckFirstPrune = expanded;
         }
-
-        for (int u = 0; u < _unitModel.Length; u++)
-        {
-            // Only a fish that has to leave can be stranded. On the world-final
-            // levels both fish are goal_alive and a walled-in fish is fine; this
-            // used to condemn those levels outright (review C7).
-            ref readonly ModelState s = ref _room.State(_unitModel[u]);
-            if (!_unitMustLeave[u] || s.IsOut || !s.IsAlive || info.CanLeave[u] is not bool[] reach)
-            {
-                continue;
-            }
-
-            if (!reach[(s.Y * _room.Level.Width) + s.X])
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
+
+    /// <summary>Switches the stuck-item rule off once its probation ends with nothing discarded. Call after each expansion.</summary>
+    private void EndStuckProbation(long expanded)
+    {
+        if (_stuckActive && expanded == _stuckProbation && _stuckPruned == 0)
+        {
+            _stuckActive = false;
+        }
+    }
+
+    /// <summary>
+    /// Whether the current state has no solution because something that has to
+    /// leave the room never can again - see <see cref="StuckDetector"/>.
+    /// <c>_key</c> must already hold the current state.
+    /// </summary>
+    private bool NoWayOut() => _stuck.NoWayOut(_room, _key, _stuckProbe);
 
     private LayoutInfo LayoutFor()
     {
@@ -706,7 +774,7 @@ public sealed class Solver
     private int ProvenBound(int deepestF) => _weight <= 1.0 && _workPenalty <= 0 ? deepestF : 0;
 
     private SolveResult Abandoned(string status, long expanded, long generated, int deepestF, Stopwatch stopwatch) =>
-        new(null, false, status, expanded, generated, _visited.Count, ProvenBound(deepestF), stopwatch.Elapsed);
+        new(null, false, status, expanded, generated, _store.Count, ProvenBound(deepestF), stopwatch.Elapsed);
 
     /// <summary>
     /// Classifies the move just applied as <b>simple</b>, and if so reports the
@@ -935,7 +1003,7 @@ public sealed class Solver
 
         nextReport = elapsed + options.ProgressSeconds;
         options.Progress(
-            $"  {elapsed,6:F0}s  f={f,-4} expanded {expanded,12:N0}  stored {_visited.Count,12:N0}  " +
+            $"  {elapsed,6:F0}s  f={f,-4} expanded {expanded,12:N0}  stored {_store.Count,12:N0}  " +
             $"{expanded / Math.Max(elapsed, 0.001) / 1000,7:F0}k/s  {GC.GetTotalMemory(false) / (1024.0 * 1024),6:F0} MB");
     }
 
@@ -947,29 +1015,23 @@ public sealed class Solver
     private int Priority(int g, int h) =>
         _weight <= 1.0 ? g + h : g + (int)Math.Round(_weight * h);
 
-    private string Reconstruct(int nodeIndex)
+    private string Reconstruct(int index)
     {
         var path = new List<char>();
-        for (int i = nodeIndex; _nodes[i].Parent >= 0; i = _nodes[i].Parent)
+        for (int i = index; _store.Parent(i) >= 0; i = _store.Parent(i))
         {
-            path.Add(_nodes[i].Move);
+            path.Add(_symbols[_store.Move(i)]);
         }
 
         path.Reverse();
         return new string(path.ToArray());
     }
 
-    private int NewNode(int parent, int keyOffset, int g, char move) =>
-        NewNode(new Node { Parent = parent, KeyOffset = keyOffset, G = g, Move = move, Mover = NoMover });
-
-    private int NewNode(in Node node)
+    private void EnsurePo(int index)
     {
-        if (_nodeCount == _nodes.Length)
+        if (index >= _po.Length)
         {
-            Array.Resize(ref _nodes, _nodes.Length * 2);
+            Array.Resize(ref _po, Math.Max(index + 1, Math.Max(1024, _po.Length * 2)));
         }
-
-        _nodes[_nodeCount] = node;
-        return _nodeCount++;
     }
 }

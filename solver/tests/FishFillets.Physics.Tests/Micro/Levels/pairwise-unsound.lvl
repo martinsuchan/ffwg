@@ -1,0 +1,20 @@
+# expect: 33
+# tags:   two-fish, partial-order, fuzz, tier30
+# known-bug: matrix:astar-pairwise=PO-PAIRWISE, matrix:macro=MACRO-INCOMPLETE, matrix:macro-w2=MACRO-INCOMPLETE, matrix:items=ITEMS-INCOMPLETE, matrix:items-w2=ITEMS-INCOMPLETE
+# why:    found by the fuzzer (seed 77, room #1283). The pairwise move-ordering
+#         reduction (--partial-order pairwise) prunes an ordering it needs and
+#         reports "no solution" here; plain A* and sleep sets both find the 33.
+#         Predates the review (same answer at 576c966); the mode is off by
+#         default and measured a net loss (docs/011), so it is pinned, not fixed
+#         (docs/020). The macro and item searches, knowingly incomplete
+#         (promise Valid), find nothing here either - not investigated.
+# s: fish_small >
+# b: fish_big >
+# A: item_light
+XXXXXXXXX
+........X
+....AA.XX
+X.sss...X
+X..bbbb.X
+X..bbbb.X
+XXXXXXXXX

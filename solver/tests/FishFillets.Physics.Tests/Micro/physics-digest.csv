@@ -86,8 +86,11 @@ micro:exit-detour;6000;09d0a090a2f5c191
 micro:fall-kill-trap;6000;16ee96ca038fd92c
 micro:goal-out-drop-hole;6000;2581a5c9bf7755c6
 micro:goal-out-push-right;6000;edac72344058fb28
+micro:goal-out-wedge;6000;b4e27037df36d8c0
 micro:heavy-gate;6000;9f6faf1e28c36fd9
+micro:pairwise-unsound;6000;4b71fa7b3b665a81
 micro:perf-crossing;6000;533ffa249ec62376
 micro:push-chain;6000;94d6a918771a24d4
 micro:sealed;6000;4bc44ee8f63bf49d
 micro:swim-turn;6000;1bfae2bb077362d5
+micro:two-fish-wedge;6000;69540a9d760d749b
