@@ -75,12 +75,20 @@ public sealed class LevelReduction
 
     private readonly bool[] _frozen;
 
+    // Where each analysis-frozen model stands in the settled opening.
+    private readonly short[] _frozenX;
+    private readonly short[] _frozenY;
+
     private LevelReduction(Level level, bool[] walls, int[] mobileModels, int[] frozenModels)
     {
         _level = level;
         Walls = walls;
         MobileModels = mobileModels;
         FrozenModels = frozenModels;
+
+        var opening = new Room(level);
+        _frozenX = [.. frozenModels.Select(m => opening.State(m).X)];
+        _frozenY = [.. frozenModels.Select(m => opening.State(m).Y)];
 
         _frozen = new bool[level.Models.Length];
         Array.Fill(_frozen, true);
@@ -112,6 +120,46 @@ public sealed class LevelReduction
     /// the router's per-cell scans.
     /// </summary>
     public bool IsFrozen(int model) => _frozen[model];
+
+    /// <summary>
+    /// Fails loudly if a model this reduction froze has moved in
+    /// <paramref name="room"/>. Called by the searches after every move they apply.
+    ///
+    /// <para>Freezing is the one input a search takes on trust: frozen models are
+    /// left out of the state key and are never restored when the search undoes
+    /// a move (<c>Room.RestoreMobile</c>). So if the analysis were ever wrong and
+    /// one did move, the search would carry on in a silently corrupted room -
+    /// replay would still catch an invalid answer, but not a false "no solution
+    /// exists" or a false proof of optimality (review C6). A handful of position
+    /// compares per move turns that into an exception instead.</para>
+    /// </summary>
+    public void ThrowIfFrozenMoved(Room room)
+    {
+        for (int i = 0; i < _frozenX.Length; i++)
+        {
+            ref readonly ModelState m = ref room.State(FrozenModels[i]);
+            if (m.X != _frozenX[i] || m.Y != _frozenY[i])
+            {
+                throw new InvalidOperationException(
+                    $"{_level.Name}: model {FrozenModels[i]} ({_level.Models[FrozenModels[i]].Kind}) was proven immobile " +
+                    $"by the level reduction but moved to ({m.X},{m.Y}) - the reduction is unsound here; " +
+                    "rerun with the type-level reduction (LevelReduction.Safe)");
+            }
+        }
+    }
+
+    /// <summary>A reduction with a chosen frozen set - for tests that need a deliberately wrong one.</summary>
+    internal static LevelReduction WithFrozen(Level level, int[] frozenModels)
+    {
+        int[] mobile = [.. level.MutableModels.Where(m => !frozenModels.Contains(m))];
+        var isMobile = new bool[level.Models.Length];
+        foreach (int m in mobile)
+        {
+            isMobile[m] = true;
+        }
+
+        return new LevelReduction(level, StuckAnalysis.SolidCells(level, new Room(level), isMobile), mobile, frozenModels);
+    }
 
     /// <summary>
     /// The type-level reduction only: drops what the model kinds alone prove

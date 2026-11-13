@@ -1,6 +1,6 @@
 # expect: 24
 # tags:   heavy, two-fish, gravity, death, tier30
-# known-bug: matrix:macro=MACRO-PARK
+# known-bug: matrix:macro=MACRO-PARK, matrix:macro-w2=MACRO-PARK
 # why:    the small fish is shut in by a heavy plug only the big fish can
 #         move, and only by walking into the two-tall doorway behind it. The small
 #         fish has to make room first, and the plug drops into its chamber -

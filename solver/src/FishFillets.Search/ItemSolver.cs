@@ -84,7 +84,7 @@ public sealed class ItemSolver
 
     private Node[] _nodes = new Node[1 << 16];
     private int _nodeCount;
-    private List<int>[] _open = [];
+    private readonly BucketQueue _queue = new();
     private double _weight = 1.0;
     private EdgeObserver? _observer;
 
@@ -223,21 +223,20 @@ public sealed class ItemSolver
 
         _visited.TryImprove(_key, 0, out int startKey);
         int startF = Priority(0, startH);
-        EnsureOpen(startF);
-        Push(NewNode(-1, startKey, 0, 0xFF, 0, 0, 0, '\0'), startF);
+        _queue.Push(NewNode(-1, startKey, 0, 0xFF, 0, 0, 0, '\0'), startF);
 
         long expanded = 0, generated = 1;
         int deepestF = 0;
         double nextReport = options.ProgressSeconds;
 
-        for (int f = 0; f < _open.Length; f++)
+        // Lowest f first; a push below the current bucket (above weight 1)
+        // pulls the cursor back. This was a single forward sweep, which lost
+        // every child whose f fell below it (review C2) - see BucketQueue.
+        while (_queue.TryPop(out int nodeIndex, out int f))
         {
-            List<int> bucket = _open[f];
-            for (int b = 0; b < bucket.Count; b++)
             {
-                int nodeIndex = bucket[b];
                 int g = _nodes[nodeIndex].G;
-                deepestF = f;
+                deepestF = Math.Max(deepestF, f);
 
                 _room.RestoreMobile(_visited.KeyAt(_nodes[nodeIndex].KeyOffset), _mobile);
 
@@ -276,9 +275,6 @@ public sealed class ItemSolver
                     return Abandoned("time limit reached", expanded, generated, deepestF, stopwatch);
                 }
             }
-
-            bucket.Clear();
-            bucket.TrimExcess();
         }
 
         return new SolveResult(
@@ -495,6 +491,8 @@ public sealed class ItemSolver
             return;
         }
 
+        _reduction.ThrowIfFrozenMoved(_room);
+
         generated++;
 
         if (!SomethingHappened())
@@ -538,8 +536,7 @@ public sealed class ItemSolver
         Observe(EdgeOutcome.Stored, cost + 1);
 
         int f = Priority(cost + 1, h);
-        EnsureOpen(f);
-        Push(
+        _queue.Push(
             NewNode(
                 nodeIndex, keyOffset, cost + 1, variant.BlockerUnit, variant.BlockerPlacement,
                 unitIndex, placement, symbol),
@@ -779,24 +776,6 @@ public sealed class ItemSolver
     private int Priority(int g, int h) =>
         _weight <= 1.0 ? g + h : g + (int)Math.Round(_weight * h);
 
-    private void EnsureOpen(int f)
-    {
-        if (f < _open.Length)
-        {
-            return;
-        }
-
-        int size = Math.Max(f + 1, Math.Max(64, _open.Length * 2));
-        var grown = new List<int>[size];
-        Array.Copy(_open, grown, _open.Length);
-        for (int i = _open.Length; i < size; i++)
-        {
-            grown[i] = [];
-        }
-
-        _open = grown;
-    }
-
     private int NewNode(
         int parent, int keyOffset, int g, byte moverUnit, int moverPlacement,
         byte actorUnit, int actorPlacement, char action)
@@ -819,6 +798,4 @@ public sealed class ItemSolver
         };
         return _nodeCount++;
     }
-
-    private void Push(int nodeIndex, int f) => _open[f].Add(nodeIndex);
 }

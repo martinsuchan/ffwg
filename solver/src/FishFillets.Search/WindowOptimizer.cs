@@ -71,7 +71,23 @@ public sealed class WindowOptimizer
         Array.Resize(ref _symbols, count);
 
         _fishModels = level.Units.Select(u => u.Model).ToArray();
+
+        bool[] walls = RelaxedDistance.BuildWallGrid(level);
+        _exitDistance = _fishModels
+            .Select(m => level.Models[m].Goal is GoalKind.Escape or GoalKind.Out
+                ? RelaxedDistance.ToExit(level, m, walls, freeFall: false)
+                : null)
+            .ToArray();
     }
+
+    /// <summary>
+    /// Per fish, the walls-only distance to leaving the room (null for a fish
+    /// that never leaves) - the bound used when the target has that fish out.
+    /// </summary>
+    private readonly RelaxedDistance?[] _exitDistance;
+
+    /// <summary>A fish in the room in the target but out now: it can never come back.</summary>
+    private const int Impossible = int.MaxValue / 4;
 
     /// <summary>
     /// Repeatedly sweeps windows over <paramref name="moves"/> until a whole pass
@@ -171,7 +187,9 @@ public sealed class WindowOptimizer
 
         _room.RestoreFrom(to);
         _room.WriteStateKey(_goalKey);
-        (int X, int Y, bool IsLeft)[] goalFish = _fishModels.Select(_room.Position).ToArray();
+        (int X, int Y, bool IsLeft, bool IsOut)[] goalFish = _fishModels
+            .Select(m => ((int)_room.State(m).X, (int)_room.State(m).Y, _room.State(m).IsLeft, _room.State(m).IsOut))
+            .ToArray();
 
         _room.RestoreFrom(from);
         _room.WriteStateKey(_key);
@@ -228,7 +246,7 @@ public sealed class WindowOptimizer
         return null;
     }
 
-    private void ExpandInto(int parent, int parentSlot, int g, (int X, int Y, bool IsLeft)[] goalFish, int limit)
+    private void ExpandInto(int parent, int parentSlot, int g, (int X, int Y, bool IsLeft, bool IsOut)[] goalFish, int limit)
     {
         foreach (char symbol in _symbols)
         {
@@ -278,14 +296,42 @@ public sealed class WindowOptimizer
     /// additive with the fish's - counting it would break admissibility and could
     /// make the optimiser miss a genuine shortcut. That leaves the bound weak
     /// when only items differ; the cost limit does the pruning there instead.
+    ///
+    /// <para>A fish that is out in the target is measured to the nearest exit,
+    /// not to its parked out-of-bounds coordinates. Measuring to those made every
+    /// window that ends after a fish leaves look ~2000 moves long, so the
+    /// optimiser never searched the approach to an exit at all (review C5).</para>
     /// </summary>
-    private int Heuristic((int X, int Y, bool IsLeft)[] goalFish)
+    private int Heuristic((int X, int Y, bool IsLeft, bool IsOut)[] goalFish)
     {
         int total = 0;
         for (int i = 0; i < _fishModels.Length; i++)
         {
             (int x, int y, bool isLeft) = _room.Position(_fishModels[i]);
-            (int gx, int gy, bool gLeft) = goalFish[i];
+            (int gx, int gy, bool gLeft, bool gOut) = goalFish[i];
+            bool isOut = _room.State(_fishModels[i]).IsOut;
+
+            if (isOut || gOut)
+            {
+                if (isOut && gOut)
+                {
+                    continue;
+                }
+
+                if (isOut || _exitDistance[i] is not { } exit)
+                {
+                    return Impossible; // out now but not in the target, or a fish that never leaves
+                }
+
+                int d = exit.At(x, y, isLeft);
+                if (d >= RelaxedDistance.Unreachable)
+                {
+                    return Impossible;
+                }
+
+                total += d;
+                continue;
+            }
 
             int dx = gx - x;
             int dy = gy - y;
