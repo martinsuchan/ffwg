@@ -58,12 +58,9 @@ internal static class MicroVariants
         new("wastar-2", Promise.Bounded, 2, l => new Solver(l).Solve(Options(2))),
         new("work-3", Promise.Valid, 1, l => new Solver(l).Solve(Options() with { WorkPenalty = 3 })),
         new("macro", Promise.Valid, 1, l => new MacroSolver(l).Solve(Options())),
-        // C2: both sweep their f-buckets forwards, so above weight 1 every child
-        // whose f falls below the sweep is lost - on micro-levels, usually the
-        // whole search after the first expansion.
-        new("macro-w2", Promise.Valid, 2, l => new MacroSolver(l).Solve(Options(2)), KnownBug: "C2"),
+        new("macro-w2", Promise.Valid, 2, l => new MacroSolver(l).Solve(Options(2))),
         new("items", Promise.Valid, 1, l => new ItemSolver(l).Solve(Options())),
-        new("items-w2", Promise.Valid, 2, l => new ItemSolver(l).Solve(Options(2)), KnownBug: "C2"),
+        new("items-w2", Promise.Valid, 2, l => new ItemSolver(l).Solve(Options(2))),
     ];
 
     public static MicroVariant Get(string id) => All.Single(v => v.Id == id);

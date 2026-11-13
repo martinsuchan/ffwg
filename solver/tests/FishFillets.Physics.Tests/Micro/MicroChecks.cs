@@ -11,7 +11,12 @@ namespace FishFillets.Physics.Tests.Micro;
 /// </summary>
 internal static class MicroChecks
 {
-    /// <summary>A violation, and the open finding it is explained by (null: unexplained - a new bug).</summary>
+    /// <summary>
+    /// A violation, and the open finding it is explained by (null: unexplained -
+    /// a new bug). Every finding from the review is fixed, so nothing attributes
+    /// today; when a new bug is found and left open, give its check a cause here
+    /// so the fuzzer can keep counting it without failing.
+    /// </summary>
     internal sealed record Violation(string Message, string? Cause);
 
     /// <summary>
@@ -86,10 +91,7 @@ internal static class MicroChecks
             int h = heuristic.Estimate(room);
             if (h > graph.DistanceToGoal[i])
             {
-                // C3: items charged a turn. If the estimate with item facing
-                // ignored is admissible here, that is the whole story.
-                string? cause = EstimateIgnoringItemFacing(graph.Level, reduction, room) <= graph.DistanceToGoal[i] ? "C3" : null;
-                violations.Add(new($"h={h} > d*={graph.DistanceToGoal[i]} at {Describe(room)}", cause));
+                violations.Add(new($"h={h} > d*={graph.DistanceToGoal[i]} at {Describe(room)}", null));
             }
         }
 
@@ -104,13 +106,11 @@ internal static class MicroChecks
         var room = new Room(graph.Level);
 
         var h = new int[graph.Count];
-        var fixedH = new int[graph.Count];
         for (int i = 0; i < graph.Count; i++)
         {
             room.RestoreFrom(graph.States[i]);
             // A finished room is queued with h = 0, whatever the estimate says (Solver.Solve).
             h[i] = graph.Solved[i] ? 0 : heuristic.Estimate(room);
-            fixedH[i] = graph.Solved[i] ? 0 : EstimateIgnoringItemFacing(graph.Level, reduction, room);
         }
 
         var violations = new List<Violation>();
@@ -126,8 +126,7 @@ internal static class MicroChecks
                 if (h[s] > h[t] + 1)
                 {
                     room.RestoreFrom(graph.States[s]);
-                    string? cause = fixedH[s] <= fixedH[t] + 1 ? "C3" : null;
-                    violations.Add(new($"'{symbol}': h {h[s]} -> {h[t]} from {Describe(room)}", cause));
+                    violations.Add(new($"'{symbol}': h {h[s]} -> {h[t]} from {Describe(room)}", null));
                 }
             }
         }
@@ -161,14 +160,15 @@ internal static class MicroChecks
     }
 
     /// <summary>
-    /// The stuck-item rule, re-derived uncached exactly as <c>Solver.NoWayOut</c>
-    /// computes it, never condemns a state that can still be finished.
+    /// The stuck-item rule (<c>--stuck</c>) never condemns a state that can still
+    /// be finished. Asks the solver's own <c>NoWayOut</c> - cache included, on one
+    /// solver for the whole graph, in the oracle's order - so this tests the real
+    /// code path, including the per-layout cache that review C1 found keyed too
+    /// coarsely. Reflection on private members, like <see cref="WhiteBoxTests"/>.
     /// </summary>
     public static List<Violation> Stuck(StateGraph graph)
     {
-        Level level = graph.Level;
-        LevelReduction reduction = LevelReduction.Compute(level);
-        var room = new Room(level);
+        var probe = new SolverProbe(new Solver(graph.Level));
         var violations = new List<Violation>();
 
         for (int i = 0; i < graph.Count; i++)
@@ -178,95 +178,13 @@ internal static class MicroChecks
                 continue;
             }
 
-            room.RestoreFrom(graph.States[i]);
-            bool[] mobile = StuckAnalysis.Mobile(level, room, fishAnywhere: true);
-            bool[] solid = StuckAnalysis.SolidCells(level, room, mobile);
-            for (int c = 0; c < solid.Length; c++)
+            if (probe.NoWayOut(graph.States[i]))
             {
-                solid[c] |= reduction.Walls[c];
-            }
-
-            foreach (UnitDef unit in level.Units)
-            {
-                ref readonly ModelState s = ref room.State(unit.Model);
-                if (s.IsOut || !s.IsAlive)
-                {
-                    continue;
-                }
-
-                bool[] reach = StuckAnalysis.CanStillLeave(level, room, solid, unit.Model);
-                if (!reach[(s.Y * level.Width) + s.X])
-                {
-                    // C7: NoWayOut demands a way out even of a fish that never has to leave.
-                    string? cause = level.Models[unit.Model].Goal is not (GoalKind.Escape or GoalKind.Out) ? "C7" : null;
-                    violations.Add(new($"d*={graph.DistanceToGoal[i]}, fish {unit.Model} judged walled in at {Describe(room)}", cause));
-                }
+                violations.Add(new($"d*={graph.DistanceToGoal[i]}, condemned at {Describe(probe.Room)}", null));
             }
         }
 
         return violations;
-    }
-
-    /// <summary>
-    /// <see cref="ExitHeuristic.Estimate"/> with the C3 fix applied by hand: an
-    /// item's distance is the better of its two facings, since items never turn.
-    /// Used only to attribute violations to C3.
-    /// </summary>
-    private static int EstimateIgnoringItemFacing(Level level, LevelReduction reduction, Room room)
-    {
-        int fishTotal = 0, itemMax = 0;
-        for (int i = 0; i < level.ModelCount; i++)
-        {
-            ModelDef def = level.Models[i];
-            if (def.Goal is not (GoalKind.Escape or GoalKind.Out))
-            {
-                continue;
-            }
-
-            ref readonly ModelState m = ref room.State(i);
-            if (m.IsOut)
-            {
-                continue;
-            }
-
-            RelaxedDistance distance = DistanceCache.Get(level, reduction, i);
-            int d = def.IsAlive ? distance.At(m.X, m.Y, m.IsLeft) : Math.Min(distance.At(m.X, m.Y, true), distance.At(m.X, m.Y, false));
-            if (d >= RelaxedDistance.Unreachable)
-            {
-                return RelaxedDistance.Unreachable;
-            }
-
-            if (def.IsAlive)
-            {
-                fishTotal += d;
-            }
-            else
-            {
-                itemMax = Math.Max(itemMax, d);
-            }
-        }
-
-        return Math.Max(fishTotal, itemMax);
-    }
-
-    private static class DistanceCache
-    {
-        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Level, Dictionary<int, RelaxedDistance>> Table = new();
-
-        public static RelaxedDistance Get(Level level, LevelReduction reduction, int model)
-        {
-            Dictionary<int, RelaxedDistance> perModel = Table.GetValue(level, _ => []);
-            lock (perModel)
-            {
-                if (!perModel.TryGetValue(model, out RelaxedDistance? distance))
-                {
-                    distance = RelaxedDistance.ToExit(level, model, reduction.Walls, freeFall: !level.Models[model].IsAlive);
-                    perModel[model] = distance;
-                }
-
-                return distance;
-            }
-        }
     }
 
     /// <summary>Where every model is, compactly - enough to redraw the state by hand.</summary>
@@ -285,5 +203,35 @@ internal static class MicroChecks
         }
 
         return text.Append(" ]").ToString();
+    }
+}
+
+/// <summary>Drives a <see cref="Solver"/>'s private <c>NoWayOut</c> on arbitrary states.</summary>
+internal sealed class SolverProbe
+{
+    private const System.Reflection.BindingFlags Private =
+        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+
+    private readonly Solver _solver;
+    private readonly byte[] _key;
+    private readonly int[] _mobile;
+    private readonly System.Reflection.MethodInfo _noWayOut;
+
+    public SolverProbe(Solver solver)
+    {
+        _solver = solver;
+        Room = (Room)typeof(Solver).GetField("_room", Private)!.GetValue(solver)!;
+        _key = (byte[])typeof(Solver).GetField("_key", Private)!.GetValue(solver)!;
+        _mobile = (int[])typeof(Solver).GetField("_mobile", Private)!.GetValue(solver)!;
+        _noWayOut = typeof(Solver).GetMethod("NoWayOut", Private)!;
+    }
+
+    public Room Room { get; }
+
+    public bool NoWayOut(RoomSnapshot state)
+    {
+        Room.RestoreFrom(state);
+        Room.WriteStateKey(_key, _mobile);
+        return (bool)_noWayOut.Invoke(_solver, null)!;
     }
 }

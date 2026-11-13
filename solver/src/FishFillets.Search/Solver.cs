@@ -129,11 +129,19 @@ public sealed class Solver
     private readonly Dictionary<ItemLayout, LayoutInfo> _layouts = [];
     private readonly int[] _itemSlots;
 
+    // Each unit's key slot: which fish are still in play is part of the layout
+    // too (review C1) - see WriteLayout.
+    private readonly int[] _unitSlots;
+
     // One-entry front for that dictionary: the arrangement most recently looked
     // up, so an unchanged one costs a byte compare instead of an allocation and
     // a hash.
     private readonly byte[] _lastLayoutBytes;
+    private readonly byte[] _layoutScratch;
     private LayoutInfo? _lastLayout;
+
+    // Per unit: whether it has to get out of the room at all (review C7).
+    private readonly bool[] _unitMustLeave;
 
     private int _workPenalty;
     private bool _detectStuck;
@@ -175,10 +183,7 @@ public sealed class Solver
 
     private Node[] _nodes = new Node[1 << 16];
     private int _nodeCount;
-    private List<int>[] _open = [];
-
-    /// <summary>How far into each bucket the pop cursor has got.</summary>
-    private int[] _drained = [];
+    private readonly BucketQueue _queue = new();
 
     private double _weight = 1.0;
 
@@ -209,21 +214,19 @@ public sealed class Solver
     private const byte NoMover = 0xFF;
 
     /// <summary>
-    /// The item half of a state key - everything except where the fish are.
-    /// Two states sharing one share a <see cref="WorkHeuristic"/>.
+    /// Everything about a state except where the fish are standing: the items'
+    /// key bytes, plus which fish are still alive and in the room (see
+    /// <see cref="WriteLayout"/>). Two states sharing one share a
+    /// <see cref="WorkHeuristic"/> and a stuck-item verdict.
     /// </summary>
     private readonly struct ItemLayout : IEquatable<ItemLayout>
     {
         private readonly byte[] _bytes;
         private readonly int _hash;
 
-        public ItemLayout(ReadOnlySpan<byte> key, int[] slots)
+        public ItemLayout(ReadOnlySpan<byte> layout)
         {
-            _bytes = new byte[slots.Length * 5];
-            for (int i = 0; i < slots.Length; i++)
-            {
-                key.Slice(slots[i] * 5, 5).CopyTo(_bytes.AsSpan(i * 5));
-            }
+            _bytes = layout.ToArray();
 
             var hash = default(HashCode);
             hash.AddBytes(_bytes);
@@ -280,9 +283,11 @@ public sealed class Solver
         }
 
         _itemSlots = [.. itemSlots];
-        _lastLayoutBytes = new byte[_itemSlots.Length * 5];
-
         _unitModel = [.. level.Units.Select(u => u.Model)];
+        _unitSlots = [.. _unitModel.Select(m => Array.IndexOf(_mobile, m))];
+        _unitMustLeave = [.. _unitModel.Select(m => level.Models[m].Goal is GoalKind.Escape or GoalKind.Out)];
+        _lastLayoutBytes = new byte[(_itemSlots.Length * 5) + _unitSlots.Length];
+        _layoutScratch = new byte[_lastLayoutBytes.Length];
         _unitBounds = new (int, int, int, int)[level.Units.Length];
         for (int u = 0; u < level.Units.Length; u++)
         {
@@ -321,13 +326,9 @@ public sealed class Solver
     {
         get
         {
-            long open = 0;
-            foreach (List<int> bucket in _open)
-            {
-                open += (long)bucket.Capacity * sizeof(int);
-            }
-
-            return _visited.MemoryBytes + ((long)_nodes.Length * System.Runtime.CompilerServices.Unsafe.SizeOf<Node>()) + open;
+            return _visited.MemoryBytes
+                   + ((long)_nodes.Length * System.Runtime.CompilerServices.Unsafe.SizeOf<Node>())
+                   + _queue.MemoryBytes;
         }
     }
 
@@ -340,6 +341,9 @@ public sealed class Solver
         _detectStuck = options.DetectStuck;
         _layouts.Clear();
         _lastLayout = null;
+        _visited.Clear();
+        _queue.Clear();
+        _nodeCount = 0;
         _room.Reset();
 
         if (_room.IsSolved())
@@ -361,51 +365,24 @@ public sealed class Solver
         }
 
         _visited.TryImprove(_key, 0, out int startKey);
-        int startF = Priority(0, Guide(startH));
-        EnsureOpen(startF);
-        Push(NewNode(-1, startKey, 0, '\0'), startF);
+        int startGuide = Guide(startH);
+        if (startGuide >= WorkHeuristic.Unreachable)
+        {
+            return new SolveResult(null, false, "unsolvable: the guiding estimate finds no way out", 0, 0, 0, 0, stopwatch.Elapsed);
+        }
+
+        int startF = Priority(0, startGuide);
+        _queue.Push(NewNode(-1, startKey, 0, '\0'), startF);
 
         long expanded = 0, generated = 1;
         int deepestF = 0;
         double nextReport = options.ProgressSeconds;
 
-        // Buckets used to be drained in one forward sweep, which is only valid
-        // while f never falls along an edge. At weight 1 it cannot: h is
-        // consistent, so f is monotone. Above 1 it can - an edge shifts f by
-        // 1 - weight*(drop in h), which is negative as soon as weight exceeds 1,
-        // so f drops by one on every move that makes progress. The sweep then
-        // wrote children into buckets it had already passed and cleared, losing
-        // them silently: `solve society --weight 2` reported "no solution exists"
-        // after 350 expansions, on a level with a bundled 110-move solution.
-        //
-        // So this pops the lowest-f node outright rather than sweeping. Each
-        // bucket keeps a drain cursor, and a push below the cursor pulls it back.
-        // At weight 1 nothing can push below it, the cursor walks each bucket
-        // front to back exactly as the old index loop did, and the search is
-        // unchanged - which keeps docs/011's measurements valid.
-        int lowestReopened = int.MaxValue;
-
-        int f = 0;
-        while (true)
+        // Lowest f first. A push below the current bucket - possible above
+        // weight 1, or with the toll - pulls the cursor back (BucketQueue).
+        while (_queue.TryPop(out int nodeIndex, out int f))
         {
-            while (f < _open.Length && _drained[f] >= _open[f].Count)
             {
-                // Nothing will be popped from it again unless something is pushed
-                // into it, so give the storage back - on a long search these add
-                // up. Resetting the cursor keeps that push correct.
-                _open[f].Clear();
-                _open[f].TrimExcess();
-                _drained[f] = 0;
-                f++;
-            }
-
-            if (f >= _open.Length)
-            {
-                break;
-            }
-
-            {
-                int nodeIndex = _open[f][_drained[f]++];
                 int g = _nodes[nodeIndex].G;
 
                 // Every state with a smaller f has been expanded, so this is a
@@ -475,6 +452,8 @@ public sealed class Solver
                     {
                         continue;
                     }
+
+                    _reduction.ThrowIfFrozenMoved(_room);
 
                     generated++;
 
@@ -546,12 +525,7 @@ public sealed class Solver
                     child.G = g + 1;
                     child.Sleep = expandSleep;
 
-                    EnsureOpen(childF);
-                    Push(NewNode(in child), childF);
-                    if (childF < f)
-                    {
-                        lowestReopened = Math.Min(lowestReopened, childF);
-                    }
+                    _queue.Push(NewNode(in child), childF);
                 }
 
                 ReportProgress(options, stopwatch, expanded, f, ref nextReport);
@@ -564,12 +538,6 @@ public sealed class Solver
                 if (options.TimeLimit is { } limit && stopwatch.Elapsed > limit)
                 {
                     return Abandoned("time limit reached", expanded, generated, deepestF, stopwatch);
-                }
-
-                if (lowestReopened < f)
-                {
-                    f = lowestReopened;
-                    lowestReopened = int.MaxValue;
                 }
             }
         }
@@ -592,7 +560,11 @@ public sealed class Solver
 
         LayoutInfo info = LayoutFor();
         info.Work ??= WorkHeuristic.Build(_room.Level, _room, _reduction.Walls, _workPenalty);
-        return info.Work.Estimate(_room);
+
+        // Never below the admissible bound: the toll only measures fish that
+        // have to leave, so on a goal_out level (fish goal_alive) it is zero and
+        // would otherwise blind the search (review C4).
+        return Math.Max(admissible, info.Work.Estimate(_room));
     }
 
     /// <summary>
@@ -651,8 +623,11 @@ public sealed class Solver
 
         for (int u = 0; u < _unitModel.Length; u++)
         {
+            // Only a fish that has to leave can be stranded. On the world-final
+            // levels both fish are goal_alive and a walled-in fish is fine; this
+            // used to condemn those levels outright (review C7).
             ref readonly ModelState s = ref _room.State(_unitModel[u]);
-            if (s.IsOut || !s.IsAlive || info.CanLeave[u] is not bool[] reach)
+            if (!_unitMustLeave[u] || s.IsOut || !s.IsAlive || info.CanLeave[u] is not bool[] reach)
             {
                 continue;
             }
@@ -672,12 +647,13 @@ public sealed class Solver
         // they were - so before building a key and hashing it, check against the
         // last one. Siblings of an expansion nearly all share their parent's
         // arrangement, and so does the next expansion more often than not.
-        if (_lastLayout is not null && ItemsUnchanged())
+        WriteLayout(_layoutScratch);
+        if (_lastLayout is not null && _layoutScratch.AsSpan().SequenceEqual(_lastLayoutBytes))
         {
             return _lastLayout;
         }
 
-        var layout = new ItemLayout(_key, _itemSlots);
+        var layout = new ItemLayout(_layoutScratch);
         if (!_layouts.TryGetValue(layout, out LayoutInfo? info))
         {
             if (_layouts.Count >= LayoutCacheLimit)
@@ -689,26 +665,36 @@ public sealed class Solver
             _layouts[layout] = info;
         }
 
-        for (int i = 0; i < _itemSlots.Length; i++)
-        {
-            _key.AsSpan(_itemSlots[i] * 5, 5).CopyTo(_lastLayoutBytes.AsSpan(i * 5));
-        }
-
+        _layoutScratch.CopyTo(_lastLayoutBytes, 0);
         _lastLayout = info;
         return info;
     }
 
-    private bool ItemsUnchanged()
+    /// <summary>
+    /// The cache key for what <see cref="LayoutInfo"/> holds: every item's key
+    /// bytes, then one byte per unit with its alive / out / lost flags.
+    ///
+    /// <para>The fish flags are what review C1 found missing. The stuck-item
+    /// analysis depends on which fish are still in play - who can push, and how
+    /// hard (<c>StuckAnalysis.StrongestFish</c>) - so a layout first analysed
+    /// after the big fish left (heavy items then count as wall) handed its
+    /// verdict to every later state with the same items and the big fish still
+    /// there, condemning them. Fish positions stay out: the analysis is run
+    /// with the fish anywhere, so it holds wherever they stand.</para>
+    /// </summary>
+    private void WriteLayout(Span<byte> destination)
     {
         for (int i = 0; i < _itemSlots.Length; i++)
         {
-            if (!_key.AsSpan(_itemSlots[i] * 5, 5).SequenceEqual(_lastLayoutBytes.AsSpan(i * 5, 5)))
-            {
-                return false;
-            }
+            _key.AsSpan(_itemSlots[i] * 5, 5).CopyTo(destination.Slice(i * 5, 5));
         }
 
-        return true;
+        int offset = _itemSlots.Length * 5;
+        for (int u = 0; u < _unitSlots.Length; u++)
+        {
+            // Flag bits of Room.WriteStateKey: 2 alive, 4 out, 8 lost.
+            destination[offset + u] = (byte)(_key[(_unitSlots[u] * 5) + 4] & (2 | 4 | 8));
+        }
     }
 
     /// <summary>
@@ -973,25 +959,6 @@ public sealed class Solver
         return new string(path.ToArray());
     }
 
-    private void EnsureOpen(int f)
-    {
-        if (f < _open.Length)
-        {
-            return;
-        }
-
-        int size = Math.Max(f + 1, Math.Max(64, _open.Length * 2));
-        var grown = new List<int>[size];
-        Array.Copy(_open, grown, _open.Length);
-        for (int i = _open.Length; i < size; i++)
-        {
-            grown[i] = [];
-        }
-
-        _open = grown;
-        Array.Resize(ref _drained, size);
-    }
-
     private int NewNode(int parent, int keyOffset, int g, char move) =>
         NewNode(new Node { Parent = parent, KeyOffset = keyOffset, G = g, Move = move, Mover = NoMover });
 
@@ -1005,6 +972,4 @@ public sealed class Solver
         _nodes[_nodeCount] = node;
         return _nodeCount++;
     }
-
-    private void Push(int nodeIndex, int f) => _open[f].Add(nodeIndex);
 }

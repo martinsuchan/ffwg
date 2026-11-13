@@ -91,19 +91,30 @@ internal sealed class RelaxedDistance
             int x = cell % w, y = cell / w;
 
             // Predecessors: which (cell, facing) could have reached this one in
-            // one move. Vertical moves keep facing; a horizontal move only
-            // happens when already facing that way; and a turn changes facing
-            // without moving.
+            // one move. Vertical moves keep facing.
             Relax(x, y + 1, facing, 1);                       // came from below, moved up
             Relax(x, y - 1, facing, 1);                       // came from above, moved down
-            if (facing == 0) Relax(x + 1, y, 0, 1);           // moved left while facing left
-            else Relax(x - 1, y, 1, 1);                       // moved right while facing right
-            Relax(x, y, facing ^ 1, 1);                       // turned to face this way
 
             if (freeFall)
             {
+                // An item never turns: it is shoved either way at the same price,
+                // so both facing layers carry the same, facing-free distance.
+                // Charging a turn here made the estimate exceed the true cost by
+                // one whenever a fish already lined up the other way could push
+                // (review C3, micro-level goal-out-push-right).
+                Relax(x + 1, y, facing, 1);                   // shoved left
+                Relax(x - 1, y, facing, 1);                   // shoved right
+
                 // Gravity: an item can arrive from above at no cost in moves.
                 Relax(x, y - 1, facing, 0);
+            }
+            else
+            {
+                // A fish only moves horizontally when already facing that way;
+                // a turn changes facing without moving.
+                if (facing == 0) Relax(x + 1, y, 0, 1);       // moved left while facing left
+                else Relax(x - 1, y, 1, 1);                   // moved right while facing right
+                Relax(x, y, facing ^ 1, 1);                   // turned to face this way
             }
 
             void Relax(int px, int py, int pf, int edge)

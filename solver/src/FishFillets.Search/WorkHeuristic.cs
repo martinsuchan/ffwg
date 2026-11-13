@@ -38,10 +38,10 @@ internal sealed class WorkHeuristic
     public const int Unreachable = int.MaxValue / 4;
 
     private readonly int _width;
-    private readonly int[][] _distance;   // per unit, [(y * w + x) * 2 + facing]
+    private readonly int[]?[] _distance;   // per unit, [(y * w + x) * 2 + facing]; null = never has to leave
     private readonly int[] _fishModel;
 
-    private WorkHeuristic(int width, int[][] distance, int[] fishModel)
+    private WorkHeuristic(int width, int[]?[] distance, int[] fishModel)
     {
         _width = width;
         _distance = distance;
@@ -55,7 +55,7 @@ internal sealed class WorkHeuristic
         for (int u = 0; u < _distance.Length; u++)
         {
             ref readonly ModelState s = ref room.State(_fishModel[u]);
-            if (s.IsOut)
+            if (s.IsOut || _distance[u] is not int[] distance)
             {
                 continue;
             }
@@ -65,7 +65,7 @@ internal sealed class WorkHeuristic
                 return Unreachable;
             }
 
-            int d = _distance[u][(((s.Y * _width) + s.X) * 2) + (s.IsLeft ? 0 : 1)];
+            int d = distance[(((s.Y * _width) + s.X) * 2) + (s.IsLeft ? 0 : 1)];
             if (d >= Unreachable)
             {
                 return Unreachable;
@@ -104,12 +104,20 @@ internal sealed class WorkHeuristic
             }
         }
 
-        var distance = new int[level.Units.Length][];
+        // Only a fish that has to leave has a way out to measure. On the
+        // world-final levels both fish are goal_alive: measuring them anyway
+        // steered the search at the exits instead of the goal item, and where a
+        // fish had no exit at all made the start "unreachable" - which the open
+        // list then tried to allocate a bucket for (review C4).
+        var distance = new int[]?[level.Units.Length];
         var fishModel = new int[level.Units.Length];
         for (int u = 0; u < level.Units.Length; u++)
         {
-            fishModel[u] = level.Units[u].Model;
-            distance[u] = TolledDistance(level, level.Units[u].Model, walls, occupied, penalty);
+            int model = level.Units[u].Model;
+            fishModel[u] = model;
+            distance[u] = level.Models[model].Goal is GoalKind.Escape or GoalKind.Out
+                ? TolledDistance(level, model, walls, occupied, penalty)
+                : null;
         }
 
         return new WorkHeuristic(w, distance, fishModel);

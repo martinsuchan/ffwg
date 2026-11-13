@@ -90,11 +90,12 @@ internal sealed class FuzzRoom
 /// <see cref="MicroChecks"/> against the oracle, and every violation either
 /// attributed to an open finding (C1-C7) or reported as new.
 ///
-/// <para>Attribution is by mechanism, not by guess: a heuristic violation counts
-/// as C3 only if it disappears with item facing ignored, a stuck one as C7 only if
-/// the condemned fish never has to leave, a <c>--stuck</c> search failure as C1
-/// only when the uncached analysis condemns nothing. So when a fix lands, its
-/// count here drops to zero - and anything left over is real.</para>
+/// <para>Attribution must be by mechanism, not by guess: when the review's
+/// C1-C7 were open, a heuristic violation counted as C3 only if it disappeared
+/// with item facing ignored, a stuck one as C7 only if the condemned fish never
+/// had to leave, and so on (solver/docs/017). All are fixed now (docs/018), so
+/// only a variant-wide <see cref="MicroVariant.KnownBug"/> still attributes;
+/// anything else is new.</para>
 /// </summary>
 internal static class MicroFuzzer
 {
@@ -263,22 +264,13 @@ internal static class MicroFuzzer
             }
         }
 
-        List<MicroChecks.Violation> admissible = MicroChecks.Admissible(graph);
-        List<MicroChecks.Violation> consistent = MicroChecks.Consistent(graph);
-        List<MicroChecks.Violation> stuck = MicroChecks.Stuck(graph);
-        AddAll("admissible", admissible);
-        AddAll("consistent", consistent);
+        AddAll("admissible", MicroChecks.Admissible(graph));
+        AddAll("consistent", MicroChecks.Consistent(graph));
         AddAll("reduction", MicroChecks.Reduction(graph));
-        AddAll("stuck", stuck);
+        AddAll("stuck", MicroChecks.Stuck(graph));
 
-        bool goalAlive = level.Units.Any(u => level.Models[u.Model].Goal is not (GoalKind.Escape or GoalKind.Out));
         foreach (MicroVariant variant in MicroVariants.All)
         {
-            if (variant.Id == "work-3" && goalAlive)
-            {
-                continue; // C4!: allocates an f-bucket array of ~536 M lists here
-            }
-
             SolveResult result = variant.Run(level);
             string? failure = MicroChecks.Matrix(level, optimum, variant, result, requireSolved: false);
             if (failure is null)
@@ -286,12 +278,7 @@ internal static class MicroFuzzer
                 continue;
             }
 
-            string? cause = variant.KnownBug
-                ?? (variant.Id == "astar-stuck" && stuck.Any(v => v.Cause == "C7") ? "C7" : null)
-                ?? (variant.Id == "astar-stuck" && stuck.Count == 0 ? "C1" : null)
-                ?? (variant.Id is "macro" or "items" && consistent.Any(v => v.Cause == "C3") ? "C2+C3" : null)
-                ?? (admissible.Any(v => v.Cause == "C3") || consistent.Any(v => v.Cause == "C3") ? "C3" : null);
-            findings.Add(new Finding("matrix:" + variant.Id, cause, failure));
+            findings.Add(new Finding("matrix:" + variant.Id, variant.KnownBug, failure));
         }
 
         return new Case(index, room, optimum, graph.Count, findings);

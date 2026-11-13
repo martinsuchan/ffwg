@@ -21,10 +21,9 @@ public sealed class WhiteBoxTests
     ///
     /// <para>The fuzzer never hit this end to end (FIFO order nearly always
     /// computes a layout with both fish present first), which is exactly why it
-    /// is pinned here directly.</para>
+    /// is pinned here directly. Fixed by keying the cache on the fish flags too.</para>
     /// </summary>
     [TestMethod]
-    [TestCategory("KnownBug")]
     public void StuckCache_VerdictDoesNotDependOnHistory_C1()
     {
         Level level = MicroCorpus.Get("heavy-gate").Build();
@@ -41,6 +40,30 @@ public sealed class WhiteBoxTests
 
         bool cached = NoWayOut(solver, level, "");
         Assert.AreEqual(fresh, cached, "the start position was condemned because a same-layout state without the big fish was evaluated first");
+    }
+
+    /// <summary>
+    /// C6: a model the reduction froze must never move unnoticed. Freezing
+    /// perf-crossing's light block is wrong - the big fish's push on the heavy
+    /// post shoves it along as a chain, on the optimal path - so the search has
+    /// to stop with an error rather than carry on in a room it can no longer
+    /// restore (frozen models are left out of the undo).
+    ///
+    /// <para>The guard only sees moves. A wrong freeze that makes the level look
+    /// unsolvable before any move is made (freezing heavy-gate's plug walls the
+    /// small fish in for the heuristic) still returns "unsolvable" quietly - that
+    /// verdict rests on the reduction being right, which is what
+    /// <c>LevelReduction.Verified</c> and the reduction property test check.</para>
+    /// </summary>
+    [TestMethod]
+    public void WrongReduction_FailsLoudly_C6()
+    {
+        Level level = MicroCorpus.Get("perf-crossing").Build();
+        int item = Enumerable.Range(0, level.ModelCount).Single(i => level.Models[i].Kind == "item_light");
+        var solver = new Solver(level, LevelReduction.WithFrozen(level, [item]));
+
+        var error = Assert.ThrowsExactly<InvalidOperationException>(() => solver.Solve(new SolveOptions { MaxNodes = 100_000 }));
+        StringAssert.Contains(error.Message, "proven immobile");
     }
 
     /// <summary>Puts the solver's room into the state after <paramref name="moves"/> and asks NoWayOut.</summary>
