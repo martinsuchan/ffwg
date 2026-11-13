@@ -187,6 +187,81 @@ internal static class MicroChecks
         return violations;
     }
 
+    /// <summary>
+    /// The stuck-item detector - the analysis made fast (per-level wall work
+    /// done once, per-fish reach from precomputed fits, verdicts cached per
+    /// layout, docs/020) - gives on every state the answer the same rule gives
+    /// computed the slow, direct way with <see cref="StuckAnalysis"/>. Mirrors
+    /// the one shortcut the detector takes: with nothing stuck beyond the
+    /// opening walls it says nothing, because a fish that cannot leave then is
+    /// already rejected by the walls-only heuristic.
+    /// </summary>
+    public static List<Violation> StuckDetectorAgrees(StateGraph graph)
+    {
+        Level level = graph.Level;
+        var solver = new Solver(level);
+        var probe = new SolverProbe(solver);
+        LevelReduction reduction = solver.Reduction;
+        int[] goalOut = [.. reduction.MobileModels.Where(m => !level.Models[m].IsAlive && level.Models[m].Goal == GoalKind.Out)];
+        var violations = new List<Violation>();
+
+        for (int i = 0; i < graph.Count; i++)
+        {
+            if (graph.Solved[i])
+            {
+                continue;
+            }
+
+            bool fast = probe.NoWayOut(graph.States[i]);
+            bool direct = DirectNoWayOut(level, probe.Room, reduction, goalOut);
+            if (fast != direct)
+            {
+                violations.Add(new($"detector {fast}, direct {direct} at {Describe(probe.Room)}", null));
+            }
+        }
+
+        return violations;
+    }
+
+    private static bool DirectNoWayOut(Level level, Room room, LevelReduction reduction, int[] goalOut)
+    {
+        bool[] mobile = StuckAnalysis.Mobile(level, room, fishAnywhere: true);
+        if (goalOut.Any(m => !mobile[m] && !room.State(m).IsOut))
+        {
+            return true;
+        }
+
+        bool[] solid = StuckAnalysis.SolidCells(level, room, mobile);
+        bool extra = false;
+        for (int c = 0; c < solid.Length; c++)
+        {
+            extra |= solid[c] && !reduction.Walls[c];
+            solid[c] |= reduction.Walls[c];
+        }
+
+        if (!extra)
+        {
+            return false;
+        }
+
+        foreach (UnitDef unit in level.Units)
+        {
+            ref readonly ModelState s = ref room.State(unit.Model);
+            if (level.Models[unit.Model].Goal is not (GoalKind.Escape or GoalKind.Out) || s.IsOut || !s.IsAlive
+                || (uint)s.X >= (uint)level.Width || (uint)s.Y >= (uint)level.Height)
+            {
+                continue;
+            }
+
+            if (!StuckAnalysis.CanStillLeave(level, room, solid, unit.Model)[(s.Y * level.Width) + s.X])
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Where every model is, compactly - enough to redraw the state by hand.</summary>
     public static string Describe(Room room)
     {

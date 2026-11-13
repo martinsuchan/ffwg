@@ -79,8 +79,25 @@ public sealed partial class Room
         _heavier = new ModelCollector(slots);
         _stoned = new bool[slots];
 
+        InitFastPath();
         Reset();
     }
+
+    /// <summary>
+    /// Whether <see cref="ApplyMove"/> may skip the round simulation for moves
+    /// that provably change nothing but the moving fish (Room.FastPath.cs). On by
+    /// default; off only to compare the two paths against each other.
+    /// </summary>
+    public bool UseFastPath { get; set; } = true;
+
+    /// <summary>
+    /// Whether the last <see cref="ApplyMove"/> took the fast path: a turn or an
+    /// inert step, so the moving fish is the only thing that changed - no item
+    /// moved and no model's alive / out / lost flags did. A search can reuse
+    /// anything it derived from the parent's item layout. False after a full
+    /// round, whatever it did.
+    /// </summary>
+    public bool LastMoveWasFast { get; private set; }
 
     /// <summary>Number of real models (the border excluded) - loop bound everywhere.</summary>
     public int ModelCount => Level.ModelCount;

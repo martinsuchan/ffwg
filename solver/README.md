@@ -88,8 +88,9 @@ shorter solution exists.
 | `--nodes N` | 20,000,000 | give up after N expansions (this is also the memory cap in practice) |
 | `--weight W` | 1.0 | inflate the heuristic. >1 drops the optimality proof. Rarely helps on its own — see `--work` |
 | `--work N` | 0 | charge N extra per cell of a movable item on a fish's way out ([docs/013](docs/013-2026-08-17-reduction-fixes-and-work-heuristic.md)). Reaches levels A\* cannot; drops the optimality proof. Try 3, then 8 |
-| `--stuck` | off | drop states where an item is stuck forever and has walled a fish in ([docs/014](docs/014-2026-08-17-stuck-item-dead-end-detection.md)). Always sound; measured a small net loss, so opt-in |
+| `--no-stuck` | detection on | keep states where something is stuck for good. By default they are dropped: a fish that has to leave walled in, or a goal_out item that can never move again ([docs/020](docs/020-2026-11-13-stuck-detection-by-default.md)). Always sound; 61–63% of what plain A\* stores on wc and society. Switches itself off after ~1M expansions if it has dropped nothing |
 | `--macro` | off | search over decisions (travel, then one thing that changes the world) instead of key presses — see below |
+| `--threads N` | all cores | expand nodes in parallel ([docs/019](docs/019-2026-11-13-performance-p1-p2-p4.md)). At weight 1 the answer and every count are identical to `--threads 1`, stuck detection included. `--work` and `--partial-order` run serially |
 | `--out FILE` | — | write the solution as `saved_moves = '…'` |
 | `--progress N` | 1 | progress line every N seconds (`0` silences) |
 | `--quiet` | off | no progress lines |
@@ -128,8 +129,10 @@ memory:
       45s  f=137  expanded    9,904,128  stored   10,698,584      220k/s     925 MB
 ```
 
-**Memory is what runs out first**, not CPU — roughly 130 bytes per stored state,
-so 20 M nodes is about 2.5 GB. Raise `--nodes` only as far as RAM allows.
+**Memory is what runs out first**, not CPU — roughly 40-60 bytes per stored state
+(`bench --suite` prints the exact figure), with about 1.35 states stored per
+expansion, so 20 M nodes is about 1.5 GB. Raise `--nodes` only as far as RAM allows.
+`society` ran 70 M expansions (95 M states, ~4.3 GB) in 110 s on 12 cores.
 
 ## `solve --all` / `--levels-list` — batch, in parallel
 
@@ -297,12 +300,15 @@ ffsolve bench --suite --out before.csv          # on the old build
 ffsolve bench --suite --compare before.csv      # on the new one
 ```
 
-Wall clock of fixed, node-limited A* searches (start, cannons, wreck, society,
-library; `--quick` runs only the first two), best of `--reps` (3). Prints
-expansions/s and bytes per stored state (from the solver's own array sizes, so
-exact), and with `--compare` the per-expansion speed-up and memory ratio against
-an earlier run — flagging any level whose expansion count changed, since then the
-search itself changed, not just its speed. Use it for every performance change
+Wall clock of fixed, node-limited A* searches (start, wc, cannons, wreck,
+society, library; `--quick` runs only start and cannons), best of `--reps` (3).
+Prints expansions/s, bytes per stored state (from the solver's own array sizes,
+so exact) and the bound f reached, and with `--compare` the per-expansion
+speed-up, the wall-clock ratio and the memory ratio against an earlier run —
+flagging any level whose expansion count or bound changed, since then the search
+itself changed, not just its speed. `--no-stuck` measures without stuck
+detection. Short 12-thread runs vary by ±15%; use `--reps 7` before trusting a
+small difference. Use it for every performance change
 ([docs/017](docs/017-2026-11-13-regression-suite-phase-2.md)).
 
 ---

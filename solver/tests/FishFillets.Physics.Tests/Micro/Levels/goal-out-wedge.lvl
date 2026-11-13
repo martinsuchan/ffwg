@@ -1,0 +1,19 @@
+# expect: 34
+# tags:   goal_out, goal_alive, gravity, stuck, tier30
+# why:    the item has to go out on the right, so the fish - starting right
+#         beside it - must swim the long way round, over the wall, to get to its
+#         left. The obvious move, pushing it left, drops it into a one-wide
+#         pocket in the floor where it can never move again: no fish fits
+#         beside or below it. The fish is goal_alive, so the walled-in-fish rule
+#         says nothing; only the goal_out half of the stuck-item rule (docs/020)
+#         sees that the item will never leave. The walls-only item distance lets
+#         items be lifted and ignores the fish's detour, so those dead states
+#         sit far below the optimum and plain A* searches every one of them.
+# s: fish_small < goal_alive
+# A: item_light goal_out
+XXXXXXXXXXXXXXXXX
+X...............X
+X...XXXXXXXXX...X
+X......A..sss....
+XXXXXX.XXXXXXXXXX
+XXXXXXXXXXXXXXXXX

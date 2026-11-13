@@ -82,7 +82,11 @@ static void PrintUsage()
           ffsolve solve <level>             A*; provably shortest at weight 1
                     [--seconds N] [--nodes N] (default 20,000,000)
                     [--weight W]   >1 = faster, no optimality proof
+                    [--threads N]  parallel expansion (default: all cores;
+                                   same answer and counts as 1 at weight 1)
                     [--macro]      macro-move search (slower; see docs/005)
+                    [--no-stuck]   keep states where something is stuck for
+                                   good (detection is on by default - docs/020)
                     [--partial-order sleep|pairwise]  move-ordering reduction
                                    (correct, but measured a net loss - docs/011)
                     [--work N]     charge N extra per cell of a movable item on
@@ -92,6 +96,7 @@ static void PrintUsage()
           ffsolve solve --all               every level with a reference solution
           ffsolve solve --levels-list a,b,c just these
                     [--parallel N] (default min(cores,4) - memory binds first)
+                    [--threads N]  per level (default 1 - levels run side by side)
                     [--seconds N] (default 60) [--nodes N] [--out-dir DIR]
 
         IMPROVE
@@ -113,17 +118,17 @@ static void PrintUsage()
           ffsolve info <level>              size, models, goals, branching factor
           ffsolve bench <level> [--rounds N] (200)   physics replay throughput
           ffsolve bench --suite             wall clock of fixed A* searches, to
-                    [--reps N] (3)          compare builds: per-expansion speed-up
-                    [--quick]               and bytes per stored state
-                    [--out FILE] [--compare FILE]
+                    [--reps N] (3)          compare builds: per-expansion
+                    [--threads N] (1)       speed-up and bytes per stored state
+                    [--quick] [--no-stuck] [--out FILE] [--compare FILE]
 
         OPTIONS (any command)
           --levels <dir>      level JSON     (default <repo>/solver/levels)
           --solutions <dir>   reference sols (default <repo>/legacy/solution)
 
         NOTES
-          Memory runs out before CPU: roughly 130 bytes per stored state, so
-          --nodes 20000000 is about 2.5 GB. That is what --parallel is limited by.
+          Memory runs out before CPU: roughly 40-60 bytes per stored state, so
+          --nodes 20000000 is about 1.5 GB. That is what --parallel is limited by.
 
           A level edited in ffedit records where it came from, and solve
           re-verifies its answer against that original automatically - freezing
@@ -302,7 +307,7 @@ static int Solve(Corpus corpus, string[] argv)
     };
 
     int workPenalty = int.TryParse(TakeOption(argv, "--work"), out int wp) ? wp : 0;
-    bool detectStuck = argv.Contains("--stuck");
+    bool detectStuck = !argv.Contains("--no-stuck");
 
     Console.WriteLine($"level      {name} ({level.Width}x{level.Height})");
     ReportOriginalSolution(corpus, raw, level);
@@ -312,7 +317,7 @@ static int Solve(Corpus corpus, string[] argv)
                       (seconds > 0 ? $", {seconds}s limit" : "") +
                       (!items && !macro && partialOrder != PartialOrderMode.Off ? $", partial-order {partialOrder}" : "") +
                       (workPenalty > 0 ? $", item toll {workPenalty} (not admissible - no shortest proof)" : "") +
-                      (detectStuck ? ", stuck-item dead-end detection" : ""));
+                      (detectStuck ? "" : ", no stuck-item detection"));
     Console.WriteLine();
 
     var options = new SolveOptions
@@ -325,6 +330,9 @@ static int Solve(Corpus corpus, string[] argv)
         PartialOrder = partialOrder,
         WorkPenalty = workPenalty,
         DetectStuck = detectStuck,
+        // Plain A* expands in parallel by default (docs/019); same answer and
+        // counts as one thread at weight 1.
+        Threads = int.TryParse(TakeOption(argv, "--threads"), out int th) ? Math.Max(1, th) : Environment.ProcessorCount,
     };
 
     SolveResult result = items
@@ -482,11 +490,12 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
     long maxNodes = long.TryParse(TakeOption(argv, "--nodes"), out long n) ? n : 20_000_000;
     int seconds = int.TryParse(TakeOption(argv, "--seconds"), out int sec) ? sec : 60;
     int workPenalty = int.TryParse(TakeOption(argv, "--work"), out int wp) ? wp : 0;
-    bool detectStuck = argv.Contains("--stuck");
+    bool detectStuck = !argv.Contains("--no-stuck");
     string? outDir = TakeOption(argv, "--out-dir");
     int parallel = int.TryParse(TakeOption(argv, "--parallel"), out int p)
         ? p
         : Math.Max(1, Math.Min(Environment.ProcessorCount, 4));
+    int threadsPerLevel = int.TryParse(TakeOption(argv, "--threads"), out int tpl) ? Math.Max(1, tpl) : 1;
     // Workers interleave, so batch progress is prefixed with the level and paced
     // slower than a single run - four levels each shouting once a second is noise.
     double progressSeconds = double.TryParse(TakeOption(argv, "--progress"), out double bps) ? bps : 10.0;
@@ -527,6 +536,8 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
                 MaxNodes = maxNodes,
                 WorkPenalty = workPenalty,
                 DetectStuck = detectStuck,
+                // Levels already run side by side here; threads per level only on request.
+                Threads = threadsPerLevel,
                 TimeLimit = TimeSpan.FromSeconds(seconds),
                 ProgressSeconds = progressSeconds,
                 Progress = progressSeconds <= 0
@@ -920,28 +931,31 @@ static int Bench(Corpus corpus, string[] argv)
 static int BenchSuite(Corpus corpus, string[] argv)
 {
     int reps = int.TryParse(TakeOption(argv, "--reps"), out int rp) ? Math.Max(1, rp) : 3;
+    int threads = int.TryParse(TakeOption(argv, "--threads"), out int bt) ? Math.Max(1, bt) : 1;
     string? outPath = TakeOption(argv, "--out");
     string? comparePath = TakeOption(argv, "--compare");
     bool quick = argv.Contains("--quick");
+    bool detectStuck = !argv.Contains("--no-stuck");
 
     (string Level, long Nodes)[] suite = quick
         ? [("start", 0), ("cannons", 0)]
-        : [("start", 0), ("cannons", 0), ("wreck", 0), ("society", 1_500_000), ("library", 2_000_000)];
+        : [("start", 0), ("wc", 0), ("cannons", 0), ("wreck", 0), ("society", 1_500_000), ("library", 2_000_000)];
 
     string runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
                      // IsDynamicCodeSupported is false under plain `dotnet run` too once a
                      // project sets PublishAot; only an AOT image has no JIT at all.
                      + (System.Runtime.JitInfo.GetCompiledMethodCount() > 0 ? " JIT" : " AOT");
+    runtime += $", {threads} thread{(threads == 1 ? "" : "s")}" + (detectStuck ? "" : ", no stuck");
     Console.WriteLine($"bench suite - {runtime}, {Environment.ProcessorCount} cores, best of {reps}");
-    Console.WriteLine($"{"level",-10} {"expanded",12} {"stored",12} {"seconds",8} {"k exp/s",8} {"B/state",8}");
+    Console.WriteLine($"{"level",-10} {"expanded",12} {"stored",12} {"seconds",8} {"k exp/s",8} {"B/state",8} {"f",5}");
 
-    var rows = new List<(string Level, long Expanded, int Stored, double Seconds, double BytesPerState)>();
+    var rows = new List<(string Level, long Expanded, int Stored, double Seconds, double BytesPerState, int F)>();
     foreach ((string name, long nodes) in suite)
     {
         Level level = corpus.LoadLevel(name);
         string? known = corpus.TryReadSolution(name, out string k) ? k : null;
         LevelReduction reduction = LevelReduction.Verified(level, known);
-        var options = new SolveOptions { MaxNodes = nodes > 0 ? nodes : 20_000_000 };
+        var options = new SolveOptions { MaxNodes = nodes > 0 ? nodes : 20_000_000, Threads = threads, DetectStuck = detectStuck };
 
         double best = double.MaxValue;
         SolveResult? result = null;
@@ -961,18 +975,20 @@ static int BenchSuite(Corpus corpus, string[] argv)
             }
         }
 
-        rows.Add((name, result!.Expanded, result.StatesStored, best, bytesPerState));
+        // f: the proven bound reached - the solution length when solved. With
+        // a node cap, how far the same budget got matters more than its rate.
+        rows.Add((name, result!.Expanded, result.StatesStored, best, bytesPerState, result.DeepestF));
         Console.WriteLine(
             $"{name,-10} {result.Expanded,12:N0} {result.StatesStored,12:N0} {best,8:F2} " +
-            $"{result.Expanded / best / 1000,8:F0} {bytesPerState,8:F0}");
+            $"{result.Expanded / best / 1000,8:F0} {bytesPerState,8:F0} {result.DeepestF,5}");
     }
 
     if (outPath is not null)
     {
-        var text = new System.Text.StringBuilder($"# {runtime}\nlevel;expanded;stored;seconds;bytesPerState\n");
+        var text = new System.Text.StringBuilder($"# {runtime}\nlevel;expanded;stored;seconds;bytesPerState;f\n");
         foreach (var row in rows)
         {
-            text.Append(System.Globalization.CultureInfo.InvariantCulture, $"{row.Level};{row.Expanded};{row.Stored};{row.Seconds:F3};{row.BytesPerState:F1}\n");
+            text.Append(System.Globalization.CultureInfo.InvariantCulture, $"{row.Level};{row.Expanded};{row.Stored};{row.Seconds:F3};{row.BytesPerState:F1};{row.F}\n");
         }
 
         File.WriteAllText(outPath, text.ToString());
@@ -988,11 +1004,14 @@ static int BenchSuite(Corpus corpus, string[] argv)
                 p => p[0],
                 p => (Expanded: long.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture),
                       Seconds: double.Parse(p[3], System.Globalization.CultureInfo.InvariantCulture),
-                      Bytes: double.Parse(p[4], System.Globalization.CultureInfo.InvariantCulture)));
+                      Bytes: double.Parse(p[4], System.Globalization.CultureInfo.InvariantCulture),
+                      F: p.Length > 5 ? int.Parse(p[5], System.Globalization.CultureInfo.InvariantCulture) : 0));
 
         Console.WriteLine();
         Console.WriteLine($"vs {Path.GetFileName(comparePath)} ({File.ReadLines(comparePath).First().TrimStart('#', ' ')})");
-        Console.WriteLine($"{"level",-10} {"speed-up",9} {"memory",9}  note");
+        // speed-up is per expansion; time is wall clock for the whole run, which
+        // is the one that counts when the two searches expand different nodes.
+        Console.WriteLine($"{"level",-10} {"speed-up",9} {"time",9} {"memory",9}  note");
         foreach (var row in rows)
         {
             if (!before.TryGetValue(row.Level, out var b))
@@ -1001,8 +1020,13 @@ static int BenchSuite(Corpus corpus, string[] argv)
             }
 
             string note = b.Expanded == row.Expanded ? "" : $"different search: {b.Expanded:N0} -> {row.Expanded:N0} expansions";
+            if (b.F > 0 && b.F != row.F)
+            {
+                note += $", f {b.F} -> {row.F}";
+            }
+
             double speedUp = (b.Seconds / b.Expanded) / (row.Seconds / row.Expanded);
-            Console.WriteLine($"{row.Level,-10} {speedUp,8:F2}x {(b.Bytes > 0 ? row.BytesPerState / b.Bytes : 0),8:F2}x  {note}");
+            Console.WriteLine($"{row.Level,-10} {speedUp,8:F2}x {b.Seconds / row.Seconds,8:F2}x {(b.Bytes > 0 ? row.BytesPerState / b.Bytes : 0),8:F2}x  {note}");
         }
     }
 

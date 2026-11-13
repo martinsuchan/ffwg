@@ -86,6 +86,99 @@ public sealed class PhysicsDigestTests
     }
 
     /// <summary>
+    /// The fast path (Room.FastPath.cs, review P2) against the full round, move
+    /// for move: two rooms walked in lockstep, one with the shortcut and one
+    /// without, compared field by field after every move. Stronger than the
+    /// digest for this purpose - it names the first move that differs.
+    /// </summary>
+    [TestMethod]
+    public void Physics_FastPathMatchesFullRound()
+    {
+        var levels = TestCorpus.Instance.LevelNames.Select(n => ("corpus:" + n, TestCorpus.Instance.LoadLevel(n)))
+            .Concat(MicroCorpus.All.Select(m => ("micro:" + m.Name, m.Build())))
+            .ToList();
+
+        var problems = new ConcurrentBag<string>();
+        Parallel.ForEach(levels, entry =>
+        {
+            (string name, Level level) = entry;
+            var fast = new Room(level) { UseFastPath = true };
+            var full = new Room(level) { UseFastPath = false };
+            var symbols = new char[fast.MoveSymbolCount];
+            fast.GetMoveSymbols(symbols, out int symbolCount);
+
+            var rng = new XorShift((ulong)name.GetHashCode(StringComparison.Ordinal) ^ 0x5DEECE66DUL);
+            var pool = new List<RoomSnapshot> { fast.Capture() };
+
+            for (int step = 0; step < Steps; step++)
+            {
+                if (rng.Next(0, 16) == 0)
+                {
+                    RoomSnapshot from = pool[rng.Next(0, pool.Count)];
+                    fast.RestoreFrom(from);
+                    full.RestoreFrom(from);
+                }
+
+                char symbol = symbols[rng.Next(0, symbolCount)];
+                bool okFast = fast.ApplyMove(symbol);
+                bool okFull = full.ApplyMove(symbol);
+                string? difference = Difference(fast, full);
+                if (okFast != okFull || difference is not null)
+                {
+                    problems.Add($"{name}, step {step}, '{symbol}': {(okFast != okFull ? $"accepted {okFast} vs {okFull}" : difference)}");
+                    return;
+                }
+
+                if (!fast.IsSolvable() || fast.IsSolved())
+                {
+                    fast.RestoreFrom(pool[0]);
+                    full.RestoreFrom(pool[0]);
+                }
+                else if (okFast && rng.Next(0, 4) == 0 && pool.Count < 256)
+                {
+                    pool.Add(fast.Capture());
+                }
+            }
+        });
+
+        Assert.IsEmpty(problems, $"{problems.Count} levels where the fast path differs:\n  " + string.Join("\n  ", problems.Take(10)));
+    }
+
+    /// <summary>First field (other than TouchDir) where the two rooms differ, or null.</summary>
+    private static string? Difference(Room a, Room b)
+    {
+        if (a.StepCount != b.StepCount || a.IsFresh != b.IsFresh)
+        {
+            return $"step count {a.StepCount}/{b.StepCount}, fresh {a.IsFresh}/{b.IsFresh}";
+        }
+
+        for (int i = 0; i < a.ModelCount; i++)
+        {
+            ModelState x = a.State(i), y = b.State(i);
+            x.TouchDir = Dir.No;
+            y.TouchDir = Dir.No;
+            if (!x.Equals(y))
+            {
+                return $"model {i} ({a.Level.Models[i].Kind}): fast ({x.X},{x.Y}) alive={x.IsAlive} left={x.IsLeft} out={x.IsOut}, " +
+                       $"full ({y.X},{y.Y}) alive={y.IsAlive} left={y.IsLeft} out={y.IsOut}";
+            }
+        }
+
+        for (int y = 0; y < a.Level.Height; y++)
+        {
+            for (int x = 0; x < a.Level.Width; x++)
+            {
+                if (a.GetModel(x, y) != b.GetModel(x, y))
+                {
+                    return $"grid cell ({x},{y}): {a.GetModel(x, y)} vs {b.GetModel(x, y)}";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// The walk: random symbols, branching from a pool of earlier states so it
     /// spreads out instead of wandering in one corridor, and starting over from
     /// the opening whenever the level is lost or won.
