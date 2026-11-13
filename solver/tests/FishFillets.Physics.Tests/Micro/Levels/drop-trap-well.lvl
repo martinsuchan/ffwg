@@ -1,0 +1,17 @@
+# expect: 25
+# tags:   trap, gravity, stuck, window, tier30
+# detour: durrrrddrrrrdddllllllllllll
+# why:    one push right sends the item down a shaft into a slot in the exit
+#         tunnel, where it wedges for good. Every state after that is a dead
+#         end that only the stuck-item rule can recognise.
+# s: fish_small >
+# A: item_light
+XXXXXXXXXXXXXXXX
+X..sss.........X
+X.....A........X
+X.....A........X
+XXXXXXX.XXX....X
+XXXXXXX.XXX....X
+...............X
+XXXXXXX.XXXXXXXX
+XXXXXXXXXXXXXXXX

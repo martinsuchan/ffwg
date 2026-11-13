@@ -1,0 +1,12 @@
+# expect: 14
+# tags:   swim, facing, tier10
+# why:    pure travel - one fish, no items. Has to turn round, rise through a
+#         three-wide gap and swim out on the left. Pins turn counting and the
+#         walls-only heuristic on the simplest possible room.
+# s: fish_small >
+XXXXXXXXXXX
+..........X
+XXXXXXX...X
+X.........X
+X...sss...X
+XXXXXXXXXXX

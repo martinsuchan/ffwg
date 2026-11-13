@@ -1,0 +1,12 @@
+# expect: 7
+# tags:   goal_out, goal_alive, facing, tier10
+# why:    final-level style: the fish stays, the item has to leave. Items
+#         never turn, but the item distance charges a turn to go right (C3),
+#         so the estimate exceeds the true cost once the fish is lined up.
+# known-bug: admissible=C3, consistent=C3, matrix:macro=C2+C3, matrix:items=C2+C3
+# s: fish_small < goal_alive
+# A: item_light goal_out
+XXXXXXXXXX
+Xsss.....X
+X....A....
+XXXXXXXXXX

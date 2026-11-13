@@ -1,0 +1,13 @@
+# expect: 6
+# tags:   goal_out, goal_alive, gravity, stuck, tier10
+# known-bug: matrix:astar-stuck=C7, stuck=C7, matrix:work-3=C4!
+# why:    the item leaves by falling through a one-wide hole in the floor. The
+#         fish is goal_alive and can never leave this room - which is fine, it
+#         does not have to. The stuck-item rule still demands that every fish
+#         can reach a border, so it declares the level dead from the start.
+# s: fish_small > goal_alive
+# A: item_light goal_out
+XXXXXXXXXXXX
+X..........X
+X.....A.sssX
+XX.XXXXXXXXX

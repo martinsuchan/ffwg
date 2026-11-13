@@ -1,0 +1,11 @@
+# expect: none
+# tags:   unsolvable, exhaustive, stuck, tier10
+# why:    the item can only ever be shoved into the exit itself, where it
+#         wedges against the border. With items deleted the way out looks
+#         open, so the heuristic stays finite and a complete search has to
+#         exhaust the space to prove there is no solution.
+# s: fish_small <
+# A: item_light
+XXXXXXXXX
+..A.sss.X
+XXXXXXXXX

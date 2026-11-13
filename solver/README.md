@@ -31,7 +31,7 @@ solver/
 
 ## Getting started
 
-Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download). From the repo
+Needs the [.NET 11 SDK](https://dotnet.microsoft.com/download). From the repo
 root:
 
 ```
@@ -47,10 +47,14 @@ dotnet run --project src\FishFillets.Cli -c Release -- <command> [options]
 ```
 
 `-Publish` puts a self-contained `ffsolve.exe` in
-`src\FishFillets.Cli\bin\Release\net10.0\<rid>\publish\`, which is worth using for
-long runs — no JIT warm-up (`verify --all` takes 70 ms instead of 355 ms). It
-needs the **"Desktop development with C++"** workload in the Visual Studio
-Installer; nothing else here does.
+`src\FishFillets.Cli\bin\Release\net11.0\<rid>\publish\`. It starts fast (no JIT
+warm-up: `verify --all` takes 70 ms instead of 355 ms), but **for long searches the
+JIT build is faster** — about 15-20% on `wreck`/`society`, thanks to dynamic PGO
+([docs/016](docs/016-2026-11-13-dotnet-11-upgrade.md)). So use the exe for quick
+commands and `dotnet src\FishFillets.Cli\bin\Release\net11.0\ffsolve.dll` (or
+`dotnet run -c Release`) for anything that runs minutes. Publishing needs the
+**"Desktop development with C++"** workload in the Visual Studio Installer;
+nothing else here does.
 
 ---
 
@@ -391,8 +395,9 @@ reports overlapping models exactly as the solver would reject them. Watching
 
 # Tests
 
-`dotnet test` is the regression suite — 204 tests, about a minute. Run it after
-any change to `FishFillets.Physics`. It covers five things (see
+`scriptsuild-solver.ps1` runs the regression suite (`dotnet test` with
+`--filter "TestCategory!=KnownBug"`) — ~580 tests, a few seconds. Run it after
+any change to `FishFillets.Physics` or `FishFillets.Search`. It covers six things (see
 [`docs/002`](docs/002-2026-08-14-test-project.md), [`docs/004`](docs/004-2026-08-14-from-scratch-solver.md)):
 
 - **the corpus**, one case per level: all 80 recorded solutions must replay to
@@ -407,6 +412,16 @@ any change to `FishFillets.Physics`. It covers five things (see
 - **the results record**, that a run survives the CSV round trip, that a merge
   never loses a better result, and that the world-map parse still yields a branch
   for every level.
+- **micro-levels** (`tests/.../Micro/Levels/*.lvl`, ASCII rooms of 5-30 moves,
+  [`docs/015`](docs/015-2026-11-13-micro-level-regression-suite.md)): every solver
+  variant against an independent full-state BFS, the heuristic and the pruning
+  rules checked in *every* reachable state, and a node-count baseline
+  (`Micro/micro-baseline.csv`) that fails on regressions. Accept deliberate
+  changes with `$env:UPDATE_BASELINE=1` and commit the CSV diff.
+
+Checks pinned to open findings carry `[TestCategory("KnownBug")]` and are
+expected to fail until fixed: `scriptsuild-solver.ps1 -KnownBugs` runs only
+those. When a fix turns its rows green, delete the level's `known-bug:` entry.
 
 `ffsolve verify --all` does the corpus half on its own, which is what
 `build-solver.ps1 -Publish` uses to smoke-test the AOT binary.

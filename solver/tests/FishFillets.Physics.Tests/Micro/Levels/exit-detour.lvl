@@ -1,0 +1,12 @@
+# expect: 4
+# tags:   swim, escape, window, tier10
+# why:    the detour takes a longer way to the same exit. The only shortcut
+#         ends in the state where the fish has already left, which the window
+#         optimiser's fish-distance heuristic cannot see (C5).
+# detour: lllul
+# known-bug: window=C5
+# s: fish_small <
+XXXXXXXX
+.......X
+....sssX
+XXXXXXXX
