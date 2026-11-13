@@ -14,14 +14,19 @@
     RID for -Publish (default: this machine's, e.g. win-arm64 / win-x64).
 .PARAMETER NoVerify
     Skip the test run (and, with -Publish, the `verify --all` smoke test).
+.PARAMETER KnownBugs
+    Run only the tests marked [TestCategory("KnownBug")] - checks pinned to
+    open findings, expected to FAIL until each fix lands (solver/docs/015).
+    The normal run excludes them.
 
 .NOTES
-    Needs the .NET 10 SDK. Windows only (the AOT prerequisites below are).
+    Needs the .NET 11 SDK. Windows only (the AOT prerequisites below are).
 #>
 param(
     [switch]$Publish,
     [string]$Runtime,
-    [switch]$NoVerify
+    [switch]$NoVerify,
+    [switch]$KnownBugs
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +36,7 @@ $cliProject = Join-Path $solverDir "src\FishFillets.Cli\FishFillets.Cli.csproj"
 . (Join-Path $PSScriptRoot "lib\common.ps1")
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    Write-ErrLine "dotnet not found. Install the .NET 10 SDK: winget install Microsoft.DotNet.SDK.10"
+    Write-ErrLine "dotnet not found. Install the .NET 11 SDK: winget install Microsoft.DotNet.SDK.11"
     exit 1
 }
 
@@ -65,7 +70,7 @@ none of that.
         exit 1
     }
 
-    $exe = Join-Path $solverDir "src\FishFillets.Cli\bin\Release\net10.0\$Runtime\publish\ffsolve.exe"
+    $exe = Join-Path $solverDir "src\FishFillets.Cli\bin\Release\net11.0\$Runtime\publish\ffsolve.exe"
     Write-Ok "Published: $exe"
 
     if (-not $NoVerify) {
@@ -88,8 +93,17 @@ if ($NoVerify) { exit 0 }
 
 # The regression suite: every one of the game's recorded solutions must still
 # replay to Solved (one test case per level), plus the rule and invalid-solution
-# tests. See solver/docs/002.
+# tests, plus the micro-level suite (solver/docs/015). KnownBug tests pin open
+# findings and are expected to fail, so they only run on request (-KnownBugs).
+if ($KnownBugs) {
+    Write-Step "Running the KnownBug tests (failures here are the open findings)"
+    dotnet test (Join-Path $solverDir "FishFillets.Solver.slnx") -c Release --filter "TestCategory=KnownBug"
+    if ($LASTEXITCODE -ne 0) { Write-WarnLine "Some known bugs are still open (expected until fixed)."; exit 1 }
+    Write-Ok "Every KnownBug test passes - remove the fixed known-bug entries from the level files."
+    exit 0
+}
+
 Write-Step "Running the test suite"
-dotnet test (Join-Path $solverDir "FishFillets.Solver.slnx") -c Release
+dotnet test (Join-Path $solverDir "FishFillets.Solver.slnx") -c Release --filter "TestCategory!=KnownBug"
 if ($LASTEXITCODE -ne 0) { Write-ErrLine "Tests FAILED."; exit 1 }
 Write-Ok "Tests passed."

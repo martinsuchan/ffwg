@@ -1,0 +1,8 @@
+# expect: none
+# tags:   unsolvable, tier10
+# why:    no way out at all. Complete searches must say so; nothing may claim a solution.
+# s: fish_small >
+XXXXXXX
+X.....X
+X.sss.X
+XXXXXXX
