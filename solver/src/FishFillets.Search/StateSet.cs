@@ -56,6 +56,12 @@ internal sealed class StateSet
 
     public int Count => _count;
 
+    /// <summary>Bytes held by the table's arrays, at their current capacity (growth headroom included).</summary>
+    public long MemoryBytes =>
+        ((long)_buckets.Length * sizeof(int))
+        + ((long)_entries.Length * System.Runtime.CompilerServices.Unsafe.SizeOf<Entry>())
+        + _keys.Length;
+
     public void Clear()
     {
         Array.Clear(_buckets);

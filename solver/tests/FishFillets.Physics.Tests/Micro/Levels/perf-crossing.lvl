@@ -1,0 +1,18 @@
+# expect: 27
+# tags:   heavy, two-fish, gravity, perf, tier30
+# why:    both fish have to cross to the exit on the far left, past a heavy
+#         post only the big fish can shove and a light block that drops into
+#         the way. Large enough (two free-swimming fish, many orderings) that
+#         search effort is measurable - this is a performance ratchet level.
+# s: fish_small <
+# b: fish_big <
+# H: item_heavy
+# A: item_light
+XXXXXXXXXXXXXXXXX
+.....A....X.....X
+..........X.sss.X
+X......H........X
+X......H..bbbb..X
+X....XXX..bbbb..X
+X....XXX........X
+XXXXXXXXXXXXXXXXX
