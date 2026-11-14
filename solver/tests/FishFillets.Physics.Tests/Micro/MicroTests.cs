@@ -130,6 +130,34 @@ public sealed class MicroTests
     [DynamicData(nameof(ReductionKnownBugRows))]
     public void Reduction_FrozenModelsNeverMove_KnownBug(string level) => CheckProperty(level, "frozen-model moves", MicroChecks.Reduction);
 
+    public static IEnumerable<object[]> SymmetryRows => MicroCorpus.Rows("symmetry", knownBug: false);
+
+    public static IEnumerable<object[]> SymmetryKnownBugRows => MicroCorpus.Rows("symmetry", knownBug: true);
+
+    /// <summary>Swapping identical items changes nothing the physics can tell, so merging them (docs/022) is sound.</summary>
+    [TestMethod]
+    [DynamicData(nameof(SymmetryRows))]
+    public void Symmetry_IdenticalItemsAreInterchangeable(string level) => CheckProperty(level, "asymmetric outcomes", MicroChecks.SymmetrySound);
+
+    [TestMethod]
+    [TestCategory("KnownBug")]
+    [DynamicData(nameof(SymmetryKnownBugRows))]
+    public void Symmetry_IdenticalItemsAreInterchangeable_KnownBug(string level) => CheckProperty(level, "asymmetric outcomes", MicroChecks.SymmetrySound);
+
+    public static IEnumerable<object[]> StuckEstimateRows => MicroCorpus.Rows("stuck-estimate", knownBug: false);
+
+    public static IEnumerable<object[]> StuckEstimateKnownBugRows => MicroCorpus.Rows("stuck-estimate", knownBug: true);
+
+    /// <summary>The estimate raised by stuck-wall distances (docs/021) never exceeds the true distance.</summary>
+    [TestMethod]
+    [DynamicData(nameof(StuckEstimateRows))]
+    public void StuckEstimate_IsAdmissible(string level) => CheckProperty(level, "overestimates", MicroChecks.StuckEstimate);
+
+    [TestMethod]
+    [TestCategory("KnownBug")]
+    [DynamicData(nameof(StuckEstimateKnownBugRows))]
+    public void StuckEstimate_IsAdmissible_KnownBug(string level) => CheckProperty(level, "overestimates", MicroChecks.StuckEstimate);
+
     public static IEnumerable<object[]> StuckRows => MicroCorpus.Rows("stuck", knownBug: false);
 
     public static IEnumerable<object[]> StuckKnownBugRows => MicroCorpus.Rows("stuck", knownBug: true);

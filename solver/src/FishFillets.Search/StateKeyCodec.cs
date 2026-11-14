@@ -35,6 +35,8 @@ internal sealed class StateKeyCodec
     private readonly int[] _models;
     private readonly bool[] _full;
     private readonly byte[] _itemFlags;   // the one flags byte a plain item has while in the room
+    private readonly int[] _offset;       // where each slot starts in the compact key
+    private readonly int[][] _classes;    // interchangeable plain items (ItemSymmetry), as slots
 
     public StateKeyCodec(Level level, int[] mobileModels)
     {
@@ -42,6 +44,7 @@ internal sealed class StateKeyCodec
         _models = mobileModels;
         _full = new bool[mobileModels.Length];
         _itemFlags = new byte[mobileModels.Length];
+        _offset = new int[mobileModels.Length];
 
         int size = 0;
         for (int n = 0; n < mobileModels.Length; n++)
@@ -49,13 +52,27 @@ internal sealed class StateKeyCodec
             ModelDef def = level.Models[mobileModels[n]];
             _full[n] = def.IsAlive || def.OutDir != Dir.No;
             _itemFlags[n] = (byte)(def.IsLeft ? 1 : 0);
+            _offset[n] = size;
             size += _full[n] ? 3 : 2;
         }
 
         CompactSize = size;
+        _classes = ItemSymmetry.Classes(level, mobileModels);
     }
 
     public int CompactSize { get; }
+
+    /// <summary>
+    /// Whether <see cref="Encode"/> sorts the positions within each class of
+    /// interchangeable items, so that states differing only in which identical
+    /// item stands where get the same key (docs/022). Decoding such a key hands
+    /// the positions out in sorted order - a room with identities swapped, which
+    /// is the same room to the physics.
+    /// </summary>
+    public bool Canonical { get; set; }
+
+    /// <summary>Whether this level has any interchangeable items at all.</summary>
+    public bool HasSymmetry => _classes.Length > 0;
 
     public int WideSize => _models.Length * 5;
 
@@ -105,6 +122,63 @@ internal sealed class StateKeyCodec
                 c += 2;
             }
         }
+
+        if (Canonical)
+        {
+            Canonicalize(compact);
+        }
+    }
+
+    /// <summary>
+    /// Sorts each class's 2-byte positions (gone, 0xFFFF, last) in place. A
+    /// child differs from its already-canonical parent by a move or two, so a
+    /// class is almost always still sorted: one pass checks, and only an
+    /// unsorted class is insertion-sorted - linear on nearly sorted input.
+    /// </summary>
+    private void Canonicalize(Span<byte> compact)
+    {
+        foreach (int[] members in _classes)
+        {
+            ushort previous = Read(compact, members[0]);
+            int i = 1;
+            for (; i < members.Length; i++)
+            {
+                ushort v = Read(compact, members[i]);
+                if (v < previous)
+                {
+                    break;
+                }
+
+                previous = v;
+            }
+
+            // members[i] is the first out of order; insert it and the rest.
+            for (; i < members.Length; i++)
+            {
+                ushort v = Read(compact, members[i]);
+                int j = i - 1;
+                while (j >= 0 && Read(compact, members[j]) > v)
+                {
+                    Write(compact, members[j + 1], Read(compact, members[j]));
+                    j--;
+                }
+
+                Write(compact, members[j + 1], v);
+            }
+        }
+    }
+
+    private ushort Read(ReadOnlySpan<byte> compact, int slot)
+    {
+        int o = _offset[slot];
+        return (ushort)((compact[o] << 8) | compact[o + 1]);
+    }
+
+    private void Write(Span<byte> compact, int slot, ushort value)
+    {
+        int o = _offset[slot];
+        compact[o] = (byte)(value >> 8);
+        compact[o + 1] = (byte)value;
     }
 
     public void Decode(ReadOnlySpan<byte> compact, Span<byte> wide)

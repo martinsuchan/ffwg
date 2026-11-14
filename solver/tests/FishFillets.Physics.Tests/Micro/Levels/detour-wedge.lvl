@@ -1,0 +1,23 @@
+# expect: 25
+# tags:   trap, gravity, stuck, heuristic, tier30
+# why:    one push right drops the post down the shaft into a slot in the short
+#         exit tunnel. Unlike drop-trap-well that is not fatal - the long way
+#         round below still leads out - so the state is live and the dead-end
+#         rule keeps it. But it is dear: the walls-only estimate still routes
+#         the fish through the tunnel, while the stuck-wall distances (docs/021)
+#         know the post is there for good and charge the detour, lifting those
+#         states above the optimum.
+# s: fish_small >
+# A: item_light
+XXXXXXXXXXXXXXXXX
+X..sss..........X
+X.....A.........X
+X.....A.........X
+XXXXXXX.XXX.....X
+XXXXXXX.XXX.....X
+................X
+XX...XX.XXXX...XX
+XX...XXXXXXX...XX
+XX...XXXXXXX...XX
+XX.............XX
+XXXXXXXXXXXXXXXXX

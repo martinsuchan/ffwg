@@ -60,6 +60,8 @@ public sealed partial class Solver
     private byte[] _childSymbol = [];
     private ushort[] _childGuide = [];
     private bool[] _childDead = [];
+    private bool[] _childFinished = [];
+    private ushort[] _childPlain = [];
 
     private SolveResult SolveParallel(SolveOptions options, Stopwatch stopwatch)
     {
@@ -124,19 +126,39 @@ public sealed partial class Solver
                 }
 
                 int baseIndex = slot * _symbols.Length;
+                int parentEstimate = _store.Estimate(parent);
                 for (int c = 0; c < _batchChildren[slot]; c++)
                 {
                     int o = baseIndex + c;
 
-                    // Phase 1 only marks what the stuck-item rule condemns; it is
-                    // dropped here, in serial order, so that a probation ending
+                    // Phase 1 computed the estimate both with and without the
+                    // stuck-item rule, and marked what it condemns; the choice
+                    // is made here, in serial order, so that a probation ending
                     // part-way through a batch (see EndStuckProbation) takes
                     // effect at exactly the expansion the serial loop would.
-                    if (_childDead[o] && _stuckActive)
+                    int h = _childPlain[o];
+                    if (!_childFinished[o])
                     {
-                        CountStuckPrune(expanded);
-                        continue;
+                        if (_stuckActive)
+                        {
+                            if (_childDead[o])
+                            {
+                                CountStuckPrune(expanded);
+                                continue;
+                            }
+
+                            if (_childGuide[o] > h)
+                            {
+                                _stuckRaised++;
+                                h = _childGuide[o];
+                            }
+                        }
+
+                        // Pathmax, as in the serial loop.
+                        h = Math.Max(h, parentEstimate - 1);
                     }
+
+                    ushort guide = (ushort)Math.Min(h, ushort.MaxValue);
 
                     ReadOnlySpan<byte> key = _childKeys.AsSpan(o * keySize, keySize);
                     int child = _store.FindOrAdd(key, _childHash[o], out bool added);
@@ -147,9 +169,9 @@ public sealed partial class Solver
 
                     _store.Parent(child) = parent;
                     _store.Cost(child) = (ushort)(g + 1);
-                    _store.Estimate(child) = _childGuide[o];
+                    _store.Estimate(child) = guide;
                     _store.Move(child) = _childSymbol[o];
-                    _queue.Push(child, Priority(g + 1, _childGuide[o]));
+                    _queue.Push(child, Priority(g + 1, guide));
                 }
 
                 ReportProgress(options, stopwatch, expanded, f, ref nextReport);
@@ -202,6 +224,8 @@ public sealed partial class Solver
             _childSymbol = new byte[children];
             _childGuide = new ushort[children];
             _childDead = new bool[children];
+            _childFinished = new bool[children];
+            _childPlain = new ushort[children];
         }
     }
 
@@ -290,7 +314,8 @@ public sealed partial class Solver
 
             // IsDeadEnd, on this worker's room: a finished room bypasses it (see Solve).
             int h;
-            if (w.Room.IsSolved())
+            bool finished = w.Room.IsSolved();
+            if (finished)
             {
                 h = 0;
             }
@@ -313,18 +338,26 @@ public sealed partial class Solver
             // The stuck-item rule, as the serial loop applies it: after the
             // cheap tests, on a key already written. Its per-layout verdict is a
             // pure function of the layout, so sharing the cache across workers
-            // changes no answer - only who computes it first. Marked, not
-            // dropped: phase 2 decides (probation).
-            bool dead = stuck && h > 0
-                && (w.Room.LastMoveWasFast ? _stuck.Condemns(parentVerdict!, w.Room) : _stuck.NoWayOut(w.Room, w.Key, w.Stuck));
+            // changes no answer - only who computes it first. Marked and kept
+            // beside the plain estimate, not applied: phase 2 decides (probation).
+            int raised = h;
+            if (stuck && h > 0)
+            {
+                StuckDetector.Verdict verdict = w.Room.LastMoveWasFast
+                    ? parentVerdict!
+                    : _stuck.LayoutVerdict(w.Room, w.Key, w.Stuck);
+                raised = _stuck.Evaluate(verdict, w.Room, h, _stuckDistances);
+            }
 
             int o = baseIndex + children;
-            _childDead[o] = dead;
+            _childDead[o] = raised < 0;
+            _childFinished[o] = finished;
+            _childPlain[o] = (ushort)Math.Min(h, ushort.MaxValue);
             Span<byte> key = _childKeys.AsSpan(o * keySize, keySize);
             _codec.Encode(w.Key, key);
             _childHash[o] = StateStore.Hash(key);
             _childSymbol[o] = (byte)s;
-            _childGuide[o] = (ushort)Math.Min(h, ushort.MaxValue);
+            _childGuide[o] = (ushort)Math.Clamp(raised, 0, ushort.MaxValue);
             children++;
         }
 

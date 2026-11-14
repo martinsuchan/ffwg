@@ -69,15 +69,33 @@ public sealed record SolveOptions
     public bool DetectStuck { get; init; } = true;
 
     /// <summary>
-    /// Expansions the stuck-item rule gets to prove itself: if it has not
-    /// discarded a single state by then, it is switched off for the rest of the
-    /// search. On a level with no dead ends it is pure cost - up to a third more
+    /// Expansions the stuck-item rule gets to prove itself: if it has neither
+    /// discarded a state nor raised an estimate (<see cref="StuckDistances"/>) by
+    /// then, it is switched off for the rest of the search. On a level with no dead ends it is pure cost - up to a third more
     /// time on rooms whose items move often (docs/020). The first dead end can
     /// come late (library: expansion 199,356; steel 78,509), hence about a
     /// million. Decided on counts alone, at the same expansion in a serial and a
     /// parallel run, so the two stay identical. Zero keeps the rule on throughout.
     /// </summary>
     public long StuckProbation { get; init; } = 1 << 20;
+
+    /// <summary>
+    /// Whether the stuck-item rule also raises the estimate of the states it
+    /// keeps: the fish's distances out measured with everything stuck counted
+    /// as wall, instead of the walls the level opens with (docs/021). Admissible
+    /// for the same reason the dead-end half is sound; kept consistent by
+    /// pathmax. Only with <see cref="DetectStuck"/>; off keeps just the dead ends.
+    /// </summary>
+    public bool StuckDistances { get; init; } = true;
+
+    /// <summary>
+    /// Whether states that differ only in which of several identical items
+    /// stands where are stored as one (docs/022): physically identical items -
+    /// same kind, shape, weight and facing, no goal - get their positions sorted
+    /// in the state key and in the stuck detector's layout key. Changes no
+    /// answer; on gems it merges four states in five.
+    /// </summary>
+    public bool MergeIdenticalItems { get; init; } = true;
 
     /// <summary>
     /// Worker threads for expanding nodes (review P4). Above 1, each batch of
@@ -179,9 +197,12 @@ public sealed partial class Solver
 
     private int _workPenalty;
     // The stuck-item rule: on for this search, how many states it has
-    // discarded, and when it is switched off if that is still none.
+    // discarded or re-estimated, and when it is switched off if that is
+    // still none.
     private bool _stuckActive;
+    private bool _stuckDistances;
     private long _stuckPruned;
+    private long _stuckRaised;
     private long _stuckProbation;
     private long _stuckFirstPrune;
 
@@ -374,13 +395,21 @@ public sealed partial class Solver
         _mode = options.PartialOrder;
         _workPenalty = options.WorkPenalty;
         _stuckActive = options.DetectStuck;
+        _stuckDistances = options.StuckDistances;
         _stuckPruned = 0;
+        _stuckRaised = 0;
         _stuckFirstPrune = 0;
         _stuckProbation = options.StuckProbation;
         _layouts.Clear();
         _lastLayout = null;
         _stuck.Clear();
         _stuckProbe.Reset();
+        _codec.Canonical = options.MergeIdenticalItems;
+        _stuck.Canonical = options.MergeIdenticalItems;
+        foreach (Worker worker in _workers)
+        {
+            worker.Stuck.Reset();
+        }
         _store.Clear();
         _queue.Clear();
         _room.Reset();
@@ -492,6 +521,7 @@ public sealed partial class Solver
                 // fish: same items, same layout, same verdict - so those skip
                 // the layout key entirely and cost one bit test.
                 StuckDetector.Verdict? parentVerdict = _stuckActive ? _stuck.LayoutVerdict(_room, _wide, _stuckProbe) : null;
+                int parentEstimate = _store.Estimate(nodeIndex);
 
                 for (int s = 0; s < _symbols.Length; s++)
                 {
@@ -524,7 +554,8 @@ public sealed partial class Solver
                     generated++;
 
                     int h;
-                    if (_room.IsSolved())
+                    bool finished = _room.IsSolved();
+                    if (finished)
                     {
                         // Queue it like any other state - it will be recognised
                         // when it is popped. It needs no more moves, so h is 0 and
@@ -546,12 +577,41 @@ public sealed partial class Solver
 
                     // After the key is written, because it is cached on it - and
                     // after IsDeadEnd, which is orders of magnitude cheaper and
-                    // catches its own cases first.
-                    if (_stuckActive && h > 0
-                        && (_room.LastMoveWasFast ? _stuck.Condemns(parentVerdict!, _room) : NoWayOut()))
+                    // catches its own cases first. A dead state is dropped; a
+                    // live one gets its estimate raised to the fish's distances
+                    // with everything stuck as wall (docs/021).
+                    if (_stuckActive && h > 0)
                     {
-                        CountStuckPrune(expanded);
-                        continue;
+                        StuckDetector.Verdict verdict = _room.LastMoveWasFast
+                            ? parentVerdict!
+                            : _stuck.LayoutVerdict(_room, _key, _stuckProbe);
+                        int raised = _stuck.Evaluate(verdict, _room, h, _stuckDistances);
+                        if (raised < 0)
+                        {
+                            CountStuckPrune(expanded);
+                            continue;
+                        }
+
+                        if (raised > h)
+                        {
+                            _stuckRaised++;
+                            h = raised;
+                        }
+                    }
+
+                    // Pathmax: never more than one below the parent's estimate.
+                    // The stuck-wall distances are admissible but not always
+                    // consistent - the analysis can prove an item stuck in a
+                    // parent and fail to in its child - and this restores the
+                    // property A* leans on: f never falls along a path, so
+                    // buckets drain in order and DeepestF stays a proven bound.
+                    // Sound because the parent's estimate is admissible:
+                    // h*(child) >= h*(parent) - 1 >= h(parent) - 1. A finished
+                    // room keeps 0. With the toll the estimate is not
+                    // admissible to begin with, so it is left alone.
+                    if (!finished && _workPenalty <= 0)
+                    {
+                        h = Math.Max(h, parentEstimate - 1);
                     }
 
                     int guide = Guide(h);
@@ -679,6 +739,9 @@ public sealed partial class Solver
     /// <summary>States the stuck-item rule discarded in the last <see cref="Solve"/>.</summary>
     public long StuckPruned => _stuckPruned;
 
+    /// <summary>States whose estimate the stuck-wall distances raised in the last <see cref="Solve"/> (docs/021).</summary>
+    public long StuckRaised => _stuckRaised;
+
     /// <summary>Whether the stuck-item rule was still on when the last <see cref="Solve"/> ended (see <see cref="SolveOptions.StuckProbation"/>).</summary>
     public bool StuckActive => _stuckActive;
 
@@ -696,7 +759,7 @@ public sealed partial class Solver
     /// <summary>Switches the stuck-item rule off once its probation ends with nothing discarded. Call after each expansion.</summary>
     private void EndStuckProbation(long expanded)
     {
-        if (_stuckActive && expanded == _stuckProbation && _stuckPruned == 0)
+        if (_stuckActive && expanded == _stuckProbation && _stuckPruned == 0 && _stuckRaised == 0)
         {
             _stuckActive = false;
         }
@@ -708,6 +771,25 @@ public sealed partial class Solver
     /// <c>_key</c> must already hold the current state.
     /// </summary>
     private bool NoWayOut() => _stuck.NoWayOut(_room, _key, _stuckProbe);
+
+    /// <summary>
+    /// The estimate the search gives the current state with the stuck-item rule
+    /// on - walls-only, raised by the stuck-wall distances (docs/021) - before
+    /// pathmax, which depends on the path; <see cref="RelaxedDistance.Unreachable"/>
+    /// for a state the rule condemns. For the property tests: it must never
+    /// exceed the true distance. <c>_key</c> must already hold the current state.
+    /// </summary>
+    private int StuckEstimate()
+    {
+        int h = _heuristic.Estimate(_room);
+        if (h <= 0 || h >= RelaxedDistance.Unreachable)
+        {
+            return h;
+        }
+
+        int raised = _stuck.Evaluate(_stuck.LayoutVerdict(_room, _key, _stuckProbe), _room, h);
+        return raised < 0 ? RelaxedDistance.Unreachable : raised;
+    }
 
     private LayoutInfo LayoutFor()
     {

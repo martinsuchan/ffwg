@@ -116,7 +116,12 @@ internal static class MicroFuzzer
 
     private static readonly (int X, int Y)[] BigFish = [(0, 0), (1, 0), (2, 0), (3, 0), (0, 1), (1, 1), (2, 1), (3, 1)];
 
-    public static FuzzRoom? Generate(ulong seed, int index)
+    /// <param name="identical">
+    /// Give every item without a goal the same kind and shape - rooms built to
+    /// exercise merging identical items (docs/022). Off, the rooms are exactly
+    /// those of earlier runs, so recorded seeds still reproduce.
+    /// </param>
+    public static FuzzRoom? Generate(ulong seed, int index, bool identical = false)
     {
         var r = new XorShift((seed * 1_000_003UL) + (ulong)index);
         int w = r.Next(8, 14), h = r.Next(5, 10);
@@ -211,11 +216,27 @@ internal static class MicroFuzzer
             items = 1;
         }
 
+        string sharedKind = "";
+        (int X, int Y)[] sharedShape = [];
+        if (identical)
+        {
+            items = Math.Max(items, (alive ? 1 : 0) + 3);
+            sharedKind = r.Chance(0.3) ? "item_heavy" : "item_light";
+            sharedShape = ItemShapes[r.Next(0, 3)];   // the small ones, so several fit
+        }
+
         for (int i = 0; i < items; i++)
         {
             bool goalOut = alive && i == 0;
             string kind = !goalOut && r.Chance(0.3) ? "item_heavy" : "item_light";
-            if (!Place((char)('A' + i), kind, ItemShapes[r.Next(0, ItemShapes.Length)], true, goalOut ? "goal_out" : "goal_no"))
+            (int X, int Y)[] shape = ItemShapes[r.Next(0, ItemShapes.Length)];
+            if (identical && !goalOut)
+            {
+                kind = sharedKind;
+                shape = sharedShape;
+            }
+
+            if (!Place((char)('A' + i), kind, shape, true, goalOut ? "goal_out" : "goal_no"))
             {
                 return null;
             }
@@ -269,6 +290,8 @@ internal static class MicroFuzzer
         AddAll("reduction", MicroChecks.Reduction(graph));
         AddAll("stuck", MicroChecks.Stuck(graph));
         AddAll("stuck-detector", MicroChecks.StuckDetectorAgrees(graph));
+        AddAll("stuck-estimate", MicroChecks.StuckEstimate(graph));
+        AddAll("symmetry", MicroChecks.SymmetrySound(graph));
 
         bool plainOk = true;
         foreach (MicroVariant variant in MicroVariants.All)
@@ -352,13 +375,13 @@ internal static class MicroFuzzer
     }
 
     /// <summary>Runs <paramref name="count"/> room indices in parallel; results in index order.</summary>
-    public static List<Case> Run(ulong seed, int start, int count, int stateCap)
+    public static List<Case> Run(ulong seed, int start, int count, int stateCap, bool identical = false)
     {
         var cases = new Case?[count];
         Parallel.For(0, count, i =>
         {
             int index = start + i;
-            FuzzRoom? room = Generate(seed, index);
+            FuzzRoom? room = Generate(seed, index, identical);
             // Keep roughly one unsolvable room in four: they exercise exhaustion,
             // but random rooms are mostly unsolvable and would crowd the rest out.
             cases[i] = room is null ? null : Evaluate(index, room, stateCap, keepUnsolvable: index % 4 == 0);

@@ -39,6 +39,25 @@ public sealed class StuckDetectionTests
     }
 
     /// <summary>
+    /// The stuck-wall distances (docs/021) on their own: in detour-wedge the
+    /// wedged post leaves a long way out, so no state is dead and the dead-end
+    /// half does nothing - only the raised estimate lifts those dear states
+    /// above the optimum.
+    /// </summary>
+    [TestMethod]
+    public void StuckDistances_CutTheDetour()
+    {
+        MicroLevel micro = MicroCorpus.Get("detour-wedge");
+        SolveResult with = MicroVariants.Result(micro, MicroVariants.Get("astar"));
+        SolveResult deadEndsOnly = MicroVariants.Result(micro, MicroVariants.Get("astar-nodist"));
+        SolveResult without = MicroVariants.Result(micro, MicroVariants.Get("astar-nostuck"));
+
+        Assert.AreEqual(micro.Expect, with.Moves?.Length);
+        Assert.AreEqual(without.Expanded, deadEndsOnly.Expanded, "setup: nothing here is dead, the dead-end half should not change the search");
+        Assert.IsLessThan(deadEndsOnly.Expanded, with.Expanded, $"expansions {deadEndsOnly.Expanded} -> {with.Expanded}");
+    }
+
+    /// <summary>
     /// The goal_out half of the rule, on its own: in goal-out-wedge the fish is
     /// goal_alive, so the walled-in-fish half can never fire there. Three moves
     /// left drop the item into the pocket, and from then on it can never leave.

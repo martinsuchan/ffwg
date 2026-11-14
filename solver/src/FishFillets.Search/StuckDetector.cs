@@ -31,6 +31,14 @@ namespace FishFillets.Search;
 /// without this rule explores the whole dead subtree: 61-63% of everything
 /// stored on <c>wc</c> and <c>society</c>.</para>
 ///
+/// <para><b>What it estimates</b> (docs/021). The same stuck-as-wall room gives
+/// each fish a distance out, not just a yes or no, and that distance is a lower
+/// bound for the same reason: a fish never passes through something that will
+/// never move. Where an item has wedged a shortcut without sealing the room -
+/// <c>library</c> is full of them - the fish's way out is suddenly much longer,
+/// and the estimate says so (<see cref="Evaluate"/>). One map per fish serves
+/// both: unreachable is the dead end.</para>
+///
 /// <para><b>Why it is cached per item layout.</b> The analysis runs with the
 /// fish anywhere (<c>fishAnywhere</c>), so its result depends only on the items
 /// and on which fish are still in play - never on where the fish stand. Item
@@ -42,8 +50,14 @@ namespace FishFillets.Search;
 /// </summary>
 internal sealed class StuckDetector
 {
-    /// <summary>Layouts kept before the cache is dropped wholesale - a few hundred bytes each.</summary>
+    /// <summary>Layouts kept before the cache is dropped wholesale.</summary>
     private const int CacheLimit = 1 << 18;
+
+    /// <summary>Distance-map bytes kept before the cache is dropped wholesale.</summary>
+    private const long CacheByteLimit = 256L << 20;
+
+    /// <summary>A distance map's "cannot get out from here".</summary>
+    public const ushort Unreachable = ushort.MaxValue;
 
     private readonly Level _level;
     private readonly bool[] _walls;
@@ -53,11 +67,13 @@ internal sealed class StuckDetector
     private readonly bool[] _unitMustLeave;
     private readonly int[] _goalOutItems;
     private readonly UnitReach?[] _reach;
+    private readonly int[][] _layoutClasses;   // interchangeable items, as indices into the layout's item records
     private readonly bool[] _fixedSolid;
 
     private readonly ConcurrentDictionary<byte[], Verdict> _cache = new(LayoutComparer.Instance);
     private readonly ConcurrentDictionary<byte[], Verdict>.AlternateLookup<ReadOnlySpan<byte>> _lookup;
     private int _cached;
+    private long _cachedBytes;
     private long _analyses;
     private long _analysisTicks;
 
@@ -79,9 +95,21 @@ internal sealed class StuckDetector
         // state, so their cells are worked out once, on a fresh room.
         _fixedSolid = StuckAnalysis.FixedSolid(level, new Room(level));
 
+        // Interchangeable items (docs/022), re-indexed to their record in the
+        // layout key, which lists items in _itemSlots order.
+        _layoutClasses = [.. ItemSymmetry.Classes(level, mobile)
+            .Select(c => c.Select(slot => Array.IndexOf(_itemSlots, slot)).ToArray())];
+
         LayoutSize = (_itemSlots.Length + _unitSlots.Length) * 5;
         _lookup = _cache.GetAlternateLookup<ReadOnlySpan<byte>>();
     }
+
+    /// <summary>
+    /// Whether layout keys sort interchangeable items' records, so that layouts
+    /// differing only in which identical item stands where share a verdict
+    /// (docs/022). Set once per search, before it starts.
+    /// </summary>
+    public bool Canonical { get; set; }
 
     /// <summary>Bytes of an item-layout key (see <see cref="WriteLayout"/>).</summary>
     public int LayoutSize { get; }
@@ -98,10 +126,11 @@ internal sealed class StuckDetector
     /// <summary>Drops the cache once it is full. Call only while no other thread is using the detector.</summary>
     public void TrimIfFull()
     {
-        if (_cached >= CacheLimit)
+        if (_cached >= CacheLimit || _cachedBytes >= CacheByteLimit)
         {
             _cache.Clear();
             _cached = 0;
+            _cachedBytes = 0;
         }
     }
 
@@ -109,6 +138,7 @@ internal sealed class StuckDetector
     {
         _cache.Clear();
         _cached = 0;
+        _cachedBytes = 0;
         Interlocked.Exchange(ref _analyses, 0);
         Interlocked.Exchange(ref _analysisTicks, 0);
     }
@@ -118,53 +148,67 @@ internal sealed class StuckDetector
     /// <paramref name="key"/>, can no longer be solved because of something stuck.
     /// Thread-safe as long as each thread brings its own room and probe.
     /// </summary>
-    public bool NoWayOut(Room room, ReadOnlySpan<byte> key, Probe probe) => Condemns(VerdictFor(room, key, probe), room);
+    public bool NoWayOut(Room room, ReadOnlySpan<byte> key, Probe probe) => Evaluate(VerdictFor(room, key, probe), room, 0) < 0;
 
     /// <summary>
     /// The verdict for the layout of the state in <paramref name="room"/>, to be
-    /// reused through <see cref="Condemns"/> for states sharing that layout - the
+    /// reused through <see cref="Evaluate"/> for states sharing that layout - the
     /// children an expansion produces by fast-path moves (see
     /// <see cref="Room.LastMoveWasFast"/>), which change nothing but the fish.
     /// </summary>
     public Verdict LayoutVerdict(Room room, ReadOnlySpan<byte> key, Probe probe) => VerdictFor(room, key, probe);
 
-    /// <summary>Whether the state in <paramref name="room"/>, with a layout whose verdict this is, is dead.</summary>
-    public bool Condemns(Verdict verdict, Room room)
+    /// <summary>
+    /// What a layout's verdict says about one state of it: -1 if it is dead,
+    /// otherwise the admissible estimate <paramref name="h"/> raised to the fish's
+    /// distances out with everything stuck counted as wall (docs/021).
+    /// </summary>
+    /// <param name="h">The walls-only estimate (<see cref="ExitHeuristic"/>): the max of
+    /// the fish distances' sum and the largest goal_out item distance.</param>
+    /// <param name="useDistances">False keeps only the dead-end half: the result is then -1 or <paramref name="h"/>.</param>
+    public int Evaluate(Verdict verdict, Room room, int h, bool useDistances = true)
     {
         if (verdict.LayoutDead)
         {
-            return true;
+            return -1;
         }
 
-        if (verdict.Leave is not { } leave)
+        if (verdict.Distance is not { } distance)
         {
-            return false;
+            return h;
         }
 
-        int w = _level.Width, h = _level.Height;
+        int w = _level.Width, height = _level.Height;
+        int fishTotal = 0;
         for (int u = 0; u < _unitModel.Length; u++)
         {
-            // Only a fish that has to leave can be stranded. On the world-final
-            // levels both fish are goal_alive and a walled-in fish is fine (C7).
-            if (!_unitMustLeave[u] || leave[u] is not { } reach)
+            // Only a fish that has to leave can be stranded, and only it counts
+            // toward the estimate. On the world-final levels both fish are
+            // goal_alive and a walled-in fish is fine (C7).
+            if (!_unitMustLeave[u] || distance[u] is not { } map)
             {
                 continue;
             }
 
             ref readonly ModelState s = ref room.State(_unitModel[u]);
-            if (s.IsOut || !s.IsAlive || (uint)s.X >= (uint)w || (uint)s.Y >= (uint)h)
+            if (s.IsOut || !s.IsAlive || (uint)s.X >= (uint)w || (uint)s.Y >= (uint)height)
             {
+                // Out, or already crossing the border: on its way out for free.
                 continue;
             }
 
-            int cell = (s.Y * w) + s.X;
-            if ((reach[cell >> 6] & (1UL << (cell & 63))) == 0)
+            int d = map[(((s.Y * w) + s.X) * 2) + (s.IsLeft ? 0 : 1)];
+            if (d == Unreachable)
             {
-                return true;
+                return -1;
             }
+
+            fishTotal += d;
         }
 
-        return false;
+        // Every fish distance here is at least its walls-only one (more walls),
+        // so this can only raise the fish half of h; the item half is untouched.
+        return useDistances ? Math.Max(h, fishTotal) : h;
     }
 
     private Verdict VerdictFor(Room room, ReadOnlySpan<byte> key, Probe probe)
@@ -194,6 +238,7 @@ internal sealed class StuckDetector
             if (_cache.TryAdd(layout.ToArray(), verdict))
             {
                 Interlocked.Increment(ref _cached);
+                Interlocked.Add(ref _cachedBytes, verdict.Bytes);
             }
         }
 
@@ -218,6 +263,39 @@ internal sealed class StuckDetector
             key.Slice(_itemSlots[i] * 5, 5).CopyTo(destination.Slice(i * 5, 5));
         }
 
+        if (Canonical)
+        {
+            // As StateKeyCodec: check, and insertion-sort only what is out of order.
+            foreach (int[] members in _layoutClasses)
+            {
+                ulong previous = Record(destination, members[0]);
+                int i = 1;
+                for (; i < members.Length; i++)
+                {
+                    ulong v = Record(destination, members[i]);
+                    if (v < previous)
+                    {
+                        break;
+                    }
+
+                    previous = v;
+                }
+
+                for (; i < members.Length; i++)
+                {
+                    ulong v = Record(destination, members[i]);
+                    int j = i - 1;
+                    while (j >= 0 && Record(destination, members[j]) > v)
+                    {
+                        SetRecord(destination, members[j + 1], Record(destination, members[j]));
+                        j--;
+                    }
+
+                    SetRecord(destination, members[j + 1], v);
+                }
+            }
+        }
+
         int offset = _itemSlots.Length * 5;
         for (int u = 0; u < _unitSlots.Length; u++)
         {
@@ -237,6 +315,22 @@ internal sealed class StuckDetector
 
             unit[4] = flags;
         }
+    }
+
+    private static ulong Record(ReadOnlySpan<byte> layout, int index)
+    {
+        ReadOnlySpan<byte> rec = layout.Slice(index * 5, 5);
+        return ((ulong)rec[0] << 32) | ((ulong)rec[1] << 24) | ((ulong)rec[2] << 16) | ((ulong)rec[3] << 8) | rec[4];
+    }
+
+    private static void SetRecord(Span<byte> layout, int index, ulong value)
+    {
+        Span<byte> rec = layout.Slice(index * 5, 5);
+        rec[0] = (byte)(value >> 32);
+        rec[1] = (byte)(value >> 24);
+        rec[2] = (byte)(value >> 16);
+        rec[3] = (byte)(value >> 8);
+        rec[4] = (byte)value;
     }
 
     private Verdict Analyse(Room room)
@@ -275,7 +369,7 @@ internal sealed class StuckDetector
             return Verdict.Open;
         }
 
-        var leave = new ulong[]?[_unitModel.Length];
+        var distance = new ushort[]?[_unitModel.Length];
         bool any = false;
         for (int u = 0; u < _unitModel.Length; u++)
         {
@@ -285,11 +379,11 @@ internal sealed class StuckDetector
                 continue;
             }
 
-            leave[u] = _reach[u]!.CanStillLeave(_level, solid, extra);
+            distance[u] = _reach[u]!.DistanceOut(_level, solid, extra);
             any = true;
         }
 
-        return any ? new Verdict(false, leave) : Verdict.Open;
+        return any ? new Verdict(false, distance) : Verdict.Open;
     }
 
     /// <summary>
@@ -349,8 +443,16 @@ internal sealed class StuckDetector
             };
         }
 
-        /// <summary>Anchors this fish could still leave from, as a bit set; <paramref name="extra"/> are the solid cells that are not walls.</summary>
-        public ulong[] CanStillLeave(Level level, bool[] solid, List<int> extra)
+        /// <summary>
+        /// Moves this fish needs to get out of the room from every (anchor,
+        /// facing), with <paramref name="solid"/> as wall - the walls plus
+        /// <paramref name="extra"/>, the cells stuck for good. The same relaxation
+        /// as <see cref="RelaxedDistance.ToExit"/> for a fish (every move costs one,
+        /// moving sideways needs the right facing, a turn costs a move), so where
+        /// nothing is stuck it is that distance exactly; and its finite cells are
+        /// exactly the anchors <see cref="StuckAnalysis.CanStillLeave"/> reports.
+        /// </summary>
+        public ushort[] DistanceOut(Level level, bool[] solid, List<int> extra)
         {
             int w = level.Width, h = level.Height;
 
@@ -369,44 +471,54 @@ internal sealed class StuckDetector
                 }
             }
 
-            var seen = new ulong[((w * h) + 63) >> 6];
+            // Indexed (cell * 2 + facing), facing 0 = left. Breadth first from
+            // the ways out, walking moves backwards: all of them cost one.
+            var distance = new ushort[w * h * 2];
+            Array.Fill(distance, Unreachable);
             var queue = new Queue<int>();
             foreach (int anchor in _edgeAnchors)
             {
                 if (!blocked[anchor] && StuckAnalysis.CanLeave(level, _model, solid, anchor % w, anchor / w))
                 {
-                    seen[anchor >> 6] |= 1UL << (anchor & 63);
-                    queue.Enqueue(anchor);
+                    distance[anchor * 2] = 0;
+                    distance[(anchor * 2) + 1] = 0;
+                    queue.Enqueue(anchor * 2);
+                    queue.Enqueue((anchor * 2) + 1);
                 }
             }
 
             while (queue.Count > 0)
             {
-                int cell = queue.Dequeue();
+                int node = queue.Dequeue();
+                int cell = node >> 1, facing = node & 1;
                 int x = cell % w, y = cell / w;
-                if (x > 0) Step(cell - 1);
-                if (x < w - 1) Step(cell + 1);
-                if (y > 0) Step(cell - w);
-                if (y < h - 1) Step(cell + w);
-            }
+                int next = Math.Min(distance[node] + 1, Unreachable - 1);
 
-            return seen;
+                if (y < h - 1) Relax(cell + w, facing);              // came from below, moved up
+                if (y > 0) Relax(cell - w, facing);                  // came from above, moved down
+                if (facing == 0 && x < w - 1) Relax(cell + 1, 0);    // moved left while facing left
+                if (facing == 1 && x > 0) Relax(cell - 1, 1);        // moved right while facing right
+                Relax(cell, facing ^ 1);                             // turned to face this way
 
-            void Step(int next)
-            {
-                if ((seen[next >> 6] & (1UL << (next & 63))) != 0 || !_fitsWalls[next] || blocked[next])
+                void Relax(int c, int f)
                 {
-                    return;
-                }
+                    int n = (c * 2) + f;
+                    if (distance[n] != Unreachable || !_fitsWalls[c] || blocked[c])
+                    {
+                        return;
+                    }
 
-                seen[next >> 6] |= 1UL << (next & 63);
-                queue.Enqueue(next);
+                    distance[n] = (ushort)next;
+                    queue.Enqueue(n);
+                }
             }
+
+            return distance;
         }
     }
 
     /// <summary>What one item layout implies, whatever the fish do.</summary>
-    internal sealed class Verdict(bool layoutDead, ulong[]?[]? leave)
+    internal sealed class Verdict(bool layoutDead, ushort[]?[]? distance)
     {
         public static readonly Verdict Open = new(false, null);
         public static readonly Verdict Dead = new(true, null);
@@ -414,8 +526,15 @@ internal sealed class StuckDetector
         /// <summary>No solution from any state with this layout.</summary>
         public bool LayoutDead { get; } = layoutDead;
 
-        /// <summary>Per unit, the anchors it can still leave from; null where nothing is ruled out.</summary>
-        public ulong[]?[]? Leave { get; } = leave;
+        /// <summary>
+        /// Per unit, moves out of the room from each (anchor, facing) with
+        /// everything stuck as wall (<see cref="Unreachable"/>: never); null
+        /// where nothing is stuck beyond the opening walls.
+        /// </summary>
+        public ushort[]?[]? Distance { get; } = distance;
+
+        /// <summary>Bytes the distance maps take, for the cache's budget.</summary>
+        public long Bytes { get; } = distance?.Sum(d => (long?)d?.Length * 2) ?? 0;
     }
 
     public sealed class Probe
