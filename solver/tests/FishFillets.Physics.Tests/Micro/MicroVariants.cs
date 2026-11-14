@@ -55,6 +55,12 @@ internal static class MicroVariants
         // Stuck-item detection is on by default (docs/020); this column keeps the
         // search without it, so the baseline shows what the rule saves.
         new("astar-nostuck", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { DetectStuck = false })),
+        // The dead-end half of the rule without the stuck-wall distances
+        // (docs/021), so the baseline shows what the estimate adds on its own.
+        new("astar-nodist", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { StuckDistances = false })),
+        // Every identical item kept distinct (docs/022), so the baseline shows
+        // what merging them saves.
+        new("astar-nomerge", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { MergeIdenticalItems = false })),
         new("astar-sleep", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { PartialOrder = PartialOrderMode.SleepSets })),
         new("astar-pairwise", Promise.Optimal, 1, l => new Solver(l).Solve(Options() with { PartialOrder = PartialOrderMode.Pairwise })),
         new("wastar-2", Promise.Bounded, 2, l => new Solver(l).Solve(Options(2))),

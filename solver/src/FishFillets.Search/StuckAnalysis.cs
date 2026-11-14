@@ -141,6 +141,23 @@ internal static class StuckAnalysis
 
                 mobile[i] = true;
                 changed = true;
+
+                // Free its cells at once rather than at the next pass, so the
+                // rest of this pass already sees the room it leaves behind. The
+                // rule is monotone - more mobile means less solid, which only
+                // ever lets more models move - so the fixpoint is the same in
+                // any order; this just reaches it in fewer passes. gems spreads
+                // mobility through a heap of gems one layer per pass (docs/021).
+                Shape shape = level.Models[i].Shape;
+                ref readonly ModelState at = ref room.State(i);
+                for (int m = 0; m < shape.MarkX.Length; m++)
+                {
+                    int cx = at.X + shape.MarkX[m], cy = at.Y + shape.MarkY[m];
+                    if ((uint)cx < (uint)level.Width && (uint)cy < (uint)level.Height)
+                    {
+                        solid[(cy * level.Width) + cx] = false;
+                    }
+                }
             }
         }
 
@@ -321,6 +338,8 @@ internal static class StuckAnalysis
         // does not depend on who pushes, so it is worked out once per direction
         // rather than once per pusher and direction (docs/020).
         int[][][] faces = Faces(level);
+        int[] shapeClass = ShapeClasses(level);
+        var tried = new bool[level.ModelCount];
         var chain = new HashSet<int>();
         for (int d = 0; d < 4; d++)
         {
@@ -339,11 +358,27 @@ internal static class StuckAnalysis
                 continue;
             }
 
+            Array.Clear(tried);
             for (int pusher = 0; pusher < level.ModelCount; pusher++)
             {
                 if (pusher == model || !mobile[pusher] || gone[pusher] || reachable[pusher] is not bool[] where)
                 {
                     continue;
+                }
+
+                // Items that may stand anywhere they fit, pushing with the
+                // strongest fish's power, differ only in their shape - so one of
+                // each shape answers for all of them. gems has 90 movable gems
+                // in a handful of shapes; trying every one as a pusher of every
+                // other made each analysis cost ~0.4 ms (docs/021).
+                if (where == Anywhere && !level.Models[pusher].IsAlive)
+                {
+                    if (tried[shapeClass[pusher]])
+                    {
+                        continue;
+                    }
+
+                    tried[shapeClass[pusher]] = true;
                 }
 
                 // A fish pushing directly is held to its own strength; an item
@@ -590,6 +625,33 @@ internal static class StuckAnalysis
     }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Level, int[][][]> FaceCache = [];
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Level, int[]> ShapeClassCache = [];
+
+    /// <summary>
+    /// Per model, a small id shared by every model with exactly the same shape
+    /// (the same marks, in the same order). Depends on the shapes only, so
+    /// worked out once per level.
+    /// </summary>
+    private static int[] ShapeClasses(Level level) => ShapeClassCache.GetValue(level, static l =>
+    {
+        var ids = new Dictionary<string, int>();
+        var classes = new int[l.ModelCount];
+        for (int i = 0; i < l.ModelCount; i++)
+        {
+            Shape shape = l.Models[i].Shape;
+            string key = string.Join(",", Enumerable.Range(0, shape.MarkX.Length).Select(m => $"{shape.MarkX[m]}:{shape.MarkY[m]}"));
+            if (!ids.TryGetValue(key, out int id))
+            {
+                id = ids.Count;
+                ids[key] = id;
+            }
+
+            classes[i] = id;
+        }
+
+        return classes;
+    });
 
     /// <summary>
     /// Per model and direction (0 left, 1 right, 2 up, 3 down - paired so that

@@ -1,0 +1,21 @@
+# expect: 12
+# tags:   identical, symmetry, fuzz, tier10
+# why:    four identical light blocks (found by the identical-items fuzzer,
+#         seed 5150 room #1204). Merging identical items (docs/022) must store
+#         the rooms where blocks only swapped roles once (44 -> 42 expansions)
+#         and keep the answer; and every state here is checked for
+#         SymmetrySound - swapping the blocks changes nothing the physics sees.
+# s: fish_small >
+# A: item_light
+# B: item_light
+# C: item_light
+# D: item_light
+XXXXXXXXXXXX
+X....C.sss.X
+X..........X
+X....AD....X
+X..........X
+....B....X.X
+X....X...X.X
+X.XX...X...X
+XXXXXXXXXXXX

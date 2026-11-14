@@ -28,6 +28,10 @@ public sealed class MicroFuzzTests
     [TestMethod]
     public void Fuzz_Smoke_NoUnexplainedFailures() => Fuzz(SmokeSeed, 0, SmokeCandidates, minimize: false);
 
+    /// <summary>Smoke over rooms whose plain items are all identical, for merging them (docs/022).</summary>
+    [TestMethod]
+    public void Fuzz_Smoke_IdenticalItems() => Fuzz(SmokeSeed + 1, 0, SmokeCandidates, minimize: false, identical: true);
+
     [TestMethod]
     [TestCategory("Fuzz")]
     public void Fuzz_Deep()
@@ -40,12 +44,13 @@ public sealed class MicroFuzzTests
 
         ulong seed = ulong.Parse(Environment.GetEnvironmentVariable("FUZZ_SEED") ?? "1", CultureInfo.InvariantCulture);
         int start = int.Parse(Environment.GetEnvironmentVariable("FUZZ_START") ?? "0", CultureInfo.InvariantCulture);
-        Fuzz(seed, start, int.Parse(countText, CultureInfo.InvariantCulture), minimize: true);
+        bool identical = Environment.GetEnvironmentVariable("FUZZ_IDENTICAL") == "1";
+        Fuzz(seed, start, int.Parse(countText, CultureInfo.InvariantCulture), minimize: true, identical);
     }
 
-    private static void Fuzz(ulong seed, int start, int count, bool minimize)
+    private static void Fuzz(ulong seed, int start, int count, bool minimize, bool identical = false)
     {
-        List<MicroFuzzer.Case> cases = MicroFuzzer.Run(seed, start, count, StateCap);
+        List<MicroFuzzer.Case> cases = MicroFuzzer.Run(seed, start, count, StateCap, identical);
 
         int solvable = cases.Count(c => c.Optimum is not null);
         Console.WriteLine(

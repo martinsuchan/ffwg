@@ -87,6 +87,10 @@ static void PrintUsage()
                     [--macro]      macro-move search (slower; see docs/005)
                     [--no-stuck]   keep states where something is stuck for
                                    good (detection is on by default - docs/020)
+                    [--no-stuck-dist]  keep the dead ends, but not the
+                                   stuck-wall distances in the estimate (docs/021)
+                    [--no-merge]   keep identical items apart instead of
+                                   storing their swaps as one state (docs/022)
                     [--partial-order sleep|pairwise]  move-ordering reduction
                                    (correct, but measured a net loss - docs/011)
                     [--work N]     charge N extra per cell of a movable item on
@@ -120,7 +124,8 @@ static void PrintUsage()
           ffsolve bench --suite             wall clock of fixed A* searches, to
                     [--reps N] (3)          compare builds: per-expansion
                     [--threads N] (1)       speed-up and bytes per stored state
-                    [--quick] [--no-stuck] [--out FILE] [--compare FILE]
+                    [--quick] [--no-stuck] [--no-stuck-dist] [--no-merge]
+                    [--out FILE] [--compare FILE]
 
         OPTIONS (any command)
           --levels <dir>      level JSON     (default <repo>/solver/levels)
@@ -308,6 +313,8 @@ static int Solve(Corpus corpus, string[] argv)
 
     int workPenalty = int.TryParse(TakeOption(argv, "--work"), out int wp) ? wp : 0;
     bool detectStuck = !argv.Contains("--no-stuck");
+    bool stuckDistances = !argv.Contains("--no-stuck-dist");
+    bool mergeIdentical = !argv.Contains("--no-merge");
 
     Console.WriteLine($"level      {name} ({level.Width}x{level.Height})");
     ReportOriginalSolution(corpus, raw, level);
@@ -317,7 +324,8 @@ static int Solve(Corpus corpus, string[] argv)
                       (seconds > 0 ? $", {seconds}s limit" : "") +
                       (!items && !macro && partialOrder != PartialOrderMode.Off ? $", partial-order {partialOrder}" : "") +
                       (workPenalty > 0 ? $", item toll {workPenalty} (not admissible - no shortest proof)" : "") +
-                      (detectStuck ? "" : ", no stuck-item detection"));
+                      (detectStuck ? (stuckDistances ? "" : ", no stuck-wall distances") : ", no stuck-item detection") +
+                      (mergeIdentical ? "" : ", identical items kept apart"));
     Console.WriteLine();
 
     var options = new SolveOptions
@@ -330,6 +338,8 @@ static int Solve(Corpus corpus, string[] argv)
         PartialOrder = partialOrder,
         WorkPenalty = workPenalty,
         DetectStuck = detectStuck,
+        StuckDistances = stuckDistances,
+        MergeIdenticalItems = mergeIdentical,
         // Plain A* expands in parallel by default (docs/019); same answer and
         // counts as one thread at weight 1.
         Threads = int.TryParse(TakeOption(argv, "--threads"), out int th) ? Math.Max(1, th) : Environment.ProcessorCount,
@@ -491,6 +501,8 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
     int seconds = int.TryParse(TakeOption(argv, "--seconds"), out int sec) ? sec : 60;
     int workPenalty = int.TryParse(TakeOption(argv, "--work"), out int wp) ? wp : 0;
     bool detectStuck = !argv.Contains("--no-stuck");
+    bool stuckDistances = !argv.Contains("--no-stuck-dist");
+    bool mergeIdentical = !argv.Contains("--no-merge");
     string? outDir = TakeOption(argv, "--out-dir");
     int parallel = int.TryParse(TakeOption(argv, "--parallel"), out int p)
         ? p
@@ -536,6 +548,8 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
                 MaxNodes = maxNodes,
                 WorkPenalty = workPenalty,
                 DetectStuck = detectStuck,
+                StuckDistances = stuckDistances,
+                MergeIdenticalItems = mergeIdentical,
                 // Levels already run side by side here; threads per level only on request.
                 Threads = threadsPerLevel,
                 TimeLimit = TimeSpan.FromSeconds(seconds),
@@ -936,6 +950,8 @@ static int BenchSuite(Corpus corpus, string[] argv)
     string? comparePath = TakeOption(argv, "--compare");
     bool quick = argv.Contains("--quick");
     bool detectStuck = !argv.Contains("--no-stuck");
+    bool stuckDistances = !argv.Contains("--no-stuck-dist");
+    bool mergeIdentical = !argv.Contains("--no-merge");
 
     (string Level, long Nodes)[] suite = quick
         ? [("start", 0), ("cannons", 0)]
@@ -945,7 +961,7 @@ static int BenchSuite(Corpus corpus, string[] argv)
                      // IsDynamicCodeSupported is false under plain `dotnet run` too once a
                      // project sets PublishAot; only an AOT image has no JIT at all.
                      + (System.Runtime.JitInfo.GetCompiledMethodCount() > 0 ? " JIT" : " AOT");
-    runtime += $", {threads} thread{(threads == 1 ? "" : "s")}" + (detectStuck ? "" : ", no stuck");
+    runtime += $", {threads} thread{(threads == 1 ? "" : "s")}" + (detectStuck ? (stuckDistances ? "" : ", no stuck distances") : ", no stuck") + (mergeIdentical ? "" : ", no merge");
     Console.WriteLine($"bench suite - {runtime}, {Environment.ProcessorCount} cores, best of {reps}");
     Console.WriteLine($"{"level",-10} {"expanded",12} {"stored",12} {"seconds",8} {"k exp/s",8} {"B/state",8} {"f",5}");
 
@@ -955,7 +971,7 @@ static int BenchSuite(Corpus corpus, string[] argv)
         Level level = corpus.LoadLevel(name);
         string? known = corpus.TryReadSolution(name, out string k) ? k : null;
         LevelReduction reduction = LevelReduction.Verified(level, known);
-        var options = new SolveOptions { MaxNodes = nodes > 0 ? nodes : 20_000_000, Threads = threads, DetectStuck = detectStuck };
+        var options = new SolveOptions { MaxNodes = nodes > 0 ? nodes : 20_000_000, Threads = threads, DetectStuck = detectStuck, StuckDistances = stuckDistances, MergeIdenticalItems = mergeIdentical };
 
         double best = double.MaxValue;
         SolveResult? result = null;

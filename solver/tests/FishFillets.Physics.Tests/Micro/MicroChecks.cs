@@ -188,6 +188,124 @@ internal static class MicroChecks
     }
 
     /// <summary>
+    /// Merging identical items (docs/022) is sound: in every state, swapping
+    /// which identical item stands where changes nothing the physics can tell.
+    /// Each class of interchangeable items has its positions rotated by one,
+    /// every move is applied to both rooms, and the two outcomes must agree -
+    /// the move allowed or not, solved, solvable, able to move, and the same
+    /// canonical key. This is what would catch a round whose outcome depends on
+    /// the order it processes models in.
+    /// </summary>
+    public static List<Violation> SymmetrySound(StateGraph graph)
+    {
+        Level level = graph.Level;
+        int[] mobile = LevelReduction.Compute(level).MobileModels;
+        int[][] classes = ItemSymmetry.Classes(level, mobile);
+        var violations = new List<Violation>();
+        if (classes.Length == 0)
+        {
+            return violations;
+        }
+
+        var codec = new StateKeyCodec(level, mobile) { Canonical = true };
+        var a = new Room(level);
+        var b = new Room(level);
+        var symbols = new char[a.MoveSymbolCount];
+        a.GetMoveSymbols(symbols, out int symbolCount);
+        var wide = new byte[mobile.Length * 5];
+        var rotated = new byte[mobile.Length * 5];
+        var keyA = new byte[mobile.Length * 5];
+        var keyB = new byte[mobile.Length * 5];
+        var compactA = new byte[codec.CompactSize];
+        var compactB = new byte[codec.CompactSize];
+
+        for (int i = 0; i < graph.Count; i++)
+        {
+            if (graph.Solved[i])
+            {
+                continue;
+            }
+
+            a.RestoreFrom(graph.States[i]);
+            a.WriteStateKey(wide, mobile);
+            wide.CopyTo(rotated, 0);
+            foreach (int[] members in classes)
+            {
+                for (int k = 0; k < members.Length; k++)
+                {
+                    wide.AsSpan(members[(k + 1) % members.Length] * 5, 5).CopyTo(rotated.AsSpan(members[k] * 5, 5));
+                }
+            }
+
+            for (int s = 0; s < symbolCount; s++)
+            {
+                a.RestoreFrom(graph.States[i]);
+                b.RestoreFrom(graph.States[i]);
+                b.RestoreMobile(rotated, mobile);
+
+                bool movedA = a.ApplyMove(symbols[s]);
+                bool movedB = b.ApplyMove(symbols[s]);
+                string? what = null;
+                if (movedA != movedB)
+                {
+                    what = $"move allowed {movedA} vs {movedB}";
+                }
+                else if (movedA)
+                {
+                    a.WriteStateKey(keyA, mobile);
+                    b.WriteStateKey(keyB, mobile);
+                    codec.Encode(keyA, compactA);
+                    codec.Encode(keyB, compactB);
+                    if (a.IsSolved() != b.IsSolved() || a.IsSolvable() != b.IsSolvable() || a.CannotMove() != b.CannotMove())
+                    {
+                        what = "solved/solvable/can-move differ";
+                    }
+                    else if (!compactA.AsSpan().SequenceEqual(compactB))
+                    {
+                        what = $"outcomes differ: {Describe(a)} vs {Describe(b)}";
+                    }
+                }
+
+                if (what is not null)
+                {
+                    a.RestoreFrom(graph.States[i]);
+                    violations.Add(new($"'{symbols[s]}' from {Describe(a)}: {what}", null));
+                }
+            }
+        }
+
+        return violations;
+    }
+
+    /// <summary>
+    /// The estimate with the stuck-wall distances (docs/021) never exceeds the
+    /// true distance d* - on every solvable state, through the solver's own
+    /// detector and cache, in the oracle's order. Consistency is not required:
+    /// the search restores it with pathmax.
+    /// </summary>
+    public static List<Violation> StuckEstimate(StateGraph graph)
+    {
+        var probe = new SolverProbe(new Solver(graph.Level));
+        var violations = new List<Violation>();
+
+        for (int i = 0; i < graph.Count; i++)
+        {
+            if (!graph.Solvable[i] || graph.Solved[i] || graph.DistanceToGoal[i] == StateGraph.Infinite)
+            {
+                continue;
+            }
+
+            int h = probe.StuckEstimate(graph.States[i]);
+            if (h > graph.DistanceToGoal[i])
+            {
+                violations.Add(new($"h={h} > d*={graph.DistanceToGoal[i]} at {Describe(probe.Room)}", null));
+            }
+        }
+
+        return violations;
+    }
+
+    /// <summary>
     /// The stuck-item detector - the analysis made fast (per-level wall work
     /// done once, per-fish reach from precomputed fits, verdicts cached per
     /// layout, docs/020) - gives on every state the answer the same rule gives
@@ -291,6 +409,7 @@ internal sealed class SolverProbe
     private readonly byte[] _key;
     private readonly int[] _mobile;
     private readonly System.Reflection.MethodInfo _noWayOut;
+    private readonly System.Reflection.MethodInfo _stuckEstimate;
 
     public SolverProbe(Solver solver)
     {
@@ -299,6 +418,7 @@ internal sealed class SolverProbe
         _key = (byte[])typeof(Solver).GetField("_key", Private)!.GetValue(solver)!;
         _mobile = (int[])typeof(Solver).GetField("_mobile", Private)!.GetValue(solver)!;
         _noWayOut = typeof(Solver).GetMethod("NoWayOut", Private)!;
+        _stuckEstimate = typeof(Solver).GetMethod("StuckEstimate", Private)!;
     }
 
     public Room Room { get; }
@@ -308,5 +428,13 @@ internal sealed class SolverProbe
         Room.RestoreFrom(state);
         Room.WriteStateKey(_key, _mobile);
         return (bool)_noWayOut.Invoke(_solver, null)!;
+    }
+
+    /// <summary>The solver's estimate of a state with the stuck-item rule on (see Solver.StuckEstimate).</summary>
+    public int StuckEstimate(RoomSnapshot state)
+    {
+        Room.RestoreFrom(state);
+        Room.WriteStateKey(_key, _mobile);
+        return (int)_stuckEstimate.Invoke(_solver, null)!;
     }
 }
