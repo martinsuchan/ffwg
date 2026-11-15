@@ -134,8 +134,9 @@ standard gating, and progress backup/restore.
   `publish.ps1` (deployable package), `start.ps1` (restart dev server),
   `test.ps1` (e2e suite), `new-doc.ps1` (scaffold a log entry), plus the
   lower-level asset-conversion scripts `setup.ps1` orchestrates.
-- [`CLAUDE.md`](CLAUDE.md) — architecture notes and the running change log, for
-  anyone (human or AI) working on the port.
+- [`CLAUDE.md`](CLAUDE.md) — repo-wide notes for AI assistants, with per-tree details in
+  [`web/CLAUDE.md`](web/CLAUDE.md), [`solver/CLAUDE.md`](solver/CLAUDE.md) and
+  [`legacy/CLAUDE.md`](legacy/CLAUDE.md). The change log lives in [`docs/`](docs/).
 
 Equivalent commands by hand, from `web/`: `npm install`, `npm run dev`,
 `npm run build`, `npm run preview`, `npm run test:e2e`.
