@@ -63,3 +63,12 @@ $date
 
 Set-Content -Path $filePath -Value $content -Encoding utf8
 Write-Host "Created $filePath"
+
+# Keep docs/README.md's one-line-per-entry index in sync (it, not CLAUDE.md, is the
+# place milestones get listed - see docs/077).
+$readme = Join-Path $docsDir "README.md"
+if (Test-Path $readme) {
+    $dash = [char]0x2014  # em dash; kept out of the source so the file stays ASCII for PS 5.1
+    Add-Content -Path $readme -Value "- [$numberStr]($fileName) $dash $Title" -Encoding utf8
+    Write-Host "Indexed in $readme (edit the title there if the default isn't descriptive)"
+}
