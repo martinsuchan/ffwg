@@ -27,10 +27,10 @@ const TRIGGER_WINDOW_MS = 300;
  *  arrives. See docs/013 (the intent) and docs/046 (now a shared-clock slide). */
 const DEATH_REACTION_DELAY_MS = 3 * CYCLE_MS;
 
-/** How long a model fades out once it's actually removed (isLost) - covers both
- *  a disintegrated corpse (docs/011) and a goal_out/escape model vanishing at
- *  the border. A plain alpha fade after removal, a cheap stand-in for the
- *  original's pixel-dissolve (out of scope - see docs/009). */
+/** How long a disintegrated corpse fades out once it's removed (isLost,
+ *  docs/011) - a plain alpha fade, a cheap stand-in for the original's
+ *  pixel-dissolve (out of scope - see docs/009). A model that went out through
+ *  the border is simply hidden instead - it is already out of view (docs/081). */
 const REMOVE_FADE_MS = 400;
 
 /** Grid-cell delta for each of Rules.getAction()'s move directions. The move
@@ -115,8 +115,11 @@ function isDriveAction(action: string): boolean {
  * - Active fish driving a move (or itself falling, action "move_down"): its
  *   `getNeededPhases` governs the round (`movePhases`, base 3 = 300ms/cell,
  *   accelerating to 200/100ms) - and everything it pushes shares that duration.
- * - No fish driving, a model leaving the room: `fallout` ensures 3 phases, so
- *   the go-out slide is 300ms (detected via the "goout" state).
+ * - No fish driving, a model leaving the room: `fallout` ensures 3 phases on
+ *   *every* going-out round (outDepth > 0), so each cell of the exit slides in
+ *   300ms - `wentOut` (Room.lastWentOut). Detecting it via the "goout" state
+ *   only caught the first such round (outDepth 1), so the rest of an exit ran
+ *   at fall speed (docs/081).
  * - No fish driving, pure gravity: `falldown` ensures *nothing*, so
  *   `getLocked()==0` and the View draws the cell in a single 100ms cycle - a
  *   released/unsupported item falls ~3x faster than a fish's base swim. This is
@@ -127,6 +130,7 @@ export function roundPhases(
   activeInfo: { index: number; action: string; speedup: number } | null,
   renderModels: RenderModel[],
   models: LevelModel[],
+  wentOut = false,
 ): number {
   if (activeInfo && isDriveAction(activeInfo.action)) {
     const active = renderModels[activeInfo.index];
@@ -134,7 +138,7 @@ export function roundPhases(
     const side = active && !active.isLeft ? "right" : "left";
     return movePhases(anims, side, activeInfo.action, activeInfo.speedup);
   }
-  if (renderModels.some((m) => m.state === "goout")) return 3;
+  if (wentOut) return 3;
   return 1; // pure fall: one cycle per cell (fast)
 }
 
@@ -273,8 +277,22 @@ export class ModelAnimator {
     }
     this.bodySprite.setFlipX(effect === "reverse");
 
+    if (model.isLost && model.isOut) {
+      // Went out through the border: it is lost only once fully outside the
+      // room (Rules.actionOut -> isFullyOut), i.e. its last slide already
+      // carried it out of view. Like legacy View::drawOn (lost models aren't
+      // drawn) just stop drawing it - no fade back at the last in-room cell,
+      // which froze the sprite half-visible at the edge (docs/081).
+      this.moveDx = 0;
+      this.moveDy = 0;
+      this.removalStarted = true;
+      this.bodySprite.setVisible(false);
+      this.headSprite?.setVisible(false);
+      return;
+    }
     if (model.isLost) {
-      // Stays where it was; only fade its alpha out (position is frozen).
+      // Disintegrated (corpse/skeleton): stays where it was; only fade its
+      // alpha out (position is frozen).
       this.moveDx = 0;
       this.moveDy = 0;
       if (!this.removalStarted) {

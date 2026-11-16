@@ -566,7 +566,7 @@ export class LevelScene extends Phaser.Scene {
       this.moveDurationMs = CYCLE_MS;
       return;
     }
-    const phases = roundPhases(this.engine.getActiveInfo(), renderModels, this.levelData.models);
+    const phases = roundPhases(this.engine.getActiveInfo(), renderModels, this.levelData.models, this.engine.wentOutThisRound());
     this.cyclesThisRound = phases;
     this.moveDurationMs = phases * CYCLE_MS;
   }

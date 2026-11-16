@@ -42,11 +42,18 @@ function renderFactor(nativeW: number, nativeH: number): number {
  *  fullscreen toggles (the factor + layout mode both change). */
 let lastRenderTarget: { scene: Phaser.Scene; nativeW: number; nativeH: number } | null = null;
 
+/** Set while ReplayScene renders a video export at a fixed framebuffer size
+ *  (docs/078) - a fullscreen toggle must not resize the canvas mid-export. */
+let renderScaleLocked = false;
+export function setRenderScaleLocked(locked: boolean): void {
+  renderScaleLocked = locked;
+}
+
 /** Re-run the render scale for the currently-showing scene - called when
  *  entering/leaving fullscreen so its framebuffer + layout switch between the
  *  windowed (NONE, factor) and fullscreen (FIT, fit-factor) forms. */
 export function reapplyRenderScale(): void {
-  if (!lastRenderTarget) return;
+  if (!lastRenderTarget || renderScaleLocked) return;
   const { scene, nativeW, nativeH } = lastRenderTarget;
   if (scene.scene.isActive() || scene.scene.isPaused()) {
     applyRenderScale(scene, nativeW, nativeH);

@@ -17,37 +17,56 @@ const legacyRoot = path.join(repoRoot, "legacy");
 // broke the world map with a Lua "unexpected symbol near '<'" parse error. Only
 // .lua text is fetched from here at runtime (images/sound go through /assets);
 // served as text/plain. See docs/042.
+//
+// Also registered for `vite preview` (scripts\build.ps1 -Preview): web/dist has
+// no legacy/ (only publish.ps1 copies it), so without this the preview's SPA
+// fallback answered /legacy/*.lua with index.html - the same "unexpected symbol
+// near '<'" world-map failure.
+type Middlewares = { use(fn: (req: { url?: string }, res: LegacyRes, next: () => void) => void): void };
+type LegacyRes = { statusCode: number; setHeader(name: string, value: string): void; end(data?: unknown): void };
+
+function useLegacyMiddleware(middlewares: Middlewares): void {
+  middlewares.use((req, res, next) => {
+    const url = req.url;
+    if (!url || !url.startsWith("/legacy/")) return next();
+    const rel = decodeURIComponent(url.split("?")[0]).replace(/^\/+/, "");
+    const filePath = path.join(repoRoot, rel);
+    // Keep the resolved path inside legacy/ (block ../ or %2e%2e traversal).
+    if (!filePath.startsWith(legacyRoot + path.sep)) {
+      res.statusCode = 403;
+      return res.end("Forbidden");
+    }
+    readFile(filePath)
+      .then((data) => {
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(data);
+      })
+      .catch(() => {
+        res.statusCode = 404;
+        res.end("Not found");
+      });
+  });
+}
+
 function serveLegacyDev(): Plugin {
   return {
     name: "serve-legacy-dev",
     apply: "serve",
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = req.url;
-        if (!url || !url.startsWith("/legacy/")) return next();
-        const rel = decodeURIComponent(url.split("?")[0]).replace(/^\/+/, "");
-        const filePath = path.join(repoRoot, rel);
-        // Keep the resolved path inside legacy/ (block ../ or %2e%2e traversal).
-        if (!filePath.startsWith(legacyRoot + path.sep)) {
-          res.statusCode = 403;
-          return res.end("Forbidden");
-        }
-        readFile(filePath)
-          .then((data) => {
-            res.setHeader("Content-Type", "text/plain; charset=utf-8");
-            res.end(data);
-          })
-          .catch(() => {
-            res.statusCode = 404;
-            res.end("Not found");
-          });
-      });
+      useLegacyMiddleware(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      useLegacyMiddleware(server.middlewares);
     },
   };
 }
 
 export default defineConfig({
   plugins: [serveLegacyDev()],
+  // mediabunny is only import()ed lazily (replay video export, docs/078); without
+  // pre-bundling, its first cold import makes the dev server re-optimize deps
+  // and force a full page reload mid-export.
+  optimizeDeps: { include: ["mediabunny", "@mediabunny/aac-encoder"] },
   server: {
     // Pin the dev-server port so the origin (scheme+host+port) stays stable
     // across restarts. localStorage - where solved levels and saves live

@@ -99,3 +99,7 @@ Other standing files: [BACKLOG.md](BACKLOG.md) (open items + FF NG feature compa
 - [075](075-2026-07-18-hide-language-en-sprite-gate-loading-screen.md) — Hide language switch, gate en-sprite fetches, world-map loading screen
 - [076](076-2026-07-18-backlog-refresh-ffng-comparison-readme.md) — Backlog refresh, FF NG feature comparison, README rewrite
 - [077](077-2026-11-15-claude-md-slimming.md) — Slim CLAUDE.md: nested per-tree files, history moved to docs
+- [078](078-2026-11-15-replay-video-export.md) — Replay video export (MP4)
+- [079](079-2026-11-16-replay-still-background-vector-icons.md) — Replay: still background, vector control icons
+- [080](080-2026-11-16-export-aac-trial-encode-wasm-fallback.md) — Video export: AAC trial encode + WASM AAC fallback
+- [081](081-2026-11-16-exit-swim-out-fidelity.md) — Leaving the room: swim out, do not fade at the edge

@@ -10,6 +10,8 @@
     "test:e2e": "node tests/run.mjs"
   },
   "dependencies": {
+    "@mediabunny/aac-encoder": "1.64.0",
+    "mediabunny": "1.64.0",
     "phaser": "^4.2.0",
     "wasmoon": "^1.16.0"
   },

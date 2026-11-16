@@ -62,6 +62,11 @@ export class Room {
     return model.index;
   }
 
+  /** The last beginFall() moved a model out through the border (fallout,
+   *  outDepth > 0) - legacy Room::fallout()'s `m_locker->ensurePhases(3)`
+   *  condition, so every going-out round paces at 3 cycles (docs/081). */
+  lastWentOut = false;
+
   isFresh(): boolean {
     return this.lastAction === Action.NO;
   }
@@ -99,6 +104,7 @@ export class Room {
   private beginFall(): void {
     this.prepareRound();
     this.lastAction = Action.NO;
+    this.lastWentOut = false;
     // Reset every round regardless of which branch below runs, so a round
     // where nothing falls (or fallout() pre-empts falldown() entirely)
     // correctly reports "no impact" rather than a stale prior value.
@@ -106,6 +112,7 @@ export class Room {
 
     if (this.fallout()) {
       this.lastAction = Action.MOVE;
+      this.lastWentOut = true;
     } else if (this.falldown()) {
       this.lastAction = Action.FALL;
     }
@@ -226,10 +233,24 @@ export class Room {
    *
    *  Doesn't consume `symbol` unless the round is actually fresh, matching
    *  how it was recorded (docs/021: a symbol is only captured when isFresh()).
+   *
+   *  Fish leaving the room swim out cell by cell instead of vanishing at the
+   *  border (docs/081):
+   *  - Moves exhausted (`symbol === null`): one plain round per call, exactly
+   *    legacy `nextLoadAction()`'s empty-queue branch (`beginFall` +
+   *    `finishRound`) - so the final exit is watched round by round.
+   *  - Mid-replay, the settle loop stops on a going-out round (fallout moved
+   *    something) and resumes next call. Same sequence of beginFall() rounds as
+   *    a full settle - only spread over time - so the outcome is unchanged; a
+   *    deliberate deviation from loadMove(), where such an exit was instant.
    *  @return whether `symbol` was consumed this round. */
   replayRound(symbol: string | null): boolean {
+    if (symbol === null) {
+      this.beginFall();
+      return false;
+    }
     // Subsumes the fastFalling branch - this always settles fully anyway.
-    this.fastForwardSettle();
+    if (!this.settleUntilGoingOut()) return false;
     let consumed = false;
     if (this.isFresh() && symbol !== null) {
       consumed = this.controls.makeMove(symbol);
@@ -273,6 +294,20 @@ export class Room {
         throw new Error("settling did not converge - possible infinite fall loop");
       }
     } while (!this.isFresh());
+  }
+
+  /** fastForwardSettle() for the watchable replay: settles falls instantly but
+   *  returns early (false) after a round in which fallout() moved a model out
+   *  through the border (beginFall's only Action.MOVE source), so that step
+   *  gets drawn. @return true once the room is fresh. */
+  private settleUntilGoingOut(): boolean {
+    const MAX_SETTLE_ROUNDS = 1000;
+    for (let rounds = 1; rounds <= MAX_SETTLE_ROUNDS; rounds++) {
+      this.beginFall();
+      if (this.isFresh()) return true;
+      if (this.lastAction === Action.MOVE) return false;
+    }
+    throw new Error("settling did not converge - possible infinite fall loop");
   }
 
   /** No unit will ever be able to move again (all driven fish dead/lost). */

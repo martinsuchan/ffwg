@@ -243,6 +243,19 @@ export class GameEngine {
 
   /** Any model has a move decided this round (a fish move, a push, or a fall) -
    *  gates the phase-locked slide vs. an idle one-cycle round (docs/046). */
+  /** Some model is held busy by the level's live Lua (model_setBusy /
+   *  planBusy) - e.g. cannons parks the small fish at the exit for a line of
+   *  dialog before letting it swim out (Rules.actionOut skips busy models). */
+  /** This round moved something out through the border - paces the round
+   *  at 3 cycles like legacy fallout()'s ensurePhases(3) (docs/081). */
+  wentOutThisRound(): boolean {
+    return this.room.lastWentOut;
+  }
+
+  anyModelBusy(): boolean {
+    return this.room.models.some((cube) => cube.busy);
+  }
+
   anyModelMoving(): boolean {
     return this.room.models.some((cube) => {
       const a = cube.rules.getAction();

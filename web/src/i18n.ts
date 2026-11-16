@@ -123,6 +123,82 @@ const PORT_LABELS: Record<string, { cs: string; nl: string; en: string }> = {
     en: "Replay ended - a fish died. (R = %2, Esc = %1)",
   },
   nav_worldmap: { cs: "mapa světa", nl: "wereldkaart", en: "world map" },
+
+  // --- Replay video export (ReplayExportDialog + progress panel) ---
+  export_title: { cs: "Export videa", nl: "Video exporteren", en: "Export video" },
+  export_body: {
+    cs:
+      "Přehrávání se spustí znovu od začátku a na pozadí se snímek po snímku nahraje do videa " +
+      "(herní plocha bude mezitím skrytá). Výsledkem je soubor MP4, který se automaticky stáhne " +
+      "a je vhodný pro YouTube či Facebook. Ovládací tlačítka ve videu nebudou.",
+    nl:
+      "De replay start opnieuw vanaf het begin en wordt op de achtergrond beeld voor beeld " +
+      "opgenomen (het speelveld is intussen verborgen). Het resultaat is een MP4-bestand dat " +
+      "automatisch wordt gedownload, geschikt voor YouTube of Facebook. De video bevat geen " +
+      "bedieningsknoppen.",
+    en:
+      "The replay restarts from the beginning and is recorded frame by frame in the background " +
+      "(the game area is hidden meanwhile). The result is an MP4 file that downloads " +
+      "automatically, suitable for YouTube or Facebook. The video has no on-screen controls.",
+  },
+  export_length: { cs: "Délka videa: přibližně %1", nl: "Videolengte: ongeveer %1", en: "Video length: about %1" },
+  export_time: {
+    cs:
+      "Export bývá několikrát rychlejší než délka videa. Během něj uvidíš průběh a zbývající " +
+      "čas. Kartu nech otevřenou.",
+    nl:
+      "Exporteren gaat meestal een paar keer sneller dan de videolengte. Voortgang en " +
+      "resterende tijd worden getoond. Houd dit tabblad open.",
+    en:
+      "Exporting is usually several times faster than the video length. Progress and remaining " +
+      "time are shown meanwhile. Keep this tab open.",
+  },
+  export_format: { cs: "Formát: MP4, %1×%2, 30 fps, %3", nl: "Formaat: MP4, %1×%2, 30 fps, %3", en: "Format: MP4, %1×%2, 30 fps, %3" },
+  export_no_audio: { cs: "H.264, bez zvuku", nl: "H.264, zonder geluid", en: "H.264, no audio" },
+  export_opt_steps: { cs: "Počítadlo tahů", nl: "Stappenteller", en: "Step counter" },
+  export_opt_music: { cs: "Hudba z levelu", nl: "Muziek van het veld", en: "Level music" },
+  export_start: { cs: "Exportovat", nl: "Exporteren", en: "Export" },
+  export_cancel: { cs: "Zrušit", nl: "Annuleren", en: "Cancel" },
+  export_close: { cs: "Zavřít", nl: "Sluiten", en: "Close" },
+  export_unsupported: {
+    cs:
+      "Tento prohlížeč neumí kódovat video H.264 (WebCodecs), takže export není možný. " +
+      "Zkus aktuální Chrome nebo Edge.",
+    nl:
+      "Deze browser kan geen H.264-video coderen (WebCodecs), dus exporteren is niet mogelijk. " +
+      "Probeer een recente Chrome of Edge.",
+    en:
+      "This browser can't encode H.264 video (WebCodecs), so export isn't possible. " +
+      "Try a current Chrome or Edge.",
+  },
+  export_opus_note: {
+    cs:
+      "Pozor: tento prohlížeč neumí zvuk AAC, hudba proto bude ve formátu Opus, který některé " +
+      "weby (např. Facebook) nemusí přijmout. Použij Chrome/Edge, nebo exportuj bez hudby.",
+    nl:
+      "Let op: deze browser kan geen AAC-audio maken, dus de muziek wordt Opus, wat sommige " +
+      "sites (bijv. Facebook) mogelijk weigeren. Gebruik Chrome/Edge of exporteer zonder muziek.",
+    en:
+      "Warning: this browser can't encode AAC audio, so the music will be Opus, which some " +
+      "sites (e.g. Facebook) may reject. Use Chrome/Edge, or export without music.",
+  },
+  export_progress: { cs: "Hotovo %1 %", nl: "%1% voltooid", en: "%1% done" },
+  export_eta: { cs: "Zbývá přibližně %1", nl: "Nog ongeveer %1", en: "About %1 left" },
+  export_keep_tab: {
+    cs: "Nech tuto kartu otevřenou, dokud export neskončí.",
+    nl: "Houd dit tabblad open tot het exporteren klaar is.",
+    en: "Keep this tab open until the export finishes.",
+  },
+  export_finalizing: { cs: "Dokončuji video…", nl: "Video afronden…", en: "Finishing the video…" },
+  export_failed: { cs: "Export selhal: %1", nl: "Exporteren mislukt: %1", en: "Export failed: %1" },
+  export_audio_failed: {
+    cs: "%1 - prohlížeč nedokázal zakódovat zvuk. Zkus export s vypnutou hudbou.",
+    nl: "%1 - de browser kon het geluid niet coderen. Probeer te exporteren zonder muziek.",
+    en: "%1 - the browser could not encode the audio. Try exporting with music off.",
+  },
+  export_done: { cs: "Hotovo – staženo jako %1", nl: "Klaar – gedownload als %1", en: "Done - downloaded as %1" },
+  export_min_sec: { cs: "%1 min %2 s", nl: "%1 min %2 s", en: "%1 min %2 s" },
+  export_sec: { cs: "%1 s", nl: "%1 s", en: "%1 s" },
   nav_level: { cs: "místnost", nl: "veld", en: "level" },
 
   // --- World map ---

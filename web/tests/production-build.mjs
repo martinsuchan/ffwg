@@ -47,13 +47,19 @@ const box = await page.evaluate(() => {
   const c = document.querySelector("canvas"); const r = c.getBoundingClientRect();
   return { x: r.x, y: r.y, w: r.width, h: r.height, cw: c.width, ch: c.height };
 });
-const p = { x: box.x + 320 * (box.w / box.cw), y: box.y + 121 * (box.h / box.ch) };
+// The framebuffer is the 640x480 map times the render-scale camera zoom
+// (docs/064), so map coordinates scale by cw/640 first.
+const zoom = box.cw / 640;
+const p = { x: box.x + 320 * zoom * (box.w / box.cw), y: box.y + 121 * zoom * (box.h / box.ch) };
 await page.mouse.move(p.x, p.y);
 await page.waitForTimeout(150);
 await page.mouse.click(p.x, p.y);
-await page.waitForTimeout(2500);
+// The production level load (Lua fetches + live-engine prewarm) can take several
+// seconds, so poll rather than waiting a fixed time.
+const loadedModels = () => [...legacy].some((s) => s.includes("/models.lua"));
+for (let waited = 0; !loadedModels() && waited < 15000; waited += 250) await page.waitForTimeout(250);
 
-if (![...legacy].some((s) => s.includes("/models.lua"))) fail("clicking a node did not load models.lua from /legacy/");
+if (!loadedModels()) fail("clicking a node did not load models.lua from /legacy/");
 if (failed.length) fail("HTTP failures: " + failed.slice(0, 3).join(", "));
 if (errors.length) fail("page errors: " + errors.slice(0, 3).join(", "));
 

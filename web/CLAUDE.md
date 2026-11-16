@@ -39,7 +39,10 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
   `SubtitleStack`; `ModelAnimator` (one per model: frames + position from the shared clock),
   `AudioManager` + `audioEngine` (Web Audio buffers), `WavyBackground` (bg ripple shader),
   `atlas.ts` (Lua picture path → atlas frame), `sceneUtils.ts` (`applyRenderScale`,
-  `crispText`, `drawRopeDecors`, mask helpers).
+  `crispText`, `drawRopeDecors`, mask helpers). Replay → MP4 export (078):
+  `replayExport.ts` (layout, trial-encoded codec detection, WebCodecs writer via lazy-loaded
+  `mediabunny` + `@mediabunny/aac-encoder` WASM fallback, offline
+  music) + `ReplayExportDialog.ts`; record mode lives in `ReplayScene.runExport()`.
 - `storage/` — localStorage: `levelStorage` (best solutions + save slots), `settingsStorage`,
   `playtime`, `progressBackup` (JSON backup/restore, re-validates solutions).
 - `i18n.ts` (`t()`; legacy `labels.lua` + port-only labels), `navigation.ts` (browser

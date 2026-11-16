@@ -144,6 +144,17 @@ export class AudioManager {
     );
   }
 
+  /** The decoded buffer of a music track, for the replay video export's
+   *  offline music render (docs/078). Loads it if needed; null when the track
+   *  is missing or Phaser isn't in Web Audio mode (its cache then holds an
+   *  HTML audio element, not an AudioBuffer). */
+  async getMusicBuffer(track: string): Promise<AudioBuffer | null> {
+    const key = `music:${track}`;
+    await this.loadMusic(key, track);
+    const data: unknown = this.scene.cache.audio.get(key);
+    return data instanceof AudioBuffer ? data : null;
+  }
+
   /** Loads one music track through Phaser's loader (music stays on Phaser - a
    *  single looping stream). Deduped by key so a track is fetched once; resolves
    *  when the load pass completes. */
