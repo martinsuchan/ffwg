@@ -1,7 +1,7 @@
 # Backlog — feature status, FF NG comparison, and open items
 
 _Recompiled 2026-11-17 as an incremental update of the 2026-07-18 full sweep of
-`docs/`, code comments, and CLAUDE.md. Covers everything through docs/083._
+`docs/`, code comments, and CLAUDE.md. Covers everything through docs/084._
 
 The port is **feature-complete for normal Czech play**: all 81 levels are
 solvable, with the world map, progression, save/load, replay, dialogs, voice,
@@ -36,7 +36,7 @@ Legend: ✅ full parity · ➕ port adds beyond the original · 🟡 partial/sim
 | Subtitles (per-speaker colour, stacking) | yes | ported (docs/037) | ✅ |
 | Underwater bg ripple / screen shake / rope decor | yes | shader + offsets + rope (docs/055/056) | ✅ |
 | Corpse disintegration | per-pixel dissolve | 14-round timing faithful, **alpha fade** visual | 🟡 |
-| `mirror` / `zx` draw effects | 1 level each | recorded but drawn normally | ❌ (2 levels) |
+| `mirror` / `zx` draw effects | 1 level each | ported (MirrorEffect / ZxEffect, docs/084) | ✅ |
 | Undo / redo (`-`/`+`) | yes | not modelled (dead host fns) | ❌ |
 | Menus: Options / Help / Intro / Credits | yes | all ported (docs/030/038) | ✅ |
 | Settings: volume, subtitles toggle | yes | ported + persisted (docs/038) | ✅ |
@@ -69,9 +69,8 @@ recompile; a "was §X.N" in §3 refers to the previous compile's numbering.
    `model_change_set*`/`model_getExtraParams`) is left unbound/dead — a latent
    freeze risk (docs/033 class) if undo is ever attempted. `Cube` snapshot/undo
    isn't modelled. (docs/026/054)
-4. **`mirror` / `zx` per-pixel draw effects — not implemented** (submarine's
-   screen reflection, the emulator colour-clash gag; 1 level each). Recorded but
-   drawn normally. (docs/051, backlog §0)
+4. ~~`mirror` / `zx` draw effects~~ — **done** (docs/084), see §3. Number kept
+   until the next recompile.
 5. **Corpse removal is a ~400 ms alpha fade**, not the per-pixel
    `EffectDisintegrate` dissolve. Timing/solidity faithful (14 rounds), visual is
    a stand-in. (docs/009/011)
@@ -188,7 +187,16 @@ recompile; a "was §X.N" in §3 refers to the previous compile's numbering.
 
 ---
 
-## 3. Resolved since the 2026-07-18 compile (docs/076–083)
+## 3. Resolved since the 2026-07-18 compile (docs/076–084)
+
+- **`mirror` and `zx` draw effects ported** (was §B.4), so every original draw effect
+  is now reproduced. emulator's walls blink in ZX tape-loading stripes (a
+  CanvasTexture port of `EffectZx`). submarine's mirror reflects the already-drawn
+  screen to its left, fish included (a `CaptureFrame` plus a `Shader` placed right
+  after the mirror, so UI is never reflected). It also works in replays and the MP4
+  export. emulator, submarine, tetris and warcraft now use lossless atlases. The
+  lossless WebP policy is in one place: `scripts/convert-assets.ps1`. New e2e cases
+  11 and 12. (docs/084)
 
 - **`redhat` playable — all 81 levels** (was §C8). Level content imported from the
   upstream `fillets-ng-redhat.zip` (+ its newer `worlddesc.lua`/`worldfame.lua`),
@@ -220,9 +228,10 @@ recompile; a "was §X.N" in §3 refers to the previous compile's numbering.
 - **Work committed** (was §H.28). docs/057–081 and their code are in git history
   (commits `ff8b20b`, `93f3ca9`, `00d4a3a`, `d7479ac`). docs/082's changes were
   still on the working tree when this was written.
-- **Live site status** (was §H.27). This item went stale, and it is unknown whether
-  the Azure site has the latest work. Assume it needs a redeploy
-  (`scripts\publish.ps1` + `swa deploy`) after each batch.
+- **Live site status** (was §H.27). The 2026-07-18 deploy ended up being commit
+  `93f3ca9` (incl. docs/074–076 - §H.27's "behind" note predated it), tagged **`v1.0`**.
+  Everything after it (docs/077+) is not live until the next `scripts\publish.ps1` +
+  `swa deploy`.
 - Also landed: replay MP4 export, with an AAC trial encode and a WASM AAC fallback
   (docs/078/080); the replay's still background and vector control icons
   (docs/079); fish and items swim out of the room instead of fading at the edge

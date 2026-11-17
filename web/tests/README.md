@@ -54,6 +54,8 @@ in `main.ts` (gated on `import.meta.env.DEV`, so it never ships in production).
 | `08-progress-backup` | progress backup round-trip + hardened restore: solutions re-validated, malformed/oversized files refused (docs/072) |
 | `09-replay-export` | replay -> MP4: 16:9 layout for every room, capped `cannons` exports parsed back (codec, size, duration, audio track), scene restored after export, browser Back mid-export, WASM AAC fallback when native AAC is blocked (docs/078/080) |
 | `10-plan-interrupt` | start-of-level greet (first round drives nothing, queued key moves on round 2); a death and a model fully out each interrupt the plan once and unbusy all models; `LevelScript.interruptPlan()` empties a real Lua plan FIFO (docs/082) |
+| `11-zx-effect` | emulator's room runs the `zx` draw effect: one model on the effect canvas, exact ZX corner colours (lossless emulator atlas), steps once per cycle (docs/084) |
+| `12-mirror-effect` | submarine's mirror: capture + shader right after the mirror (last model) and before the UI, body sprite hidden, camera framebuffer on; a real glass pixel equals its mirrored source left of the mirror (docs/084) |
 
 `05`, `06` and `09` are the slowest (~52 s / ~39 s / ~28 s, headless Chromium against the dev server).
 

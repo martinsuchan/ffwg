@@ -39,6 +39,8 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
   `CreditsScene`; overlays `HelpOverlay`, `OptionsOverlay`, `PedometerUI`, `SaveSlotUI`,
   `SubtitleStack`; `ModelAnimator` (one per model: frames + position from the shared clock),
   `AudioManager` + `audioEngine` (Web Audio buffers), `WavyBackground` (bg ripple shader),
+  `zxEffect` / `mirrorEffect` (legacy `EffectZx` / `EffectMirror` draw effects: CanvasTexture;
+  CaptureFrame + Shader),
   `atlas.ts` (Lua picture path → atlas frame), `sceneUtils.ts` (`applyRenderScale`,
   `crispText`, `drawRopeDecors`, mask helpers). Replay → MP4 export (078):
   `replayExport.ts` (layout, trial-encoded codec detection, WebCodecs writer via lazy-loaded
@@ -111,8 +113,10 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
 - **F11 is browser-reserved** — don't capture it; Esc does its in-game job and keeps
   fullscreen (066). Held keys: only a fresh keydown (`!e.repeat`) arms the queued key (070).
   Pointer input is gated on pointer-over-canvas (stale `worldX` off-canvas) (071).
-- **Images:** masks read pixel-exactly must be lossless WebP (039); atlas trim only against
-  transparency (048); flat sprite art (fish, demo frames) is lossless (062).
+- **Images:** lossy WebP by default; every lossless exception (pixel-exact masks, fish,
+  demo frames, and the level atlases whose draw effects match exact colours or that are
+  flat pixel art) is listed with its reason in one place, the "Lossless WebP policy" block
+  in `scripts/convert-assets.ps1` (039, 062, 084). Atlas trim only against transparency (048).
 
 ## Verifying changes
 

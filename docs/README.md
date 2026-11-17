@@ -105,3 +105,4 @@ Other standing files: [BACKLOG.md](BACKLOG.md) (open items + FF NG feature compa
 - [081](081-2026-11-16-exit-swim-out-fidelity.md) — Leaving the room: swim out, do not fade at the edge
 - [082](082-2026-11-17-review-fixes-and-load-speedups.md) — Code review fixes: plan interrupt, local Lua WASM, parallel loading, mono audio
 - [083](083-2026-11-17-redhat-level-import.md) — The redhat level: imported from upstream data, secret branch off emulator
+- [084](084-2026-11-17-mirror-and-zx-draw-effects.md) — The mirror and zx draw effects; lossless WebP policy

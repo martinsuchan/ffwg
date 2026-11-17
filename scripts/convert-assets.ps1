@@ -44,6 +44,31 @@ $assetsRoot = Join-Path $repoRoot "web\public\assets"
 $nonAtlasImageDirs = @("menu", "demo_briefcase")
 $fishVariants = @("small", "big", "ex_small", "ex_big")
 
+# --- Lossless WebP policy: the ONE place that lists every lossless choice ---
+# Default is lossy WebP (atlases q90, individual images q85): level art is
+# mostly painted/photographic, where lossless is 1.25-6.6x larger (all 82
+# atlases: lossy 12.2 MB vs lossless 36.5 MB - docs/084). Lossless is used only
+# where pixels are read back exactly, or where it is also smaller/sharper:
+#   1. Hit-test masks (*_mask.*: map_mask, pedometer_mask) - their flat colours
+#      identify button regions and must match exactly. Forced in
+#      convert-images.ps1. (docs/039)
+#   2. Fish atlases (all 4 variants) - flat sprite art with hard outlines,
+#      always on screen; lossy edge noise is most visible there, lossless costs
+#      ~+41 KB in total. (docs/062)
+#   3. demo_briefcase movie frames - flat cartoon layers composited with alpha;
+#      lossy fringes the alpha edges and lossless is SMALLER (2.40 vs 2.89 MB).
+#      (docs/062)
+#   4. Level atlases in $losslessLevelAtlases (docs/084):
+#      - emulator: the "zx" draw effect (zxEffect.ts) paints with the exact
+#        colours of zx-tmp.png's corner pixels (lossy turned 128,0,0 into
+#        103,7,8); flat ZX pixel art, 29.6 KB -> 4.0 KB.
+#      - submarine: the "mirror" draw effect (mirrorEffect.ts) finds the glass
+#        by exact colour match against the mirror's centre pixel; lossy blurs
+#        the glass edge and highlight. Costs ~+100 KB (33 -> 134 KB).
+#      - tetris, warcraft: flat retro pixel art where lossless is simply
+#        smaller and sharper (122 -> 21 KB, 241 -> 105 KB).
+$losslessLevelAtlases = @("emulator", "submarine", "tetris", "warcraft")
+
 # --- Images: per-level + fish atlases, individual webp for the rest ---
 $buildAtlas = Join-Path $PSScriptRoot "build-atlas.ps1"
 $convertImages = Join-Path $PSScriptRoot "convert-images.ps1"
@@ -66,18 +91,18 @@ function Build-Atlas {
     & $buildAtlas -Source $Src -Destination (Join-Path $DestDir "atlas") -Lossless:$Lossless
 }
 
+# Lossless for the dirs in $losslessLevelAtlases - see the policy block above.
 function Build-LevelAtlas {
     param([string]$Name)
-    Write-Host "== Atlas: $Name =="
-    Build-Atlas -Src (Join-Path $legacyImages $Name) -DestDir (Join-Path $assetsRoot "images\$Name")
+    $lossless = $losslessLevelAtlases -contains $Name
+    Write-Host "== Atlas: $Name$(if ($lossless) { ' [lossless]' }) =="
+    Build-Atlas -Src (Join-Path $legacyImages $Name) -DestDir (Join-Path $assetsRoot "images\$Name") -Lossless:$lossless
 }
 
 function Build-FishAtlas {
     param([string]$Variant)
     Write-Host "== Atlas: fishes/$Variant [lossless] =="
-    # The fish are flat sprite art with hard outlines, always on screen and
-    # animated - lossy WebP's edge noise is most visible on them, and lossless
-    # costs only ~+41 KB across all 4 variants. See docs/062.
+    # Always lossless - policy item 2 above.
     Build-Atlas -Src (Join-Path $legacyImages "fishes\$Variant") `
         -DestDir (Join-Path $assetsRoot "images\fishes\$Variant") -Lossless
 }
@@ -96,10 +121,7 @@ if ($Level) {
 else {
     # Full batch: individual webp for the non-atlased dirs, an atlas per level
     # dir, and an atlas per fish variant.
-    # demo_briefcase's movie frames are flat cartoon art composited as
-    # transparent layers - lossy WebP bleeds RGB block-noise across their hard
-    # alpha edges (visible fringing), and lossless is actually SMALLER for this
-    # content (2.40 vs 2.89 MB). So convert them lossless. See docs/062.
+    # demo_briefcase is lossless - policy item 3 above.
     foreach ($name in $nonAtlasImageDirs) {
         Convert-ImageDirIndividual -Name $name -Lossless:($name -eq "demo_briefcase")
     }

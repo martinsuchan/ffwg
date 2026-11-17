@@ -7,6 +7,8 @@ import { CYCLE_MS } from "../game/timing";
 import { computeBodyAnim, computeHeadAnim } from "../game/UnitAnimator";
 import type { ScriptAnim, ViewShift } from "../lua/levelScript";
 import { pictureToAtlas, atlasWebpUrl, atlasJsonUrl, type AtlasFrame } from "./atlas";
+import { ZxEffect } from "./zxEffect";
+import { MirrorEffect } from "./mirrorEffect";
 
 type Side = "left" | "right";
 
@@ -217,6 +219,13 @@ export class ModelAnimator {
 
   private readonly bodyTimer: Phaser.Time.TimerEvent;
   private readonly headTimer?: Phaser.Time.TimerEvent;
+  /** Active "zx" draw effect (emulator's room walls) - the body sprite shows its
+   *  CanvasTexture; the atlas frame is kept as the effect's mask source (docs/084). */
+  private zx?: ZxEffect;
+  private zxSource?: Phaser.Textures.Frame;
+  /** Active "mirror" draw effect (submarine's mirror) - draws the model in
+   *  place of its (hidden) body sprite, reflecting what was drawn before it. */
+  private mirror?: MirrorEffect;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -250,6 +259,9 @@ export class ModelAnimator {
     this.bodyTimer.remove();
     this.headTimer?.remove();
     this.deathReactionTimer?.remove();
+    this.zx = undefined;
+    this.mirror?.destroy();
+    this.mirror = undefined;
     this.bodySprite.destroy();
     this.headSprite?.destroy();
   }
@@ -268,14 +280,16 @@ export class ModelAnimator {
   ): void {
     // legacy Anim::setEffect - "invisible" draws nothing at all (gods keeps its
     // sunk-ship wreck hidden this way until a ship actually sinks); "reverse"
-    // flips the sprite left/right. mirror/zx are per-pixel screen effects this
-    // port doesn't reproduce, so they just draw normally (docs/051).
+    // flips the sprite left/right; "zx" repaints it in ZX-loading stripes
+    // (ZxEffect); "mirror" reflects the screen left of it (MirrorEffect). docs/084.
     if (effect === "invisible") {
       this.bodySprite.setVisible(false);
       this.headSprite?.setVisible(false);
       return;
     }
     this.bodySprite.setFlipX(effect === "reverse");
+    this.setZx(effect === "zx");
+    this.setMirror(effect === "mirror");
 
     if (model.isLost && model.isOut) {
       // Went out through the border: it is lost only once fully outside the
@@ -379,6 +393,7 @@ export class ModelAnimator {
     const py = this.baseY + this.moveDy * cellProgress * GRID_SCALE + shiftY;
     this.bodySprite.setPosition(px, py);
     this.headSprite?.setPosition(px, py);
+    this.mirror?.place();
   }
 
   /** This model's current top-left screen position - the port's equivalent of
@@ -389,7 +404,41 @@ export class ModelAnimator {
     return { x: this.bodySprite.x, y: this.bodySprite.y };
   }
 
+  /** Switches the "zx" effect on/off. On: the sprite's current atlas frame
+   *  becomes the mask source and the sprite shows the effect's canvas, painted
+   *  once right away (the original's first draw). Off: back to the atlas frame. */
+  private setZx(on: boolean): void {
+    if (on === (this.zx !== undefined)) return;
+    if (on) {
+      this.zxSource = this.bodySprite.frame;
+      this.zx = new ZxEffect(this.scene, this.zxSource);
+      this.zx.step();
+      this.bodySprite.setTexture(this.zx.textureKey);
+    } else {
+      this.zx = undefined;
+      if (this.zxSource) this.bodySprite.setTexture(this.zxSource.texture.key, this.zxSource.name);
+      this.zxSource = undefined;
+    }
+  }
+
+  /** Switches the "mirror" effect on/off (no-op without WebGL: the mirror then
+   *  stays a plain picture). */
+  private setMirror(on: boolean): void {
+    if (on === (this.mirror !== undefined)) return;
+    if (on) {
+      if (!MirrorEffect.isSupported(this.scene)) return;
+      this.mirror = new MirrorEffect(this.scene, this.bodySprite);
+      this.mirror.place();
+    } else {
+      this.mirror?.destroy();
+      this.mirror = undefined;
+    }
+  }
+
   private advanceBody(): void {
+    // legacy Anim::drawAt runs the effect's blit + updateEffect once per draw,
+    // i.e. once per game cycle - the same cadence as this timer.
+    this.zx?.step();
     if (!this.isFish || this.bodyAnim === "skeleton") return;
 
     if (this.bodyAnim !== "rest" && this.scene.time.now > this.triggerExpiresAt) {
@@ -475,8 +524,16 @@ export class ModelAnimator {
 
   private applyBodyTexture(): void {
     const frame = resolveFrame(this.anims, this.bodyAnim, this.currentSide(), this.bodyPhase);
-    if (frame) {
-      this.bodySprite.setTexture(frame.atlasKey, frame.frame);
+    if (!frame) return;
+    if (this.zx) {
+      // The effect paints over whatever picture the model shows: re-source it.
+      const source = this.scene.textures.getFrame(frame.atlasKey, frame.frame);
+      if (source && source !== this.zxSource) {
+        this.zxSource = source;
+        this.zx.setSource(source);
+      }
+      return;
     }
+    this.bodySprite.setTexture(frame.atlasKey, frame.frame);
   }
 }

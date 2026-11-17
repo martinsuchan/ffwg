@@ -1058,8 +1058,8 @@ export async function createLevelScript(
     // "mirror" (submarine's per-pixel screen reflection) and "zx" (emulator's
     // colour-clash gag). Real now for the two that are plain draw rules -
     // "invisible" (39 uses across levels; gods' wreck is hidden until a ship
-    // sinks) and "reverse" (party1/party2) - see ModelAnimator. mirror/zx are
-    // recorded but drawn normally (per-pixel screen effects, docs/051).
+    // sinks) and "reverse" (party1/party2) - see ModelAnimator. "zx" and
+    // "mirror" are drawn by ZxEffect / MirrorEffect (docs/084).
     lua.global.set("model_setEffect", (index: number, name: string) => {
       state.effects.set(index, name);
     });
