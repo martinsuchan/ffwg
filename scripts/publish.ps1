@@ -29,8 +29,7 @@
 param(
     [string]$OutputDir,
     [switch]$SkipAssets,
-    [switch]$Force,
-    [switch]$Zip
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -160,8 +159,9 @@ Deploy options
 
 Notes
 -----
-* Must be served at the site root. To host under a sub-path, set Vite's "base"
-  in web/vite.config.ts and re-run scripts\publish.ps1.
+* Must be served at the site root; hosting under a sub-path is not supported
+  (the game requests its runtime files at absolute paths such as /assets/...,
+  /lua/... and /legacy/...).
 * Licensing: this game is GPLv2 (see legacy/COPYING, legacy/AUTHORS, LICENSE).
   Publishing it obliges you to make the corresponding source available and to
   preserve the license and attribution.
@@ -182,6 +182,9 @@ try {
     # 1. Prepare (tools, deps, assets, manifests) via the local setup script.
     Write-Step "Preparing project (tools + dependencies + assets)"
     & (Join-Path $scripts "setup.ps1") -NoRun -SkipAssets:$SkipAssets -Force:$Force
+    # setup.ps1 reports failures via `exit 1` (not a terminating error), so the
+    # exit code is the only signal - don't build/package on top of a failed prep.
+    if ($LASTEXITCODE -ne 0) { throw "setup.ps1 failed (exit $LASTEXITCODE)" }
 
     # 2. Production build (tsc + vite) -> web/dist.
     Write-Step "Building the production bundle (npm run build)"

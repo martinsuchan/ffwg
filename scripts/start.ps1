@@ -7,10 +7,12 @@
 .PARAMETER Install
     Force `npm install` even if web/node_modules already exists.
 .PARAMETER Port
-    Dev-server port. Must match web/vite.config.ts's server.port (pinned so
-    localStorage - solved levels/saves, scoped per origin incl. port - survives
-    restarts). If a server is already listening here, this script attaches to it
-    (opens a browser tab) instead of failing on the strictPort conflict.
+    Dev-server port, passed to Vite as --port (default 5173 = web/vite.config.ts's
+    server.port; strictPort stays on). Keep using the same port: localStorage -
+    solved levels/saves - is scoped per origin incl. port, so a different port
+    starts with empty progress. If a server is already listening here, this
+    script attaches to it (opens a browser tab) instead of failing on the
+    strictPort conflict.
 .PARAMETER Sandbox
     Open /sandbox (every level unlocked + reference solutions) instead of the
     standard game at / (docs/045).
@@ -67,10 +69,11 @@ try {
         & (Join-Path $PSScriptRoot "build-image-manifest.ps1")
     }
 
-    $devArgs = @("run", "dev")
+    # Everything after "--" goes to vite itself.
+    $devArgs = @("run", "dev", "--", "--port", "$Port")
     if (-not $NoOpen) {
         # vite --open <path> opens the browser straight at that route.
-        $devArgs += @("--", "--open", $openPath)
+        $devArgs += @("--open", $openPath)
     }
 
     & npm @devArgs

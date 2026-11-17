@@ -19,7 +19,7 @@ import { pictureToAtlas } from "./atlas";
  * See FRAG_SOURCE for the edge handling, which is NOT a wrap (docs/057).
  *
  * `amp: 0` means no waves (WavyPicture short-circuits to a plain blit) - 2 of
- * the 81 levels - and if WebGL/shader creation isn't available we fall back to
+ * the 82 levels - and if WebGL/shader creation isn't available we fall back to
  * a plain Image too, so the background always renders.
  */
 

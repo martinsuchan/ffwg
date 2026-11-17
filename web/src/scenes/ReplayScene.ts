@@ -168,6 +168,11 @@ export class ReplayScene extends Phaser.Scene {
   private animators = new Map<number, ModelAnimator>();
   private audioManager!: AudioManager;
   private levelScript: LevelScript | null = null;
+  /** A death / fully-out model (engine.takePlanInterrupt()) whose plan-FIFO
+   *  half is still owed to the live script - applied before its next tick(),
+   *  as in LevelScene (docs/082). Matters for music/gags only; the engine
+   *  already did checkActive + unBusyUnits. */
+  private pendingPlanInterrupt = false;
   /** Lazily created on the first level that actually registers a rope decor
    *  (elevator1/elevator2 only) - see drawRopes() and docs/055. */
   private ropeGraphics?: Phaser.GameObjects.Graphics;
@@ -333,6 +338,7 @@ export class ReplayScene extends Phaser.Scene {
     this.audioManager.reset();
 
     this.engine = new GameEngine(this.levelData);
+    this.pendingPlanInterrupt = false;
     this.moveIndex = 0;
     this.gameOver = false;
     this.idleRoundsAfterMoves = 0;
@@ -499,6 +505,13 @@ export class ReplayScene extends Phaser.Scene {
     const symbol = this.moveIndex < this.moves.length ? this.moves[this.moveIndex] : null;
     if (this.engine.tickReplay(symbol)) {
       this.moveIndex++;
+    }
+    // legacy Room::prepareRound/fallout -> interruptPlan, as in LevelScene
+    // (docs/082). Kept pending while the script is still booting.
+    if (this.engine.takePlanInterrupt()) this.pendingPlanInterrupt = true;
+    if (this.pendingPlanInterrupt && this.levelScript) {
+      this.pendingPlanInterrupt = false;
+      this.levelScript.interruptPlan();
     }
 
     const renderModels = this.engine.getRenderModels();

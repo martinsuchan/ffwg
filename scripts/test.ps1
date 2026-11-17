@@ -13,7 +13,8 @@
     Only run test cases whose filename contains this substring (e.g. "pedometer",
     or "06"). Passed to the runner as FFWG_TEST.
 .PARAMETER Port
-    Dev-server port (default 5173; must match web/vite.config.ts).
+    Dev-server port (default 5173). A server this script starts is told to use
+    it (vite --port); an already-running one is reused if it answers there.
 .PARAMETER KeepServer
     If this script started the dev server, leave it running afterwards.
 
@@ -72,7 +73,7 @@ try {
         # alive, whereas the node process binds the port and stays up (and
         # stop.ps1 kills it by port).
         $viteBin = Join-Path $webDir "node_modules\vite\bin\vite.js"
-        Start-Process -FilePath "node" -ArgumentList $viteBin -WorkingDirectory $webDir -WindowStyle Hidden | Out-Null
+        Start-Process -FilePath "node" -ArgumentList @("`"$viteBin`"", "--port", "$Port") -WorkingDirectory $webDir -WindowStyle Hidden | Out-Null
         $startedServer = $true
         $deadline = (Get-Date).AddSeconds(90)
         while (-not (Test-DevServerUp -Port $Port)) {

@@ -128,7 +128,11 @@ try {
         Write-Step "Done (prepared in ${elapsed}s)"
         Write-Ok "Project ready. Start the game any time with:  scripts\setup.ps1 -SkipAssets"
         Write-Info "Or directly:  scripts\start.ps1"
-        return
+        # Explicit exit code for callers (publish.ps1 checks $LASTEXITCODE): a
+        # plain return would leave whatever the last native command set - on
+        # Windows PowerShell 5.1 that is -1 from the tool-version probe whose
+        # output pipeline Select-Object -First 1 cut short.
+        exit 0
     }
 
     $elapsed = [int]((Get-Date) - $started).TotalSeconds

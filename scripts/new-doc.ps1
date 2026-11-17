@@ -61,7 +61,11 @@ $date
 -
 "@
 
-Set-Content -Path $filePath -Value $content -Encoding utf8
+# UTF-8 *without* BOM and LF line endings, like the rest of docs/. (Set-Content /
+# Add-Content -Encoding utf8 write a BOM on Windows PowerShell 5.1.)
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$content = ($content -replace "`r`n", "`n") + "`n"
+[System.IO.File]::WriteAllText($filePath, $content, $utf8NoBom)
 Write-Host "Created $filePath"
 
 # Keep docs/README.md's one-line-per-entry index in sync (it, not CLAUDE.md, is the
@@ -69,6 +73,10 @@ Write-Host "Created $filePath"
 $readme = Join-Path $docsDir "README.md"
 if (Test-Path $readme) {
     $dash = [char]0x2014  # em dash; kept out of the source so the file stays ASCII for PS 5.1
-    Add-Content -Path $readme -Value "- [$numberStr]($fileName) $dash $Title" -Encoding utf8
+    $line = "- [$numberStr]($fileName) $dash $Title`n"
+    # Start on a fresh line even if the index lacks a trailing newline.
+    $existing = [System.IO.File]::ReadAllText($readme)
+    if ($existing.Length -gt 0 -and -not $existing.EndsWith("`n")) { $line = "`n" + $line }
+    [System.IO.File]::AppendAllText($readme, $line, $utf8NoBom)
     Write-Host "Indexed in $readme (edit the title there if the default isn't descriptive)"
 }

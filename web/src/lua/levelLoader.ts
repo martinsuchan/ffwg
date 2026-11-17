@@ -1,6 +1,7 @@
-import { LuaFactory, LuaMultiReturn } from "wasmoon";
+import { LuaMultiReturn } from "wasmoon";
 
 import { Shape } from "../game/Shape";
+import { createLuaEngine } from "./luaEngine";
 
 /** legacy/src/level/View.h: View::SCALE - pixels per grid cell. */
 export const GRID_SCALE = 15;
@@ -37,7 +38,7 @@ export interface LevelModel {
  *  models.lua, never at runtime), so it's captured here rather than via the
  *  live engine. Note level_creation.lua's wrapper halves the amplitude and
  *  inverts the speed: setRoomWaves(5,10,5) -> game_setRoomWaves(2.5, 10, 0.2),
- *  which is what 68 of the 81 levels use. `amp: 0` = no waves. See docs/056. */
+ *  which is what 70 of the 82 levels use. `amp: 0` = no waves. See docs/056. */
 export interface RoomWaves {
   amp: number;
   periode: number;
@@ -97,17 +98,48 @@ export async function fetchText(url: string | URL): Promise<string> {
 // new URL(relativePath, LEGACY_ROOT) below appends instead of landing a dir up.
 export const LEGACY_ROOT = new URL(`${import.meta.env.BASE_URL}legacy/`, window.location.origin);
 
-export async function fetchLegacyFile(relativePath: string): Promise<string> {
-  const source = await fetchText(new URL(relativePath, LEGACY_ROOT));
-  // Patch a Lua 5.0-ism wasmoon's Lua 5.4 rejects as an invalid escape: a
-  // backslash before a forward slash ("...naar \/etc om..." in warcraft's Dutch
-  // dialog). Lua 5.4 has no "\/" escape - a slash needs no escaping - and left
-  // as-is it's a hard parse error that crashes the whole level in nl (a content
-  // bug, only surfaced once Dutch became selectable). The intent is a literal
-  // "/". Same "fix a content incompatibility at load, never edit legacy/"
-  // approach as the Lua 5.0 compat shim (docs/005); a full-corpus scan finds
-  // this as the only genuinely parse-breaking invalid escape. See docs/060.
-  return source.replace(/\\\//g, "/");
+/**
+ * In-memory cache of fetched Lua sources, keyed by URL, holding the (patched)
+ * text promise. Legacy content and the compat shim are immutable within one
+ * deployment, so every restart (including the auto-restart after a death) and
+ * every later level reuses the shared/ files instead of re-fetching ~25 of
+ * them. A rejected fetch is evicted, so a transient failure isn't cached.
+ */
+const luaSourceCache = new Map<string, Promise<string>>();
+
+function cachedSource(key: string, load: () => Promise<string>): Promise<string> {
+  let promise = luaSourceCache.get(key);
+  if (!promise) {
+    promise = load();
+    luaSourceCache.set(key, promise);
+    promise.catch(() => {
+      if (luaSourceCache.get(key) === promise) luaSourceCache.delete(key);
+    });
+  }
+  return promise;
+}
+
+export function fetchLegacyFile(relativePath: string): Promise<string> {
+  const url = new URL(relativePath, LEGACY_ROOT);
+  return cachedSource(url.href, async () => {
+    const source = await fetchText(url);
+    // Patch a Lua 5.0-ism wasmoon's Lua 5.4 rejects as an invalid escape: a
+    // backslash before a forward slash ("...naar \/etc om..." in warcraft's Dutch
+    // dialog). Lua 5.4 has no "\/" escape - a slash needs no escaping - and left
+    // as-is it's a hard parse error that crashes the whole level in nl (a content
+    // bug, only surfaced once Dutch became selectable). The intent is a literal
+    // "/". Same "fix a content incompatibility at load, never edit legacy/"
+    // approach as the Lua 5.0 compat shim (docs/005); a full-corpus scan finds
+    // this as the only genuinely parse-breaking invalid escape. See docs/060.
+    return source.replace(/\\\//g, "/");
+  });
+}
+
+/** The port's own Lua 5.0 compat shim (web/public/lua/lua50-compat.lua,
+ *  docs/005) - run first in every engine. Cached like fetchLegacyFile. */
+export function fetchCompatSource(): Promise<string> {
+  const url = "/lua/lua50-compat.lua";
+  return cachedSource(url, () => fetchText(url));
 }
 
 /**
@@ -206,11 +238,12 @@ export function extractSavedMoves(source: string): string | null {
  * this stub set - that's a deliberate "fail loud" so gaps are obvious
  * rather than silently wrong goals.
  *
- * legacy/ files are fetched straight off disk via Vite's dev-only /@fs/
- * route (server.fs.allow in vite.config.ts) so this proves the port against
- * the actual unmodified legacy content, not a copy. That only works against
- * the dev server - packaging Lua content for a production build is still
- * open (see docs/005).
+ * legacy/ files are the actual unmodified legacy content, fetched at
+ * "/legacy/..." via fetchLegacyFile (see LEGACY_ROOT above): served off disk
+ * by the serveLegacyDev middleware in vite.config.ts in dev, and copied into
+ * the deployed site by scripts/publish.ps1 for production (docs/041, docs/042).
+ * All sources are fetched in parallel up front (and cached across loads by
+ * fetchLegacyFile); only the doString order below is significant.
  */
 let imageManifestPromise: Promise<Set<string>> | null = null;
 let audioManifestPromise: Promise<Set<string>> | null = null;
@@ -357,39 +390,51 @@ end
 `;
 
 export async function loadLevelModels(levelName: string): Promise<LevelData> {
-  const imageManifest = await getImageManifest();
-  const audioManifest = await getAudioManifest();
-  const compatSource = await fetchText("/lua/lua50-compat.lua");
-  const levelCreationSource = await fetchLegacyFile(
-    "script/share/level_creation.lua",
-  );
-  const levelPlanSource = await fetchLegacyFile("script/share/level_plan.lua");
-  // dir_no/dir_up/dir_down/dir_left/dir_right + pure-Lua pathfinding
-  // helpers (unused here, harmless to define) - INIT_MODELS_SOURCE above
-  // needs dir_no. prog_compatible.lua below file_include()s this too, but
-  // that's a no-op stub in this loader (see below), so fetching it
-  // directly here is what actually makes it run.
-  const progFinderSource = await fetchLegacyFile("script/share/prog_finder.lua");
-  // addm/addv/adddel/planSet/planBusy/xdist/ydist/dist/look_at/no_dialog/
-  // isReady/odd/modelEquals/isWater - pure-Lua dialog-planning/distance
-  // helpers several levels' code.lua call *synchronously* during
-  // prog_init() (docs/024, same "some levels do more top-level work than
-  // airplane/viking1 ever exercised" pattern as INIT_MODELS_SOURCE). Its
-  // own getRestartCount() redefinition (calling the unbound
-  // level_getRestartCounter()) is overridden back to this loader's fixed
-  // stub right after it's loaded, below.
-  const progCompatibleSource = await fetchLegacyFile(
-    "script/share/prog_compatible.lua",
-  );
-  // Pure Lua (setanim/resetanim/goanim/endanim), no host bindings - several
-  // final levels' code.lua call setanim() synchronously at init time (e.g.
-  // barrel's decorative barrel-wobble sequence) to queue a scripted anim
-  // string; since we never call goanim() (the per-round advance - that's
-  // animation, out of scope), loading the real file just lets that init
-  // call succeed instead of crashing, with no actual animation happening.
-  const goanimSource = await fetchLegacyFile("script/share/prog_goanim.lua");
-  const modelsSource = await fetchLegacyFile(`script/${levelName}/models.lua`);
-  const codeSource = await fetchLegacyFile(`script/${levelName}/code.lua`);
+  // Everything is fetched concurrently (one batch, plus code.lua's includes
+  // once code.lua is in) - the sequential awaits this replaced cost several
+  // round-trips per load. Only the doString order further down matters.
+  const [
+    imageManifest,
+    audioManifest,
+    compatSource,
+    levelCreationSource,
+    levelPlanSource,
+    progFinderSource,
+    progCompatibleSource,
+    goanimSource,
+    modelsSource,
+    codeSource,
+  ] = await Promise.all([
+    getImageManifest(),
+    getAudioManifest(),
+    fetchCompatSource(),
+    fetchLegacyFile("script/share/level_creation.lua"),
+    fetchLegacyFile("script/share/level_plan.lua"),
+    // dir_no/dir_up/dir_down/dir_left/dir_right + pure-Lua pathfinding
+    // helpers (unused here, harmless to define) - INIT_MODELS_SOURCE above
+    // needs dir_no. prog_compatible.lua below file_include()s this too, but
+    // that's a no-op stub in this loader (see below), so fetching it
+    // directly here is what actually makes it run.
+    fetchLegacyFile("script/share/prog_finder.lua"),
+    // addm/addv/adddel/planSet/planBusy/xdist/ydist/dist/look_at/no_dialog/
+    // isReady/odd/modelEquals/isWater - pure-Lua dialog-planning/distance
+    // helpers several levels' code.lua call *synchronously* during
+    // prog_init() (docs/024, same "some levels do more top-level work than
+    // airplane/viking1 ever exercised" pattern as INIT_MODELS_SOURCE). Its
+    // own getRestartCount() redefinition (calling the unbound
+    // level_getRestartCounter()) is overridden back to this loader's fixed
+    // stub right after it's loaded, below.
+    fetchLegacyFile("script/share/prog_compatible.lua"),
+    // Pure Lua (setanim/resetanim/goanim/endanim), no host bindings - several
+    // final levels' code.lua call setanim() synchronously at init time (e.g.
+    // barrel's decorative barrel-wobble sequence) to queue a scripted anim
+    // string; since we never call goanim() (the per-round advance - that's
+    // animation, out of scope), loading the real file just lets that init
+    // call succeed instead of crashing, with no actual animation happening.
+    fetchLegacyFile("script/share/prog_goanim.lua"),
+    fetchLegacyFile(`script/${levelName}/models.lua`),
+    fetchLegacyFile(`script/${levelName}/code.lua`),
+  ]);
   // code.lua itself calls file_include(...) at its own top level (e.g. every
   // "final level" - see docs/008 - does file_include('script/share/
   // prog_border.lua'); gods also does its own prog_ships.lua). Resolve and
@@ -405,8 +450,7 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     ),
   );
 
-  const factory = new LuaFactory();
-  const lua = await factory.createEngine();
+  const lua = await createLuaEngine();
 
   const hostModels: HostModel[] = [];
   let room: { width: number; height: number; picture: string } | null = null;

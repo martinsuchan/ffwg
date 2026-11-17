@@ -27,8 +27,12 @@ export class Controls {
   private active = -1;
   /** Set when a switch (Space, or an automatic switch away from a fish
    *  that can no longer drive) is pending consumption by the next
-   *  driving() call - legacy's m_switch. */
-  private switchPending = false;
+   *  driving() call - legacy's m_switch. Starts true like legacy
+   *  Controls::Controls(): the first interactive round greets the starting
+   *  fish (activate pose) and drives nothing; a queued key survives to the
+   *  next round. Only driving() consumes it - makeMove() (replay, validator,
+   *  save-resume, show) never does. See docs/082. */
+  private switchPending = true;
   /** Every move symbol produced so far, in order - legacy's Controls::
    *  m_moves / StepCounter. Recorded regardless of input source (held key,
    *  queued-key edge, or mouse - see driveUnit()/recordMove()), so replay
@@ -131,9 +135,10 @@ export class Controls {
     return true;
   }
 
-  /** Consumes a pending switch: greets the new active fish (activate())
-   *  and reports true so driveUnit() is skipped this round. Also auto-
-   *  switches away from an active fish that can no longer ever move. */
+  /** Consumes a pending switch (including the initial one): greets the
+   *  active fish (activate()) and reports true so neither the queued key nor
+   *  driveUnit() is used this round. Also auto-switches away from an active
+   *  fish that can no longer ever move. */
   private useSwitch(): boolean {
     let result = false;
     if (this.active !== -1) {
@@ -151,7 +156,8 @@ export class Controls {
 
   /** Switch away from the active unit if it can't currently drive
    *  (dead/lost/busy) - legacy's checkActive(). Public so the engine can
-   *  invoke it for game_checkActive() (windoze, docs/035). */
+   *  invoke it for game_checkActive() (windoze, docs/035) and the Room for
+   *  a plan interrupt (docs/082). */
   checkActive(): void {
     if (this.active === -1 || !this.units[this.active].canDrive()) {
       this.switchActive();

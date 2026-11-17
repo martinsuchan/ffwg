@@ -4,6 +4,13 @@
     Packs all .ogg files directly inside -Source into one MP3 audio sprite plus
     a Phaser-compatible JSON spritemap (the format Phaser's `load.audioSprite()`
     expects: {"resources": [...], "spritemap": {name: {start, end, loop}}}).
+
+    Every clip is normalized to 44100 Hz MONO 16-bit PCM before concatenation.
+    All legacy sources are 22050 Hz mono, so mono loses nothing, and it halves
+    the decoded AudioBuffer the browser keeps per sprite (decoded memory scales
+    with channels; the playback rate is resampled by WebAudio anyway). The
+    44100 Hz rate is kept deliberately so the MP3 frame timing - and with it
+    every sprite region's start/end - stays as it was.
 .PARAMETER Source
     Directory containing the source .ogg clips. Only direct children are used,
     not subdirectories - call this once per directory that should become one sprite.
@@ -46,8 +53,10 @@ function ToForwardSlash([string]$p) {
 }
 
 try {
+    # Gap silence and clips must share one format (44100 Hz mono s16) so the
+    # concat demuxer can stream-copy them.
     $silence = Join-Path $work "silence.wav"
-    & $ffmpeg -y -loglevel error -f lavfi -i "anullsrc=r=44100:cl=stereo" -t $GapSeconds -c:a pcm_s16le $silence
+    & $ffmpeg -y -loglevel error -f lavfi -i "anullsrc=r=44100:cl=mono" -t $GapSeconds -c:a pcm_s16le $silence
     if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed generating silence" }
 
     $listLines = New-Object System.Collections.Generic.List[string]
@@ -58,7 +67,7 @@ try {
     foreach ($clip in $clips) {
         $name = [System.IO.Path]::GetFileNameWithoutExtension($clip.Name)
         $norm = Join-Path $work "clip_$i.wav"
-        & $ffmpeg -y -loglevel error -i $clip.FullName -ar 44100 -ac 2 -c:a pcm_s16le $norm
+        & $ffmpeg -y -loglevel error -i $clip.FullName -ar 44100 -ac 1 -c:a pcm_s16le $norm
         if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed normalizing $($clip.FullName)" }
 
         $durText = & $ffprobe -v error -show_entries format=duration -of csv=p=0 $norm

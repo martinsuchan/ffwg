@@ -1,6 +1,7 @@
-import { LuaFactory, type LuaEngine } from "wasmoon";
+import { type LuaEngine } from "wasmoon";
 
-import { fetchText, fetchLegacyFile, getAudioManifest } from "./levelLoader";
+import { fetchCompatSource, fetchLegacyFile, getAudioManifest } from "./levelLoader";
+import { createLuaEngine } from "./luaEngine";
 import {
   resolveSoundPath,
   fetchSoundDurations,
@@ -154,24 +155,30 @@ export async function createDemoScript(
   // The demo movie's voice/subtitle language follows the player's setting
   // (cs/nl), same as levelScript.ts (docs/038).
   const DIALOG_LANG = loadSettings().lang;
-  const compatSource = await fetchText("/lua/lua50-compat.lua");
-  const levelDialogSource = await fetchLegacyFile("script/share/level_dialog.lua");
-  const progDemoSource = includeProgDemo
-    ? await fetchLegacyFile("script/share/prog_demo.lua")
-    : null;
-  // dialogLoad() is bypassed (would enumerate ~15 languages via select_lang and
-  // risk the docs/008 reentrancy bug) - the demo's own <prefix>dialogs_<lang>.lua
-  // is fetched and run directly, exactly like levelScript.ts does for a level's
-  // dialogs_<lang>.lua (docs/015).
-  const demoDialogsSource = await fetchLegacyFile(
-    `script/${levelName}/${dialogPrefix}dialogs_${DIALOG_LANG}.lua`,
-  );
-  const demoSource = await fetchLegacyFile(demoFile);
-  const audioManifest = await getAudioManifest();
-  const soundDurations = await fetchSoundDurations([`${levelName}/${DIALOG_LANG}`]);
+  // All fetched concurrently; execution order is the doString sequence below.
+  const [
+    compatSource,
+    levelDialogSource,
+    progDemoSource,
+    demoDialogsSource,
+    demoSource,
+    audioManifest,
+    soundDurations,
+  ] = await Promise.all([
+    fetchCompatSource(),
+    fetchLegacyFile("script/share/level_dialog.lua"),
+    includeProgDemo ? fetchLegacyFile("script/share/prog_demo.lua") : null,
+    // dialogLoad() is bypassed (would enumerate ~15 languages via select_lang and
+    // risk the docs/008 reentrancy bug) - the demo's own <prefix>dialogs_<lang>.lua
+    // is fetched and run directly, exactly like levelScript.ts does for a level's
+    // dialogs_<lang>.lua (docs/015).
+    fetchLegacyFile(`script/${levelName}/${dialogPrefix}dialogs_${DIALOG_LANG}.lua`),
+    fetchLegacyFile(demoFile),
+    getAudioManifest(),
+    fetchSoundDurations([`${levelName}/${DIALOG_LANG}`]),
+  ]);
 
-  const factory = new LuaFactory();
-  const lua = await factory.createEngine();
+  const lua = await createLuaEngine();
 
   const state: DemoState = {
     plan: [],

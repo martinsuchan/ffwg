@@ -48,16 +48,20 @@ in `main.ts` (gated on `import.meta.env.DEV`, so it never ships in production).
 | `02-pedometer` | solved-node pedometer: masked buttons, numbers.png digits, localized solver text, clean map, Cancel (docs/039/040) |
 | `03-level-and-back` | loading a level from the map, and browser Back returning to it (docs/027/040) |
 | `04-settings` | dialog/voice language setting wiring + persistence (docs/038) |
-| `05-levels-load` | **all** map levels load their Lua + survive live ticks, headless (docs/024/028/033/035) |
-| `06-solutions-validate` | **all** `legacy/solution/*.lua` replay to solved through the ported engine - 80/81, `redhat` has no level content (docs/022/023/024/035) |
+| `05-levels-load` | **all** map levels load their Lua + survive live ticks, headless; plus a host-binding sweep: every function legacy `registerFunc()`s for the level context (`LevelScript.cpp`, `Planner.cpp`, `Scripter.cpp`; 58, minus an allowlist of 8 undo/status fns) is bound in each live engine (docs/024/028/033/035/082) |
+| `06-solutions-validate` | **all** `legacy/solution/*.lua` replay to solved through the ported engine; a solution with no `legacy/script/<level>/` would be skipped as "no-level" (none today) (docs/022/023/024/035/082/083) |
+| `07-sandbox-mode` | `/` gates progression (only the root node open), `/sandbox` unlocks every node (docs/045) |
+| `08-progress-backup` | progress backup round-trip + hardened restore: solutions re-validated, malformed/oversized files refused (docs/072) |
+| `09-replay-export` | replay -> MP4: 16:9 layout for every room, capped `cannons` exports parsed back (codec, size, duration, audio track), scene restored after export, browser Back mid-export, WASM AAC fallback when native AAC is blocked (docs/078/080) |
+| `10-plan-interrupt` | start-of-level greet (first round drives nothing, queued key moves on round 2); a death and a model fully out each interrupt the plan once and unbusy all models; `LevelScript.interruptPlan()` empties a real Lua plan FIFO (docs/082) |
 
-`05` and `06` are the broadest gameplay nets and the slowest (~15s / ~7s).
+`05`, `06` and `09` are the slowest (~52 s / ~39 s / ~28 s, headless Chromium against the dev server).
 
 ## Production build (separate)
 
 `production-build.mjs` is **not** part of the default suite - it smoke-tests a
 built `publish/` package (no `window.__game`; Lua loads from `<site>/legacy/`),
-proving the docs/041 production `LEGACY_ROOT` path. Run it after `.\publish.ps1`:
+proving the docs/041 production `LEGACY_ROOT` path. Run it after `scripts\publish.ps1`:
 
 ```
 npx http-server .\publish -p 8123 -c-1 --silent    # serve the package

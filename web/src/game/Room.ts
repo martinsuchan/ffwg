@@ -32,6 +32,14 @@ export class Room {
    *  at once instead of one step per round (windoze uses it while the player
    *  solves the bonus). Outcome-identical to normal falling, just faster. */
   private fastFalling = false;
+  /** Sticky "a plan interrupt happened" flag - set wherever legacy Room calls
+   *  m_levelScript->interruptPlan() (a death in prepareRound(), a model fully
+   *  out in fallout()), OR-ed across rounds because loadMove()/settleAll()/
+   *  replayRound() run many beginFall() rounds per call. The Room does the
+   *  physics half itself (checkActive + unBusyUnits); the caller drains this
+   *  via takePlanInterrupt() and clears the live Lua plan FIFO
+   *  (LevelScript.interruptPlan()). See docs/082. */
+  private planInterruptPending = false;
 
   constructor(
     readonly w: number,
@@ -50,6 +58,28 @@ export class Room {
    *  Controls::checkActive. See docs/035. */
   checkActive(): void {
     this.controls.checkActive();
+  }
+
+  /** Clears `busy` on every model - legacy Room::unBusyUnits(). */
+  unBusyUnits(): void {
+    for (const m of this.models) m.busy = false;
+  }
+
+  /** Whether a plan interrupt (death / model fully out) happened since the
+   *  last call; clears the flag. See planInterruptPending. */
+  takePlanInterrupt(): boolean {
+    const pending = this.planInterruptPending;
+    this.planInterruptPending = false;
+    return pending;
+  }
+
+  /** Physics half of legacy LevelScript::interruptPlan(): checkActive() first,
+   *  then unBusyUnits() ("to allow script make busy unwanted fishes"), then
+   *  flag the plan-FIFO half for the caller. */
+  private interruptPlan(): void {
+    this.controls.checkActive();
+    this.unBusyUnits();
+    this.planInterruptPending = true;
   }
 
   addModel(model: Cube, unit?: Unit): number {
@@ -131,6 +161,10 @@ export class Room {
     }
 
     for (const m of this.models) m.rules.changeState();
+
+    // legacy Room::prepareRound(): any death this round interrupts the plan,
+    // after the changeState() pass.
+    if (this.lastDead.length > 0) this.interruptPlan();
   }
 
   /** Let goal_escape/goal_out models walk toward and through the border. */
@@ -140,6 +174,8 @@ export class Room {
       if (!m.isLost) {
         const outDepth = m.rules.actionOut();
         if (outDepth > 0) wentOut = true;
+        // legacy Room::fallout(): -1 = just went fully out (once per model).
+        else if (outDepth === -1) this.interruptPlan();
       }
     }
     return wentOut;

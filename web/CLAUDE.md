@@ -32,7 +32,8 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
   **persistent live engine** for a play session — all per-round host bindings, dialogs
   (`DialogStack` port), save-state pickling, `EngineControl` bridge. `demoScript.ts`:
   movie/poster runner. `worldMapLoader.ts`: worldmap/worlddesc/worldfame/labels.
-  `dialogSound.ts`: shared dialog/sound-path helpers.
+  `dialogSound.ts`: shared dialog/sound-path helpers. `luaEngine.ts`: `createLuaEngine()`,
+  the only `LuaFactory` construction (bundled `glue.wasm`).
 - `scenes/` — `WorldMapScene` (hub; launches levels and prewarms their live engine),
   `LevelScene` (play), `ReplayScene`, `DemoScene` (movie/poster), `IntroScene`,
   `CreditsScene`; overlays `HelpOverlay`, `OptionsOverlay`, `PedometerUI`, `SaveSlotUI`,
@@ -80,12 +81,19 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
 - **Never call wasmoon `doString()` from inside a host callback** — corrupts WASM state.
   Resolve `file_include` by pre-scan; defer runtime includes until after the callback (008,
   031). Repeated synchronous calls of fetched Lua function refs are fine (014, 026).
+- **Never `new LuaFactory()` directly** — without a URL, wasmoon fetches `glue.wasm` from
+  unpkg.com at runtime. Always use `createLuaEngine()`, which gives one fresh WASM instance per
+  engine by design (a corrupted state must not leak into the next level) (082).
+- **A death or a model fully out interrupts the plan** (legacy `interruptPlan`): `Room` runs
+  `checkActive` + `unBusyUnits` and sets a sticky flag; the scenes drain
+  `engine.takePlanInterrupt()` into `LevelScript.interruptPlan()` (plan FIFO only, not shows
+  or dialogs) before `levelScript.tick()` (082).
 - **wasmoon marshaling:** returning `null` from a host fn crashes; `undefined` becomes *zero*
   Lua return values — return `""`/`0`/`false` instead (024).
 - **An unbound host fn in the live engine** throws only when its (delayed/random) branch
-  first fires, and kills the round loop. When touching bindings, sweep the live engine's
-  globals for nils (033). The headless all-levels Lua sweep never runs the render path, so it
-  can't catch render-side crashes (063).
+  first fires, and kills the round loop. e2e 05 sweeps every legacy-registered level host fn
+  for nils; extend its allowlist only for deliberately unbound ones (033, 082). The headless
+  all-levels Lua sweep never runs the render path, so it can't catch render-side crashes (063).
 - **Animation phases from Lua** can be negative or fractional: `resolveFrame` truncates and
   clamps `< 0` to frame 0, like legacy `luaL_checkint` + `getRes()` (058, 063).
 - **Deferred init state** (`afaze`, `setEffect("invisible")`) must be applied before the
@@ -109,8 +117,9 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
 ## Verifying changes
 
 - `npx tsc -b` (from `web/`) + `scripts\test.ps1` (e2e, Playwright; `web/tests/README.md`).
-  The broadest cases: all-levels Lua-load sweep and all-solutions headless replay (80/81 —
-  `redhat` has no content). Add a case under `web/tests/cases/NN-*.mjs` for durable checks.
+  The broadest cases are the all-levels Lua-load + host-binding sweep (05) and the
+  all-solutions headless replay (06; a solution without level content would be skipped as
+  "no-level" - none today). Add a case under `web/tests/cases/NN-*.mjs` for durable checks.
 - Behavior changes need a **real-browser check** (Playwright script against the dev server,
   driving `window.__game`), not just a read-through. Plain headless Chromium already has
   WebGL — don't add ANGLE/SwiftShader flags (they hang) (056).

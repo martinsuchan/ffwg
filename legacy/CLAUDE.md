@@ -3,8 +3,15 @@
 Loaded on demand when Claude touches files under `legacy/`. **Never modify anything here**:
 `web/` and `solver/` both consume it as-is. To match original behavior, read the C++ under
 `legacy/src/` and the Lua under `legacy/script/`; the reference solutions are
-`legacy/solution/<level>.lua` (`saved_moves = '<symbols>'`, one per level; `redhat.lua` has no
-matching level in this repo).
+`legacy/solution/<level>.lua` (`saved_moves = '<symbols>'`, exactly one per level - 81, the
+`ending` has none).
+
+Sanctioned exceptions so far, all at the user's request (root `docs/083`): the `redhat` level
+(`script/redhat/`, `images/redhat/`, no `sound/redhat/`) was imported from the upstream
+`fillets-ng-redhat.zip` and `script/worldmap.lua` gained its node; `script/worlddesc.lua` came
+from that zip and `script/worldfame.lua` from the current upstream (SourceForge
+`code-fillets_data`); a stray solver test solution (`solution/cabin1-simple.lua`) was removed.
+Anything else still needs an explicit user request.
 
 ## Build
 

@@ -1046,6 +1046,9 @@ worldmap_addDesc("keys", "nl", "Slotenmakerij", "Tak van de nieuwe generatie")
 worldmap_addDesc("keys", "bg", "Ключарница", "Нова генерация")
 worldmap_addDesc("keys", "ru", "Слесарь", "Новая ветвь в NG")
 
+worldmap_addDesc("redhat", "en", "Red Hat", "Branch of the New Generation")
+worldmap_addDesc("redhat", "cs", "Red Hat", "Větev Nové Generace")
+
 worldmap_addDesc("linux", "en", "Linux Users Must Be Mad", "Branch of the New Generation")
 worldmap_addDesc("linux", "de", "Linuxbenutzer müssen verrückt sein", "Zweig der neuen Generation")
 worldmap_addDesc("linux", "cs", "Linuxáci musí být šílení", "Větev Nové Generace")

@@ -1,9 +1,9 @@
 # Backlog — feature status, FF NG comparison, and open items
 
-_Recompiled 2026-07-18 from a full sweep of `docs/`, code comments, and CLAUDE.md
-(supersedes the 2026-07-15 compile). Covers everything through docs/075._
+_Recompiled 2026-11-17 as an incremental update of the 2026-07-18 full sweep of
+`docs/`, code comments, and CLAUDE.md. Covers everything through docs/083._
 
-The port is **feature-complete for normal Czech play**: all 80 real levels are
+The port is **feature-complete for normal Czech play**: all 81 levels are
 solvable, with the world map, progression, save/load, replay, dialogs, voice,
 music, subtitles, menus, fullscreen, and posters/ending all working. This
 document tracks (1) how the port compares to the original FF NG, and (2) what's
@@ -19,7 +19,7 @@ Legend: ✅ full parity · ➕ port adds beyond the original · 🟡 partial/sim
 | Area | FF NG | This port | Status |
 |---|---|---|---|
 | Puzzle physics (push/fall/death, weights, crush, escape) | yes | line-for-line TS port (`web/src/game/`) | ✅ |
-| All levels | 81 | 80 playable (`redhat` has no content in this repo) | ✅ (80/81) |
+| All levels | 81 | 81 playable (`redhat` imported from upstream data, docs/083) | ✅ |
 | `windoze` bonus (extra fish pair, output plugs, fast-fall) | yes | ported (docs/035) | ✅ |
 | World map + progression gating | yes | derived from solved set (docs/027/045) | ✅ |
 | Branch reveal on the map | whole map shown up front | **progressive per-house reveal** (docs/074) | ➕ deliberate deviation |
@@ -27,6 +27,7 @@ Legend: ✅ full parity · ➕ port adds beyond the original · 🟡 partial/sim
 | Item/decoration animation | Lua state machines | runs the real `code.lua` live (docs/014) | ✅ |
 | Move recording / solution validation | yes | ported + headless validator (docs/021/022) | ✅ |
 | Replay a solution | one fixed fast pace | **pause/step/speed controls** (docs/025) | ➕ |
+| Export a replay as video | no | **MP4 (H.264 + AAC) export from the replay** (docs/078–080) | ➕ |
 | Save / load mid-level | 1 slot | **multi-slot** dot row (docs/026) | ➕ |
 | Pedometer (best-solution screen) | yes | ported, masked art + digits (docs/039) | ✅ |
 | Final-level posters + ending level | yes | ported (docs/050/061) | ✅ |
@@ -55,7 +56,8 @@ Legend: ✅ full parity · ➕ port adds beyond the original · 🟡 partial/sim
 ## 2. Open items
 
 Rough priority within each group. Nothing here is a known crash in normal `cs`
-play. Each cites the doc(s) that flagged it.
+play. Each cites the doc(s) that flagged it. Items are renumbered on each
+recompile; a "was §X.N" in §3 refers to the previous compile's numbering.
 
 ### A. Input (target set per CLAUDE.md: keyboard, mouse, gamepad, touch)
 1. **Gamepad — not implemented.** No `input.gamepad` handling anywhere. (backlog §A)
@@ -80,80 +82,153 @@ play. Each cites the doc(s) that flagged it.
    it tracks movement speed slightly at variable round durations. Cosmetic. (docs/046)
 
 ### C. Content / levels
-8. **`redhat` has no level content in this repo** — the only permanently unsolved
-   node (80/81). Confirm whether it exists under another codename, or drop it.
-   (docs/022/023)
+8. **`redhat` is text-only** — imported from the upstream `fillets-ng-redhat.zip`
+   (docs/083), which ships no voice-over (`legacy/sound/redhat/` doesn't exist) and
+   only cs + en dialogs (in nl it falls back to the en subtitles). Its map position
+   (a secret branch off `emulator`, 245,283) is this port's choice - the zip hung it
+   off `keys`. (docs/083)
 9. **briefcase `demo_help.lua` full auto-play walkthrough** validated only to the
    graceful-abort path, never a full ~200-step run (its trigger is a mid-solve
    position impractical to reach in a test). (docs/031)
+10. ~~`legacy/solution/cabin1-simple.lua` (solver test data inside `legacy/`)~~ —
+    resolved: deleted; nothing read it (the solver enumerates `solver/levels/index.json`,
+    which never listed it). Number kept so later item numbers stay stable. (docs/083)
 
 ### D. World map / navigation / meta
-10. **No "last played level" memory / auto-resume** — the map always boots fresh.
+11. **No "last played level" memory / auto-resume** — the map always boots fresh.
     (docs/026/027)
 
 ### E. Audio / dialog / subtitles
-11. **Shipped language is `cs` only.** `nl` is fully built (text + per-line en
+12. **Shipped language is `cs` only.** `nl` is fully built (text + per-line en
     voice fallback) but the switch is **hidden** (docs/075) and nl audio isn't in
     the deployed package (docs/073). The original ships ~15 languages via
     `select_lang.lua` (`dialogLoad()` is deliberately bypassed here). Re-enable
     `SHOW_LANGUAGE` + ship nl audio to restore it. (docs/015/018/038/073/075)
-12. **No per-`(name,lang)` `ResDialogPack` fallback** — the en voice fallback is a
+13. **No per-`(name,lang)` `ResDialogPack` fallback** — the en voice fallback is a
     targeted reproduction; country variants (`de_CH`→`de`→en) and the speech
     selector are not modelled. (docs/060)
-13. **`prog_border.lua`'s border-shout sound prefix not covered** — final levels'
+14. **`prog_border.lua`'s border-shout sound prefix not covered** — final levels'
     border-shout clips would need a 5th tracked sound-prefix category. (docs/018)
-14. **Subtitle wavy-text effect** not ported (a TODO even in legacy `Title`). (docs/037)
-15. **Subtitle line-splitting simplified** — one word-wrapped entry per
+15. **Subtitle wavy-text effect** not ported (a TODO even in legacy `Title`). (docs/037)
+16. **Subtitle line-splitting simplified** — one word-wrapped entry per
     `model_talk`, not the original's per-line `Title` split. Visually equivalent.
     (docs/037)
-16. **First dialog line of a big-sprite level pays a one-time voice decode** at
-    level entry (hidden behind the load, never per-line). (docs/043)
-17. **Decoded audio buffers cached for the whole session, no eviction** — fine for
-    normal play. (docs/043)
+17. **Voice-sprite decode is now the main level-load bottleneck.** The live script
+    tick waits until the level's dialog sprite is decoded, so the first line plays
+    in sync. With the Lua bootstrap down to ~1 s (docs/082), that decode dominates
+    on big-sprite levels (e.g. `gods`). It is paid once per level entry, never per
+    line. Options: start the decode during the world-map "Loading" phase (§G.28),
+    or decode the regions needed first. (docs/031/043/082)
+18. **Decoded audio buffers are cached for the whole session, with no eviction.**
+    Mono sprites (docs/082) halved the cost. Decoding every sprite would now take
+    ≈ 2.6 GB at 48 kHz float32 (14,335 s of audio; ≈ 5.2 GB in stereo), and the
+    `gods` cs sprite alone ~57 MB (was ~113 MB). Normal play decodes only the
+    levels visited, but a long session keeps growing. Evict the buffers of levels
+    the player has left, and keep the shared and current ones. (docs/043/082)
 
 ### F. UI polish
-18. **Options volume rows are sliders + text labels**, not the original's
+19. **Options volume rows are sliders + text labels**, not the original's
     `images/menu/` volume glyphs. Labels are localized now (docs/073). (docs/038)
-19. **Pedometer digit roll is a count-up tween**, not the per-digit "slot machine"
+20. **Pedometer digit roll is a count-up tween**, not the per-digit "slot machine"
     animation. (docs/039)
-20. **Save-slot dots:** `MAX_SAVES = 6` and the dot layout are first guesses (not
+21. **Save-slot dots:** `MAX_SAVES = 6` and the dot layout are first guesses (not
     measured per room width); can overlap a long subtitle on a narrow room. (docs/026)
-21. **No persistent "selected fish" indicator** beyond the brief greet flash.
+22. **No persistent "selected fish" indicator** beyond the brief greet flash.
     (docs/016/017)
-22. **No "are you sure?" before a restore reload** — non-destructive (merge), so a
+23. **No "are you sure?" before a restore reload** — non-destructive (merge), so a
     mistaken import can't lose data, but a confirm could be friendlier. (docs/072)
 
 ### G. Rendering / assets / build
-23. **Multi-page texture atlas unsupported** → `menu/` and `demo_briefcase/` still
+24. **Multi-page texture atlas unsupported** → `menu/` and `demo_briefcase/` still
     ship as individual `.webp`. Off the hot path. (docs/004/042)
-24. **`DemoScene` loads all ~293 briefcase movie frames up front** — fine for a
+25. **`DemoScene` loads all ~293 briefcase movie frames up front** — fine for a
     one-time cutscene; lazy loading is a possible refinement. (docs/031)
-25. **Build/publish scripts are Windows 11 only** — Linux/macOS out of scope. (docs/041)
+26. **Build/publish scripts are Windows 11 only** — Linux/macOS out of scope. (docs/041)
+27. **Two Lua bootstraps per level load.** The one-shot loader engine
+    (`loadLevelModels`) and the live `LevelScript` each run the shared scripts plus
+    `models.lua`/`code.lua`. Merging them into one engine would cut the remaining
+    Lua load time roughly in half. It is a larger refactor, because the loader's
+    stub set differs from the live bindings. (docs/082)
+28. **The level's atlas and audio are not prefetched during the world-map
+    "Loading" phase.** Only the live engine is prewarmed there (docs/059/075). The
+    texture atlas and sound sprites start loading when the scene starts. (docs/082)
+29. **Each Lua engine gets its own WASM instance, by design.** A shared
+    `LuaFactory` would save some instantiation work, but it was rejected for now:
+    a WASM state corrupted by one engine (docs/008) must not leak into the next
+    level. Revisit only together with a reset/recovery story. (docs/082)
+30. **`loadSettings()` is uncached.** It reads and parses localStorage on every
+    call (~20 call sites). This is cheap, but a per-session cache invalidated by
+    `saveSettings` would be cleaner. (docs/082)
 
 ### H. Deployment
-26. **Azure Static Web Apps upload is bandwidth-limited.** The full package is
-    ~184 MB; StaticSitesClient uploads it as one zip that must finish within a
-    fixed 100 s timeout (≈125 MB at 10 Mbit/s), so it fails on a slow uplink. The
-    working deploy **trims the Dutch audio to ~118 MB** to fit. To ship the full
-    build: a faster uplink, or a GitHub Actions deploy (uploads from CI). (deploy
-    session, 2026-07-18)
-27. **The live Azure site is behind the working tree** — it has docs/073's cleanup
-    but not docs/074 (progressive reveal), docs/075 (en-sprite gate, hidden
-    language, loading screen), or the other latest fixes, pending the next deploy.
-28. **Work is uncommitted** — docs/057–075 and their code changes are on the
-    working tree only, not committed to git.
+31. **Azure Static Web Apps upload is bandwidth-limited.** StaticSitesClient
+    uploads the package as one zip that must finish within a fixed 100 s timeout
+    (≈125 MB at 10 Mbit/s), so it fails on a slow uplink. With mono sound sprites
+    (docs/082), the full package (incl. nl audio) is **144.9 MB** in 2,482 files,
+    down from ~184 MB. That is closer, but still over the limit. The 2026-07-18
+    deploy trimmed the Dutch audio to fit (~118 MB with the old stereo audio, not
+    re-measured since). To ship the full build: a faster uplink, or a GitHub
+    Actions deploy (uploads from CI). (deploy session 2026-07-18, docs/082)
+32. **No `Cache-Control` headers in `staticwebapp.config.json`.** The hashed
+    `assets/*` build output could be cached as immutable, and the converted assets
+    and `legacy/` Lua for a long period. (docs/082)
+33. **Sub-path hosting is not supported.** Runtime asset paths (`/assets`, `/lua`,
+    `/legacy`) are absolute, and only `LEGACY_ROOT` honours Vite's `BASE_URL`. The
+    publish `README.txt` says so (docs/082). Supporting it means routing every
+    runtime path through `BASE_URL`.
 
 ### I. Verification / tooling
-29. **Gamepad/touch unverified** (not implemented). Fullscreen has a noted
+34. **Gamepad/touch unverified** (not implemented). Fullscreen has a noted
     manual-browser check for real F11 in Edge. (docs/065/066)
-30. **`test-binding-sweep` not promoted to a checked-in tool** — querying a live
-    engine's globals for every host-style call guards the unbound-host-fn freeze
-    class (docs/033). Worth adding to `web/tests/`. (docs/028/033)
-31. **No unit-test layer** — only the Playwright e2e suite (`web/tests/`). (docs/044)
+35. **No unit-test layer** — only the Playwright e2e suite (`web/tests/`). (docs/044)
+36. **`convert-assets.ps1` skips by output mtime only.** It doesn't notice changes
+    to the conversion scripts themselves: after editing e.g.
+    `build-audio-sprite.ps1`, delete `web/public/assets/sound` or use `-Force`. Yet
+    it always wipes and repacks every image atlas on each run. (docs/082)
 
 ---
 
-## 3. Resolved since the 2026-07-15 compile (docs/057–075)
+## 3. Resolved since the 2026-07-18 compile (docs/076–083)
+
+- **`redhat` playable — all 81 levels** (was §C8). Level content imported from the
+  upstream `fillets-ng-redhat.zip` (+ its newer `worlddesc.lua`/`worldfame.lua`),
+  placed as a secret branch off `emulator`; the bundled 287-move solution replays to
+  Solved in the web port and the solver. (docs/083)
+- **`legacy/solution/cabin1-simple.lua` removed** (was §C10) - a leftover of the solver
+  editor work with no level content; e2e 06 now validates every bundled solution with
+  nothing skipped. (docs/083)
+- **Lua plan interrupt ported.** A death, a model fully out, or the start of a demo
+  now clears the live Lua plan FIFO and releases busy fish, like legacy
+  `LevelScript::interruptPlan`. A queued conversation no longer continues after a
+  fish dies. Also new: the start-of-level greet (`m_switch = true`). (docs/082)
+- **No runtime CDN dependency.** wasmoon's `glue.wasm` is bundled instead of fetched
+  from unpkg.com, so the published site makes no external requests. Lua sources
+  load in parallel and are cached per session: the Lua bootstrap of a new level
+  went from ~2.5 s to ~1 s. (docs/082)
+- **Binding sweep promoted** (was §I.30). e2e 05 checks that every level host
+  function the original registers (58 of them) is bound in each level's live
+  engine. (docs/082)
+- **Mono sound sprites.** Lossless relative to the 22 kHz mono sources; `sound/` is
+  26.6 % smaller and decoded audio memory is halved (§E.18 and §H.31 updated).
+  (docs/082)
+- **e2e 06 green again.** Solutions without level content (`redhat`,
+  `cabin1-simple`) are skipped as "no-level". New case 10-plan-interrupt; the suite
+  passes 10/10, and 05/06 run several times faster. (docs/082)
+- **Script fixes.** `publish.ps1` stops on a failed `setup.ps1`, `build.ps1` stops
+  on a failed build, `start.ps1`/`test.ps1` honour `-Port`, and `new-doc.ps1`
+  writes no BOM. (docs/082)
+- **Work committed** (was §H.28). docs/057–081 and their code are in git history
+  (commits `ff8b20b`, `93f3ca9`, `00d4a3a`, `d7479ac`). docs/082's changes were
+  still on the working tree when this was written.
+- **Live site status** (was §H.27). This item went stale, and it is unknown whether
+  the Azure site has the latest work. Assume it needs a redeploy
+  (`scripts\publish.ps1` + `swa deploy`) after each batch.
+- Also landed: replay MP4 export, with an AAC trial encode and a WASM AAC fallback
+  (docs/078/080); the replay's still background and vector control icons
+  (docs/079); fish and items swim out of the room instead of fading at the edge
+  (docs/081); CLAUDE.md slimmed into per-tree files (docs/077).
+
+### Resolved since the 2026-07-15 compile (docs/057–075)
 
 For reference — these earlier "open" items are now **done**:
 

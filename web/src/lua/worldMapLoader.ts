@@ -1,6 +1,5 @@
-import { LuaFactory } from "wasmoon";
-
 import { fetchLegacyFile } from "./levelLoader";
+import { createLuaEngine } from "./luaEngine";
 import { currentLang } from "../i18n";
 
 /** One entry from legacy/script/worldmap.lua's branch_addNode() calls -
@@ -97,13 +96,15 @@ export function mapSection(data: WorldMapData, codename: string): string {
  * `nodes`); WorldMapScene decides when to run it (docs/050).
  */
 export async function loadWorldMap(): Promise<WorldMapData> {
-  const mapSource = await fetchLegacyFile("script/worldmap.lua");
-  const descSource = await fetchLegacyFile("script/worlddesc.lua");
-  const fameSource = await fetchLegacyFile("script/worldfame.lua");
-  const labelsSource = await fetchLegacyFile("script/labels.lua");
+  // Fetched concurrently; the doString order below is what matters.
+  const [mapSource, descSource, fameSource, labelsSource] = await Promise.all([
+    fetchLegacyFile("script/worldmap.lua"),
+    fetchLegacyFile("script/worlddesc.lua"),
+    fetchLegacyFile("script/worldfame.lua"),
+    fetchLegacyFile("script/labels.lua"),
+  ]);
 
-  const factory = new LuaFactory();
-  const lua = await factory.createEngine();
+  const lua = await createLuaEngine();
 
   const nodes: WorldMapNode[] = [];
   let rootCodename = "";

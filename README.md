@@ -7,21 +7,21 @@ without crushing them. This port **reuses the original game's Lua content**
 rebuilds the engine (physics, rules, rendering, input, audio) in TypeScript for
 the browser.
 
-**Status: playable.** All 80 levels with content are solvable, with the world
+**Status: playable.** All 81 levels are solvable, with the world
 map, progression, mid-level save/load, solution replay, dialogs, voice, music,
 subtitles, menus, fullscreen, and the final-level posters + ending all working.
-The one exception is `redhat`, whose level content isn't present in this repo.
 See [`docs/BACKLOG.md`](docs/BACKLOG.md) for a full feature comparison against the
 original and the list of what's still open.
 
 ## What's in the box
 
-- **80 playable levels** driven by the original Lua content, at their real grid
-  layouts and rules.
+- **81 playable levels** driven by the original Lua content, at their real grid
+  layouts and rules (incl. `redhat`, a secret branch off `emulator`).
 - **World map** with progressive per-house unlocking, or a `/sandbox` endpoint
   that unlocks everything and enables the bundled reference solutions.
 - **Save / load** (multiple slots per level) and **watchable replays** with
-  pause / step / speed controls.
+  pause / step / speed controls, plus **export of a replay as an MP4 video**
+  (H.264 + AAC, rendered in the browser).
 - **Czech dialogs, voice-over, music, and subtitles** (colour-coded per speaker),
   plus built-in impact/death sounds. (Dutch is fully built but hidden for now —
   see the backlog.)
@@ -30,9 +30,11 @@ original and the list of what's still open.
 - **Progress backup/restore** to a human-readable JSON file, so your solved
   levels and saves survive clearing browser data.
 
-It's a pure client-side static site — no server, no database. The Lua interpreter
-runs in the browser as WebAssembly (via [wasmoon](https://github.com/ceifa/wasmoon)),
-and rendering/input go through [Phaser 4](https://phaser.io).
+It's a pure client-side static site: no server, no database, and no requests to
+third-party hosts at runtime. Everything, including the WebAssembly modules, is
+served from the site itself. The Lua interpreter runs in the browser as
+WebAssembly (via [wasmoon](https://github.com/ceifa/wasmoon)), and rendering and
+input go through [Phaser 4](https://phaser.io).
 
 ## Controls
 
@@ -94,7 +96,8 @@ scripts\publish.ps1
 Produces a self-contained `publish/` folder — a pure static site — with host
 config for Azure Static Web Apps (`staticwebapp.config.json`) and IIS / Azure App
 Service (`web.config`), plus a `README.txt` with per-host deploy steps. Copy its
-contents to any static host, served at the site root over HTTPS.
+contents to any static host, served at the site root over HTTPS. Hosting under a
+sub-path is not supported.
 
 To deploy to **Azure Static Web Apps** (recommended), install the CLI and push
 the folder:
@@ -104,7 +107,7 @@ npm install -g @azure/static-web-apps-cli
 swa deploy .\publish --env production        # needs the app's deployment token
 ```
 
-> Note: the full package is ~184 MB, which the SWA CLI uploads as a single zip
+> Note: the full package is ~145 MB, which the SWA CLI uploads as a single zip
 > that must complete within a fixed 100 s network timeout — so a slow uplink can
 > fail. Workarounds and details are in [`docs/BACKLOG.md`](docs/BACKLOG.md) §H.
 
@@ -116,8 +119,10 @@ scripts\test.ps1
 
 Runs the Playwright end-to-end suite (`web/tests/`) against a fresh dev server:
 world-map boot, pedometer, level load + browser Back, settings/localization, an
-all-80-levels Lua-load sweep, an all-solutions headless replay, sandbox vs
-standard gating, and progress backup/restore.
+all-levels Lua-load sweep that also checks every host function the original
+registers is bound, an all-solutions headless replay, sandbox vs standard gating,
+progress backup/restore, replay → MP4 export, and the plan interrupt on a fish's
+death or exit.
 
 ## Repository layout
 
@@ -126,14 +131,19 @@ standard gating, and progress backup/restore.
 - [`legacy/`](legacy/) — the original C++/SDL1.2/Lua source, kept as reference and
   as the source of the Lua content that's reused at runtime. See
   [`legacy/README`](legacy/README) to build/run the original.
+- [`solver/`](solver/) — a separate C#/.NET console solver (`ffsolve`) plus a WPF
+  level editor; see [`solver/README.md`](solver/README.md).
 - [`docs/`](docs/) — a dated, numbered dev log, one entry per milestone;
   [`docs/BACKLOG.md`](docs/BACKLOG.md) is the feature-status / FF NG comparison /
   open-items summary, and [`docs/README.md`](docs/README.md) explains the log
   convention.
 - [`scripts/`](scripts/) — PowerShell helpers: `setup.ps1` (build + run),
-  `publish.ps1` (deployable package), `start.ps1` (restart dev server),
-  `test.ps1` (e2e suite), `new-doc.ps1` (scaffold a log entry), plus the
-  lower-level asset-conversion scripts `setup.ps1` orchestrates.
+  `publish.ps1` (deployable package), `start.ps1` / `stop.ps1` (restart / stop the
+  dev server), `build.ps1` (type-check + production build, `-Preview` to serve
+  it), `test.ps1` (e2e suite), `new-doc.ps1` (scaffold a log entry),
+  `build-solver.ps1` (build + test the solver), `export-levels.ps1` (regenerate
+  the solver's level JSON from the Lua content), plus the lower-level
+  asset-conversion scripts `setup.ps1` orchestrates.
 - [`CLAUDE.md`](CLAUDE.md) — repo-wide notes for AI assistants, with per-tree details in
   [`web/CLAUDE.md`](web/CLAUDE.md), [`solver/CLAUDE.md`](solver/CLAUDE.md) and
   [`legacy/CLAUDE.md`](legacy/CLAUDE.md). The change log lives in [`docs/`](docs/).

@@ -1,10 +1,10 @@
-import { LuaFactory, LuaMultiReturn, type LuaEngine } from "wasmoon";
+import { LuaMultiReturn, type LuaEngine } from "wasmoon";
 
 import { Shape } from "../game/Shape";
 import type { RenderModel } from "../game/GameEngine";
 import { CYCLE_MS } from "../game/timing";
 import {
-  fetchText,
+  fetchCompatSource,
   fetchLegacyFile,
   extractFileIncludes,
   extractRuntimeIncludes,
@@ -17,6 +17,7 @@ import {
   formatSubtitle,
   type ResolvedSound,
 } from "./dialogSound";
+import { createLuaEngine } from "./luaEngine";
 import { loadSettings } from "../storage/settingsStorage";
 import { getPlaytimeSeconds } from "../storage/playtime";
 
@@ -363,6 +364,15 @@ function resolveSoundName(state: LevelScriptState, name: string): ResolvedSound 
   return resolveSoundPath(chosen);
 }
 
+/** fetchLegacyFile() for a file a level may legitimately not have (a per-language
+ *  dialogs file): resolves "" instead of rejecting, so the caller skips it. */
+function optionalLegacyFile(path: string): Promise<string> {
+  return fetchLegacyFile(path).catch((error: unknown) => {
+    console.warn(`optional legacy file not loaded: ${path}`, error);
+    return "";
+  });
+}
+
 /**
  * Runs a level's real per-round Lua update loop (script_update(), defined
  * in legacy/script/share/level_start.lua) against a *persistent* wasmoon
@@ -608,6 +618,21 @@ export class LevelScript {
     }
   }
 
+  /** legacy Planner::interruptPlan() (legacy/src/plan/Planner.cpp:
+   *  `m_plan->removeAll()`): drops every queued plan command (game_planAction)
+   *  and resets the front command's round counter. Called by the scenes when
+   *  the physics Room reports a fish death / a model fully gone out, and when a
+   *  demo starts - the same triggers as the original (Room.cpp prepareRound +
+   *  fallout, Level.cpp newDemo). Like the original it does NOT touch the show
+   *  queue (showActions), talkers or dialogs - only game_killPlan also kills
+   *  dialogs. legacy/src/level/LevelScript.cpp:59's override additionally runs
+   *  room->checkActive() + room->unBusyUnits(); that half lives in the physics
+   *  Room (TypeScript), not here. */
+  interruptPlan(): void {
+    this.state.pendingActions.length = 0;
+    this.state.frontCount = 0;
+  }
+
   /** legacy's Level::isShowing() - true while a level_planShow() "show"
    *  sequence is queued (the briefcase auto-play tutorial). While true,
    *  LevelScene disables player input and drives the round via runShowStep()
@@ -675,60 +700,96 @@ export async function createLevelScript(
   // below all use it) - the Options setting, read once here so this level loads
   // consistently in cs or nl. See docs/038.
   const DIALOG_LANG = getDialogLang();
-  const compatSource = await fetchText("/lua/lua50-compat.lua");
-  const levelCreationSource = await fetchLegacyFile("script/share/level_creation.lua");
-  const levelPlanSource = await fetchLegacyFile("script/share/level_plan.lua");
-  const levelUpdateSource = await fetchLegacyFile("script/share/level_update.lua");
-  const levelFontsSource = await fetchLegacyFile("script/share/level_fonts.lua");
-  const levelDialogSource = await fetchLegacyFile("script/share/level_dialog.lua");
-  const goanimSource = await fetchLegacyFile("script/share/prog_goanim.lua");
-  const finderSource = await fetchLegacyFile("script/share/prog_finder.lua");
-  const compatibleSource = await fetchLegacyFile("script/share/prog_compatible.lua");
-  // pickle()/unpickle_string()/script_loadState() (docs/026) - loaded
-  // verbatim, not reimplemented, so mid-level save/load reuses the
-  // original's exact serialization. prog_save.lua also defines undo/redo,
-  // out of scope here - confirmed safe to load anyway, since those are
-  // only ever *called* by a separate C++ path (Level::saveUndo()) this
-  // port has no equivalent of; its one top-level side effect (seeding an
-  // unused `undo` table) needs getRestartCount() (prog_compatible.lua,
-  // just fetched above) to already exist by the time it runs below.
-  const pickleSource = await fetchLegacyFile("script/share/Pickle.lua");
-  const progSaveSource = await fetchLegacyFile("script/share/prog_save.lua");
-  const borejokesSource = await fetchLegacyFile("script/share/borejokes.lua");
-  const blackjokesSource = await fetchLegacyFile("script/share/blackjokes.lua");
-  const bublesSource = await fetchLegacyFile("script/share/bubles.lua");
-  const bordershoutSource = await fetchLegacyFile("script/share/bordershout.lua");
-  const levelStartSource = await fetchLegacyFile("script/share/level_start.lua");
-  // DIALOG_LANG-only dialog content (docs/015, switched en->cs per
-  // docs/018): dialogLoad() would enumerate ~15 languages via
-  // select_lang.lua and call file_include per match - more work than
-  // needed and the same wasmoon reentrancy risk docs/008 found. Fetching
-  // these 4 files directly and running them ourselves (order-independent -
-  // see docs/015) sidesteps dialogLoad() entirely.
-  const shoutDialogsSource = await fetchLegacyFile(
-    `script/share/shout_dialogs_${DIALOG_LANG}.lua`,
-  );
-  const boreDialogsSource = await fetchLegacyFile(
-    `script/share/bore_dialogs_${DIALOG_LANG}.lua`,
-  );
-  const blackDialogsSource = await fetchLegacyFile(
-    `script/share/black_dialogs_${DIALOG_LANG}.lua`,
-  );
-  const levelDialogsSource = await fetchLegacyFile(
-    `script/${levelName}/dialogs_${DIALOG_LANG}.lua`,
-  );
-  // English fallback for dialogs the localized file omits. Some levels define
-  // language-agnostic *sound-only* dialogs (empty subtitle) only under English,
-  // with their .ogg clips stored only in sound/<level>/en/ - e.g. viking1's
-  // musician-band "song" clips d1-z-* (whistle/bass/melody). The original's
-  // dialogLoad() registers every dialog under its DEFAULT_LANG (first-seen)
-  // definition, so these always come from en; loading en after the localized
-  // file reproduces that without disturbing the localized dialogs. See docs/036.
-  const levelDialogsFallbackSource = await fetchLegacyFile(
-    `script/${levelName}/dialogs_en.lua`,
-  );
-  const modelsSource = await fetchLegacyFile(`script/${levelName}/models.lua`);
-  const codeSource = await fetchLegacyFile(`script/${levelName}/code.lua`);
+  // All fetches run concurrently (one batch; code.lua's includes follow once
+  // code.lua itself is in) - ~25 sequential awaits used to dominate the load
+  // time. Execution order is fixed by the doString sequence further down, not
+  // by fetch order. A missing file still rejects the whole load.
+  const [
+    compatSource,
+    levelCreationSource,
+    levelPlanSource,
+    levelUpdateSource,
+    levelFontsSource,
+    levelDialogSource,
+    goanimSource,
+    finderSource,
+    compatibleSource,
+    pickleSource,
+    progSaveSource,
+    borejokesSource,
+    blackjokesSource,
+    bublesSource,
+    bordershoutSource,
+    levelStartSource,
+    shoutDialogsSource,
+    boreDialogsSource,
+    blackDialogsSource,
+    levelDialogsSource,
+    levelDialogsFallbackSource,
+    modelsSource,
+    codeSource,
+    audioManifest,
+    soundDurations,
+  ] = await Promise.all([
+    fetchCompatSource(),
+    fetchLegacyFile("script/share/level_creation.lua"),
+    fetchLegacyFile("script/share/level_plan.lua"),
+    fetchLegacyFile("script/share/level_update.lua"),
+    fetchLegacyFile("script/share/level_fonts.lua"),
+    fetchLegacyFile("script/share/level_dialog.lua"),
+    fetchLegacyFile("script/share/prog_goanim.lua"),
+    fetchLegacyFile("script/share/prog_finder.lua"),
+    fetchLegacyFile("script/share/prog_compatible.lua"),
+    // pickle()/unpickle_string()/script_loadState() (docs/026) - loaded
+    // verbatim, not reimplemented, so mid-level save/load reuses the
+    // original's exact serialization. prog_save.lua also defines undo/redo,
+    // out of scope here - confirmed safe to load anyway, since those are
+    // only ever *called* by a separate C++ path (Level::saveUndo()) this
+    // port has no equivalent of; its one top-level side effect (seeding an
+    // unused `undo` table) needs getRestartCount() (prog_compatible.lua)
+    // to already exist by the time it runs below.
+    fetchLegacyFile("script/share/Pickle.lua"),
+    fetchLegacyFile("script/share/prog_save.lua"),
+    fetchLegacyFile("script/share/borejokes.lua"),
+    fetchLegacyFile("script/share/blackjokes.lua"),
+    fetchLegacyFile("script/share/bubles.lua"),
+    fetchLegacyFile("script/share/bordershout.lua"),
+    fetchLegacyFile("script/share/level_start.lua"),
+    // DIALOG_LANG-only dialog content (docs/015, switched en->cs per
+    // docs/018): dialogLoad() would enumerate ~15 languages via
+    // select_lang.lua and call file_include per match - more work than
+    // needed and the same wasmoon reentrancy risk docs/008 found. Fetching
+    // these 4 files directly and running them ourselves (order-independent -
+    // see docs/015) sidesteps dialogLoad() entirely.
+    fetchLegacyFile(`script/share/shout_dialogs_${DIALOG_LANG}.lua`),
+    fetchLegacyFile(`script/share/bore_dialogs_${DIALOG_LANG}.lua`),
+    fetchLegacyFile(`script/share/black_dialogs_${DIALOG_LANG}.lua`),
+    // A level may lack this language's file (redhat ships only cs + en) - the
+    // original's dialogLoad() just loads whichever dialogs_<lang>.lua exist, so
+    // a missing one means "subtitles from the en fallback below", not a failed
+    // level load (docs/083).
+    optionalLegacyFile(`script/${levelName}/dialogs_${DIALOG_LANG}.lua`),
+    // English fallback for dialogs the localized file omits. Some levels define
+    // language-agnostic *sound-only* dialogs (empty subtitle) only under English,
+    // with their .ogg clips stored only in sound/<level>/en/ - e.g. viking1's
+    // musician-band "song" clips d1-z-* (whistle/bass/melody). The original's
+    // dialogLoad() registers every dialog under its DEFAULT_LANG (first-seen)
+    // definition, so these always come from en; loading en after the localized
+    // file reproduces that without disturbing the localized dialogs. See docs/036.
+    optionalLegacyFile(`script/${levelName}/dialogs_en.lua`),
+    fetchLegacyFile(`script/${levelName}/models.lua`),
+    fetchLegacyFile(`script/${levelName}/code.lua`),
+    getAudioManifest(),
+    // Real clip lengths for the dialog sound pools this level actually loads
+    // (docs/018) - tolerant of 404s (pool/level not in our converted set),
+    // since model_talk() falls back to the text-length formula either way.
+    // Same dirs the scene preloads for playback (levelSoundSpriteDirs), so every
+    // clip that can actually play - including the en fallback pools (docs/060) and
+    // en-only sound-dialogs like viking1's d1-z-* / cancan's piano (docs/036) - has
+    // a real duration for model_talk()'s minTime (an en-only note with an empty
+    // subtitle would otherwise get 0 from the text-length fallback and never play).
+    fetchSoundDurations(levelSoundSpriteDirs(levelName)),
+  ]);
   // code.lua's file_include() targets: top-level ones (prog_border etc.) run at
   // bootstrap as before; runtime ones (only briefcase's demo_help.lua, called
   // from inside a closure) are wrapped as callables and run on the trigger
@@ -738,19 +799,8 @@ export async function createLevelScript(
   const includedSources = await Promise.all(
     includePaths.map(async (path) => ({ path, source: await fetchLegacyFile(path) })),
   );
-  const audioManifest = await getAudioManifest();
-  // Real clip lengths for the dialog sound pools this level actually loads
-  // (docs/018) - tolerant of 404s (pool/level not in our converted set),
-  // since model_talk() falls back to the text-length formula either way.
-  // Same dirs the scene preloads for playback (levelSoundSpriteDirs), so every
-  // clip that can actually play - including the en fallback pools (docs/060) and
-  // en-only sound-dialogs like viking1's d1-z-* / cancan's piano (docs/036) - has
-  // a real duration for model_talk()'s minTime (an en-only note with an empty
-  // subtitle would otherwise get 0 from the text-length fallback and never play).
-  const soundDurations = await fetchSoundDurations(levelSoundSpriteDirs(levelName));
 
-  const factory = new LuaFactory();
-  const lua = await factory.createEngine();
+  const lua = await createLuaEngine();
 
   const state: LevelScriptState = {
     // Seeded with the real starting positions rather than left empty:
@@ -1228,7 +1278,7 @@ export async function createLevelScript(
     currentSoundPrefix = `sound/share/blackjokes/${DIALOG_LANG}/`;
     await lua.doString(blackDialogsSource);
     currentSoundPrefix = `sound/${levelName}/${DIALOG_LANG}/`;
-    await lua.doString(levelDialogsSource);
+    if (levelDialogsSource) await lua.doString(levelDialogsSource);
     // English fallback (docs/036): registers only dialogs the localized file
     // didn't (level_dialog.lua's dialogId no-ops for already-primed ones - and
     // the localized file uses the same English default subtitle, so no

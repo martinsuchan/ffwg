@@ -111,6 +111,9 @@ branch_addNode("windoze", "hardware", "script/hardware/init.lua", 129, 290)
 branch_addNode("hardware", "floppy", "script/floppy/init.lua", 97, 314,
         false, "script/floppy/demo_poster.lua")
 
+-- Red Hat (secret branch off emulator, towards 1 o'clock)
+branch_addNode("emulator", "redhat", "script/redhat/init.lua", 245, 283, true)
+
 
 -- branch_setEnding(codename, datafile, poster="")
 -- Ending

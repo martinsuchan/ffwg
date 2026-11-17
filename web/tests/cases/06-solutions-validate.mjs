@@ -3,15 +3,18 @@
 // suite's strongest gameplay regression net - it drives the full move/rules
 // engine across all levels. Covers docs/022/023/024/035.
 //
-// Expectation: all solve except `redhat`, whose level content doesn't exist in
-// this repo (it's a solution file with no matching legacy/script/redhat/).
+// Expectation: every solution whose level exists solves. A solution with no
+// matching legacy/script/<level>/ directory is reported as "no-level" and
+// skipped, not failed. None today: `redhat` was one until its content was
+// imported, and the stray `cabin1-simple` solver variant was deleted (docs/083).
 
-import { readdirSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { gotoWorldmap, assert } from "../lib.mjs";
 
 export const name = "all solutions: headless replay validates";
 
 const SOLUTION_DIR = "../../../legacy/solution"; // cases -> tests -> web -> repo root
+const SCRIPT_DIR = "../../../legacy/script";
 
 export default async function ({ page, baseURL }) {
   await gotoWorldmap(page, baseURL);
@@ -19,9 +22,12 @@ export default async function ({ page, baseURL }) {
   const { fileURLToPath } = await import("url");
   const { dirname, join } = await import("path");
   const here = dirname(fileURLToPath(import.meta.url));
-  const levels = readdirSync(join(here, SOLUTION_DIR))
+  const all = readdirSync(join(here, SOLUTION_DIR))
     .filter((f) => f.endsWith(".lua"))
     .map((f) => f.replace(/\.lua$/, ""));
+  const hasLevel = (lv) => existsSync(join(here, SCRIPT_DIR, lv));
+  const levels = all.filter(hasLevel);
+  const noLevel = all.filter((lv) => !hasLevel(lv));
 
   const results = await page.evaluate(async (levels) => {
     const { loadLevelModels, extractSavedMoves, fetchLegacyFile } = await import("/src/lua/levelLoader.ts");
@@ -45,12 +51,13 @@ export default async function ({ page, baseURL }) {
   }, levels);
 
   const solved = results.filter((r) => r.status === "SOLVED");
-  // redhat has no level content in this repo - its failure is expected.
-  const unexpected = results.filter((r) => r.status !== "SOLVED" && r.lv !== "redhat");
+  const unexpected = results.filter((r) => r.status !== "SOLVED");
   assert(
     unexpected.length === 0,
     `${unexpected.length} unexpected non-solved: ${unexpected.map((r) => `${r.lv}:${r.status}${r.err ? " " + r.err : ""}`).join(" | ")}`,
   );
+  assert(solved.length > 0, "no solution with an existing level was validated");
 
-  return { detail: `${solved.length}/${results.length} solved (redhat has no level content, excluded)` };
+  const skipped = noLevel.length ? `, ${noLevel.length} skipped (no-level): ${noLevel.join(", ")}` : "";
+  return { detail: `${solved.length} solved${skipped}` };
 }

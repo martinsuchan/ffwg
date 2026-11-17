@@ -181,6 +181,13 @@ export class LevelScene extends Phaser.Scene {
    *  is assigned as soon as it's booted so the render loop shows its bootstrap
    *  init-state immediately, but it isn't ticked until this flips true. */
   private scriptTicking = false;
+  /** A death / model fully out happened (engine.takePlanInterrupt()) whose
+   *  live-Lua half - clearing the plan FIFO, LevelScript.interruptPlan() - is
+   *  still owed: applied before the next levelScript.tick() (even while
+   *  scriptTicking is false) or when the booting script is assigned, so a
+   *  save-resume whose replayed moves killed/exited a fish interrupts too,
+   *  like legacy's loadMove path. See applyPlanInterrupt(), docs/082. */
+  private pendingPlanInterrupt = false;
   /** Music/sound-effect/dialog-voice playback - see docs/018, docs/043. */
   private audioManager!: AudioManager;
   /** Last background-music "play" command this level issued, so it can be
@@ -267,6 +274,7 @@ export class LevelScene extends Phaser.Scene {
     this.isEnding = data.isEnding ?? false;
     this.prewarmedEngine = data.engine;
     this.prewarmedScript = data.script;
+    this.pendingPlanInterrupt = false;
     // Phaser reuses the scene instance across scene.start(), but SHUTDOWN
     // destroys its GameObjects - drop the stale handle so drawRopes() builds a
     // fresh one instead of touching a destroyed Graphics (cf. docs/012).
@@ -619,6 +627,10 @@ export class LevelScene extends Phaser.Scene {
         resumeModelState = undefined;
       }
     }
+    // Owed to the script this call boots: only what the engine actually in use
+    // recorded (a resume's replay; nothing for a fresh/adopted engine). A
+    // previous attempt's leftover is dropped with its script.
+    this.pendingPlanInterrupt = this.engine.takePlanInterrupt();
     this.gameOver = false;
     this.solvedCountdown = -1;
     this.wrongCountdown = -1;
@@ -680,6 +692,9 @@ export class LevelScene extends Phaser.Scene {
         // limbs) from the next frame. Its live per-round update (script.tick:
         // dialogs, animation) is gated separately, on the dialog audio below.
         this.levelScript = script;
+        // Legacy runs code.lua before loadGame's replay, whose interrupt then
+        // clears whatever the bootstrap planned - apply the owed one now.
+        this.applyPlanInterrupt();
 
         // Release live ticking once this level's dialog voice sprite is decoded
         // (loaded in parallel in create()), so the first line's audio plays in
@@ -815,6 +830,9 @@ export class LevelScene extends Phaser.Scene {
         this.engine = new GameEngine(this.levelData);
       }
     }
+    // Usually called from inside levelScript.tick() (a show's restart/load),
+    // so only record it - applied before the next tick (docs/082).
+    if (this.engine.takePlanInterrupt()) this.pendingPlanInterrupt = true;
     this.gameOver = false;
     this.buildAnimators(this.engine.getRenderModels());
     if (modelState && this.levelScript) {
@@ -1047,6 +1065,10 @@ export class LevelScene extends Phaser.Scene {
     } else {
       this.engine.tick(input);
     }
+    // A death / fully-out model this round (legacy Room::prepareRound/fallout
+    // -> interruptPlan) drops the queued plan before the script runs (docs/082).
+    if (this.engine.takePlanInterrupt()) this.pendingPlanInterrupt = true;
+    this.applyPlanInterrupt();
 
     // Snapshot BEFORE the script step: an auto-play show reads live positions
     // here (moveXY -> model:getLoc()) to decide the next move, and a show
@@ -1193,6 +1215,17 @@ export class LevelScene extends Phaser.Scene {
     }
   }
 
+  /** Applies an owed plan interrupt (pendingPlanInterrupt) once a live script
+   *  exists: clears its plan FIFO (LevelScript.interruptPlan(); the show queue
+   *  is kept). The engine already did legacy's checkActive + unBusyUnits half
+   *  at the moment of the death / exit. Never call from inside a script
+   *  callback - see resetPhysicsOnly(). See docs/082. */
+  private applyPlanInterrupt(): void {
+    if (!this.pendingPlanInterrupt || !this.levelScript) return;
+    this.pendingPlanInterrupt = false;
+    this.levelScript.interruptPlan();
+  }
+
   /** Ends a running "show" after a command threw (e.g. an impossible move
    *  from a physics divergence) - drops the queued commands so control returns
    *  to the player rather than crashing the round loop. See docs/031. */
@@ -1206,6 +1239,12 @@ export class LevelScene extends Phaser.Scene {
    *  The DemoScene resumes this scene (RESUME handler in create()) on Esc or
    *  when the movie ends. */
   private launchDemo(demoFile: string): void {
+    // legacy Level::newDemo -> LevelScript::interruptPlan: drop the plan, then
+    // checkActive() before unBusyUnits() (docs/082). Unconditional - there is
+    // no physics event behind this one, so the engine half runs here too.
+    this.levelScript?.interruptPlan();
+    this.engine.checkActive();
+    this.engine.unBusyUnits();
     // Stop ALL level audio (music + any dialog voice mid-line) - the movie
     // plays its own, and Phaser's Sound Manager is game-global so it would
     // otherwise keep playing under the movie (docs/025/031).
