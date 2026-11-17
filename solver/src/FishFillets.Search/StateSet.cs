@@ -79,6 +79,13 @@ internal sealed class StateSet
     /// <summary>Where this key's bytes live, so a node can reference them instead of holding a second copy.</summary>
     public ReadOnlySpan<byte> KeyAt(int offset) => _keys.AsSpan(offset, _keySize);
 
+    /// <summary>
+    /// The cheapest cost recorded for the key stored at <paramref name="keyOffset"/>.
+    /// Entries are appended in step with the key arena, so <c>keyOffset / keySize</c>
+    /// is also a dense, stable index - which is what lets a caller use it as an id.
+    /// </summary>
+    public int CostAt(int keyOffset) => _entries[keyOffset / _keySize].Cost;
+
     public bool TryImprove(ReadOnlySpan<byte> key, int cost, out int keyOffset) =>
         TryImprove(key, cost, 0, out keyOffset, out _);
 

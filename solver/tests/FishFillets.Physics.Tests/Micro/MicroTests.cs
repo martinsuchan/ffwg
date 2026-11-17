@@ -130,6 +130,32 @@ public sealed class MicroTests
     [DynamicData(nameof(ReductionKnownBugRows))]
     public void Reduction_FrozenModelsNeverMove_KnownBug(string level) => CheckProperty(level, "frozen-model moves", MicroChecks.Reduction);
 
+    public static IEnumerable<object[]> ExactRouterRows => MicroCorpus.Rows("exact-router", knownBug: false);
+
+    /// <summary>
+    /// The item search builds states by moving a fish in the key instead of
+    /// simulating its route, so the router's idea of "this step disturbs nothing"
+    /// has to be the engine's - including the step out from under a heavy item
+    /// that drops nothing and crushes the other fish (solver/docs/023).
+    /// </summary>
+    [TestMethod]
+    [DynamicData(nameof(ExactRouterRows))]
+    public void ExactRouter_AgreesWithTheEngine(string level) =>
+        CheckProperty(level, "router/engine disagreements", MicroChecks.ExactRouter);
+
+    public static IEnumerable<object[]> FootprintRows => MicroCorpus.Rows("footprint", knownBug: false);
+
+    /// <summary>
+    /// The layout search defers where the waiting fish stands, on the claim that
+    /// outside an event's footprint (<c>LayoutFootprint</c>) it cannot change the
+    /// event. Unproven physics, of the same kind as the support claim that failed
+    /// on <c>heavy-shared</c> - so it is checked in every reachable state.
+    /// </summary>
+    [TestMethod]
+    [DynamicData(nameof(FootprintRows))]
+    public void Footprint_OtherFishOutsideItDoesNotMatter(string level) =>
+        CheckProperty(level, "footprint counter-examples", MicroChecks.Footprint);
+
     public static IEnumerable<object[]> SymmetryRows => MicroCorpus.Rows("symmetry", knownBug: false);
 
     public static IEnumerable<object[]> SymmetryKnownBugRows => MicroCorpus.Rows("symmetry", knownBug: true);

@@ -62,6 +62,75 @@ public sealed partial class Room
         return falling;
     }
 
+    /// <summary>
+    /// Whether the room would stop being settled with <paramref name="fish"/>
+    /// standing at (<paramref name="x"/>, <paramref name="y"/>) instead of where
+    /// it is: something left unsupported, or a fish left alone under a load it
+    /// cannot bear. This is the exact form of "is this fish holding something
+    /// up", for a search that routes fish without simulating (solver/docs/023).
+    ///
+    /// Runs the same support fixpoint as <see cref="ComputeFall"/> and the same
+    /// load test as <see cref="CheckDeadStress"/>, but applies nothing: no model
+    /// is told to fall or die and the room is left exactly as it was. The caller
+    /// guarantees the fish's cells at the new place are free of everything but
+    /// the fish itself.
+    /// </summary>
+    public bool WouldDisturbWithFishAt(int fish, int x, int y)
+    {
+        ref ModelState m = ref _models[fish];
+        short oldX = m.X, oldY = m.Y;
+
+        Unmask(fish);
+        m.X = (short)x;
+        m.Y = (short)y;
+        Mask(fish);
+
+        Array.Clear(_stoned);
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (int i = 0; i < ModelCount; i++)
+            {
+                if (StoneModel(i))
+                {
+                    changed = true;
+                }
+            }
+        }
+
+        bool drops = false;
+        for (int i = 0; i < ModelCount; i++)
+        {
+            if (!IsFixedForFall(i))
+            {
+                drops = true;
+                break;
+            }
+        }
+
+        // Nothing falls, but support may have changed hands: a heavy item that
+        // two fish shared now rests on the small one alone, and kills it.
+        if (!drops)
+        {
+            foreach (UnitDef unit in Level.Units)
+            {
+                ref ModelState u = ref _models[unit.Model];
+                if (u.IsAlive && !u.IsLost && CheckDeadStress(unit.Model))
+                {
+                    drops = true;
+                    break;
+                }
+            }
+        }
+
+        Unmask(fish);
+        m.X = oldX;
+        m.Y = oldY;
+        Mask(fish);
+        return drops;
+    }
+
     private bool StoneModel(int model)
     {
         if (!IsStoned(model) && (IsFixedForFall(model) || IsOnPad(model)))

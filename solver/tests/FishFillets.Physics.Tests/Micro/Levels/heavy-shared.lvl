@@ -1,0 +1,18 @@
+# expect: 15
+# tags:   heavy, two-fish, gravity, death, support, tier20
+# why:    a heavy bar lies across both fish. The big fish can slide two steps
+#         along under it and nothing changes; the third step drops nothing -
+#         the bar still rests on the small fish - and crushes it, because the
+#         small fish cannot carry a heavy item alone. So "nothing falls" is not
+#         "nothing happens": the small fish has to get out from under first,
+#         and clear of where the bar lands (solver/docs/023).
+# s: fish_small >
+# b: fish_big >
+# H: item_heavy
+XXXXXXXXXXXXX
+X...........X
+X.HHHHHH....X
+X.sssbbbb....
+X....bbbb....
+X...........X
+XXXXXXXXXXXXX

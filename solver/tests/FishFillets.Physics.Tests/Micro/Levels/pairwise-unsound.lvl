@@ -1,6 +1,6 @@
 # expect: 33
 # tags:   two-fish, partial-order, fuzz, tier30
-# known-bug: matrix:astar-pairwise=PO-PAIRWISE, matrix:macro=MACRO-INCOMPLETE, matrix:macro-w2=MACRO-INCOMPLETE, matrix:items=ITEMS-INCOMPLETE, matrix:items-w2=ITEMS-INCOMPLETE
+# known-bug: matrix:astar-pairwise=PO-PAIRWISE, matrix:macro=MACRO-INCOMPLETE, matrix:macro-w2=MACRO-INCOMPLETE, matrix:items=ITEMS-INCOMPLETE, matrix:items-w2=ITEMS-INCOMPLETE, matrix:layouts=LAYOUTS-STAGE-B, matrix:layouts-w2=LAYOUTS-STAGE-B
 # why:    found by the fuzzer (seed 77, room #1283). The pairwise move-ordering
 #         reduction (--partial-order pairwise) prunes an ordering it needs and
 #         reports "no solution" here; plain A* and sleep sets both find the 33.

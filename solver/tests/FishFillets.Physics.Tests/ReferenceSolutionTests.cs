@@ -17,8 +17,8 @@ public sealed class ReferenceSolutionTests
 {
     /// <summary>
     /// Levels with both exported geometry and a recorded solution. `ending` has a
-    /// level but no solution; `redhat` has a solution but no level content in
-    /// this repo (as in the browser port) - both are excluded by construction.
+    /// level but no solution, so it is excluded by construction. (`redhat` used to
+    /// be the other exclusion - its level content was imported in root docs/083.)
     /// </summary>
     public static IEnumerable<object[]> SolvableLevels =>
         TestCorpus.Instance.LevelsWithSolutions().Select(name => new object[] { name });
@@ -48,9 +48,9 @@ public sealed class ReferenceSolutionTests
     {
         int count = TestCorpus.Instance.LevelsWithSolutions().Count();
         Assert.AreEqual(
-            80,
+            81,
             count,
-            $"expected 80 levels with both geometry and a solution, found {count}. " +
+            $"expected 81 levels with both geometry and a solution, found {count}. " +
             "If level content changed, re-run scripts\\export-levels.ps1 and update this number.");
     }
 }

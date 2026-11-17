@@ -1,0 +1,127 @@
+{
+ "name": "redhat",
+ "width": 33,
+ "height": 31,
+ "models": [
+  {
+   "kind": "item_fixed",
+   "x": 0,
+   "y": 0,
+   "shape": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\nXX.............................XX\nXX.............................XX\nXXX...........................XXX\nXXXXXXXXXXXXX.......XXXXXXXXXXXXX\nXXXXXXXXXXXXX.......XXXXXXXXXXXXX\nXXXXXXXXXXXXXX.....XXXX..XXXXXXXX\nXXXXXXXXX..........XXX.....XXXXXX\nXXXXXXXXX............XX.....XXXXX\nXXXXXXXX.....................XXXX\nXXXXXXXXX....................XXXX\nXXXXXX.....X................XXXXX\nXXXXX....................XXXXXXXX\nXXXXX....................XXXXXXXX\nXXXX......................XXXXXXX\nXXXX.......................XXXXXX\nXXX........................XXXXXX\nXXX........................XXXXXX\nXX.........................X...XX\nXX..............................X\nXX.........................XX...X\nXX...........X...................\nXX..........XX...................\nXX.........XXXXXXXX......X.XXXXXX\nXX..........XXXXXXX......XXXXXXXX\nXXX..........XXXXX........XXXXXXX\nXXX..........XXXXX........XXXXXXX\nXXX..........XXXXXX.......XXXXXXX\nXXX..........XXXXXX......XXXXXXXX\nXXXX.........XXXXXXX.XX..XXXXXXXX\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 10,
+   "y": 9,
+   "shape": "XX.\n.XX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 19,
+   "y": 27,
+   "shape": ".X.\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 13,
+   "y": 4,
+   "shape": "X.\nXX\n.X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 18,
+   "y": 4,
+   "shape": ".X\nXX\nX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 24,
+   "y": 10,
+   "shape": "XX\nXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 22,
+   "y": 7,
+   "shape": "XX\n.X\n.X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 7,
+   "y": 27,
+   "shape": "X.\nXX\nX.\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 6,
+   "y": 26,
+   "shape": "XXX\n..X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 12,
+   "y": 19,
+   "shape": "X..\nXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 16,
+   "y": 22,
+   "shape": "X\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 21,
+   "y": 3,
+   "shape": "XXXXXX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "item_light",
+   "x": 27,
+   "y": 21,
+   "shape": "X\nX\n",
+   "goal": "goal_no",
+   "isLeft": true
+  },
+  {
+   "kind": "fish_small",
+   "x": 7,
+   "y": 16,
+   "shape": "XXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  },
+  {
+   "kind": "fish_big",
+   "x": 7,
+   "y": 14,
+   "shape": "XXXX\nXXXX\n",
+   "goal": "goal_escape",
+   "isLeft": false
+  }
+ ]
+}

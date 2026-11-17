@@ -1,0 +1,20 @@
+# expect: 16
+# tags:   heavy, two-fish, support, death, tier20
+# why:    a heavy bar rests on a light block, the small fish and the big fish.
+#         When the small fish pushes the block out from under it, the bar rests
+#         on the two fish alone - which is fine while the big fish is there, and
+#         crushes the small one if the big fish has swum off. The big fish is
+#         nowhere near the push, so no footprint of it covers the big fish: an
+#         outcome that needs the idle fish holding something up must commit it
+#         there (solver/docs/024). The property check takes its reference only
+#         from a placement that holds nothing up, which this level pins.
+# s: fish_small <
+# b: fish_big <
+# Y: item_light
+# H: item_heavy
+XXXXXXXXXXXXXXX
+X..............
+X..HHHHHHH.....
+X..Ysss.bbbb..X
+X.XX....bbbb..X
+XXXXXXXXXXXXXXX

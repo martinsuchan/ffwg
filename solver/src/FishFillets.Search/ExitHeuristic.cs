@@ -79,4 +79,60 @@ internal sealed class ExitHeuristic
 
         return Math.Max(fishTotal, itemMax);
     }
+
+    /// <summary>
+    /// The item half of <see cref="Estimate"/> alone: the largest exit distance
+    /// over goal items still in the room, or <see cref="RelaxedDistance.Unreachable"/>
+    /// if any of them can never get out. A search that does not hold its fish at
+    /// fixed positions (the layout solver) bounds the fish itself and recombines
+    /// the two halves the same way <see cref="Estimate"/> does.
+    /// </summary>
+    public int ItemBound(Room room)
+    {
+        int itemMax = 0;
+
+        for (int i = 0; i < _models.Length; i++)
+        {
+            if (_isFish[i])
+            {
+                continue;
+            }
+
+            ref readonly ModelState m = ref room.State(_models[i]);
+            if (m.IsOut)
+            {
+                continue;
+            }
+
+            int d = _distance[i].At(m.X, m.Y, m.IsLeft);
+            if (d >= RelaxedDistance.Unreachable)
+            {
+                return RelaxedDistance.Unreachable;
+            }
+
+            if (d > itemMax)
+            {
+                itemMax = d;
+            }
+        }
+
+        return itemMax;
+    }
+
+    /// <summary>
+    /// The exit-distance table of a fish that has to leave the room; null for a
+    /// fish without that goal and for every other model.
+    /// </summary>
+    public RelaxedDistance? FishExit(int model)
+    {
+        for (int i = 0; i < _models.Length; i++)
+        {
+            if (_models[i] == model)
+            {
+                return _isFish[i] ? _distance[i] : null;
+            }
+        }
+
+        return null;
+    }
 }

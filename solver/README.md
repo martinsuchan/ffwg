@@ -10,7 +10,7 @@ different goal. The two share the game's rules and its level content, nothing
 else. See [`docs/`](docs) for this tree's log, and the repo-root `docs/` for the
 port's.
 
-**Status:** the physics port is verified (all 80 recorded reference solutions
+**Status:** the physics port is verified (all 81 recorded reference solutions
 replay to *Solved*). Nine levels are solved to **proven** optimality, all matching
 the hall of fame; four more have solutions shorter than the ones bundled with the
 game. `ffsolve results` is the live scoreboard.
@@ -24,7 +24,7 @@ solver/
   src/FishFillets.Cli/       the `ffsolve` console app
   src/FishFillets.Editor/    `ffedit`, a WPF editor for simplifying levels
   tests/                     MSTest suite (dotnet test)
-  levels/                    exported level geometry (checked in, 81 levels)
+  levels/                    exported level geometry (checked in, 82 levels)
   solutions/                 solutions shorter than the bundled ones
   docs/                      milestone log, hall of fame, results.csv
 ```
@@ -135,6 +135,26 @@ memory:
 (`bench --suite` prints the exact figure), with about 1.35 states stored per
 expansion, so 20 M nodes is about 1.5 GB. Raise `--nodes` only as far as RAM allows.
 `society` ran 70 M expansions (95 M states, ~4.3 GB) in 110 s on 12 cores.
+
+### `--layouts`
+
+A search over *item layouts* rather than fish positions: a node is a layout plus
+which fish acted last, and the fish that did not act is carried as a **field** —
+the cost of it standing at each square — that it pays from only when it next
+acts, instead of being parked somewhere at every event. Edges are pushes, drops
+and exits; every answer is replayed concretely and checked before it is reported.
+
+**It is a finder, not a proof**, like `--macro` and `--items`: no lower bound is
+recorded, and the length can exceed the model's own cost. A fish waiting *inside*
+an event is tried only where a moved item ends, sweeps or comes to rest on it
+("interaction" edges, which is what solves `wc`); a support handed over without
+anything moving is not expressible yet. The counters it prints after the result
+(layouts, entries, travel plans, bound and interaction edges, reconstruction
+rejects, physics calls) are explained in `docs/024`.
+
+```
+ffsolve solve noground --layouts --no-record      # 44 moves (the optimum) in ~30 s
+```
 
 ## `solve --all` / `--levels-list` — batch, in parallel
 
@@ -421,14 +441,14 @@ reports overlapping models exactly as the solver would reject them. Watching
 any change to `FishFillets.Physics` or `FishFillets.Search`. It covers six things (see
 [`docs/002`](docs/002-2026-08-14-test-project.md), [`docs/004`](docs/004-2026-08-14-from-scratch-solver.md)):
 
-- **the corpus**, one case per level: all 80 recorded solutions must replay to
+- **the corpus**, one case per level: all 81 recorded solutions must replay to
   *Solved*. This is what proves the port matches the real game.
 - **invalid solutions**, that wrong answers are rejected — and at the right place.
   A validator that accepts every real solution is worthless if it also accepts bad
   ones.
 - **individual rules**, in hand-built rooms: pushing by power, turning, falling,
   automatic escape, death by stress.
-- **the level reduction**, checked against all 80 solutions — nothing it freezes
+- **the level reduction**, checked against all 81 solutions — nothing it freezes
   may ever move during real play.
 - **the results record**, that a run survives the CSV round trip, that a merge
   never loses a better result, and that the world-map parse still yields a branch

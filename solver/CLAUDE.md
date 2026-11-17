@@ -35,7 +35,7 @@ Use the AOT exe for quick commands, but the **JIT build for long searches** (dyn
 
 ## Invariants
 
-- **Physics must stay byte-identical to the real game.** All 80 recorded solutions
+- **Physics must stay byte-identical to the real game.** All 81 recorded solutions
   (`legacy/solution/`) must replay to Solved, and `tests/.../Micro/physics-digest.csv`
   (seeded random-walk fingerprint) must not change unless physics is meant to change.
   Run the suite after any change to `Physics` or `Search`.

@@ -77,6 +77,8 @@ public sealed class ItemSolver
     private readonly int _placementCount;
     private readonly int[] _routeMark;
     private int _routeGeneration;
+    private readonly int[] _holdMark;
+    private int _holdGeneration;
     private readonly (int X, int Y)[] _escapes;
 
     private readonly (int X, int Y)[] _itemsBefore;
@@ -175,8 +177,11 @@ public sealed class ItemSolver
         _childKey = new byte[_reduction.StateKeySize];
         _visited = new StateSet(_reduction.StateKeySize, 1 << 16);
 
-        _reach = new InertRouter(level, _reduction);
-        _blockerReach = new InertRouter(level, _reduction);
+        // Exact support: a step that drops nothing is travel, whatever is
+        // overhead. With the coarse test a fish under an item that is also
+        // propped up elsewhere could never move again (docs/009, docs/023).
+        _reach = new InertRouter(level, _reduction, exactSupport: true);
+        _blockerReach = new InertRouter(level, _reduction, exactSupport: true);
 
         _keySlotOfModel = new int[level.Models.Length];
         Array.Fill(_keySlotOfModel, -1);
@@ -197,6 +202,7 @@ public sealed class ItemSolver
         // other fish could step aside.
         _variants = new Variant[1 + (ClearanceTries * Math.Max(1, level.Units.Length - 1))];
         _routeMark = new int[_placementCount];
+        _holdMark = new int[_placementCount];
         _escapes = FindEscapes(level, _reduction);
     }
 
@@ -283,11 +289,13 @@ public sealed class ItemSolver
     }
 
     /// <summary>
-    /// left, right, up - the three ways a fish can push. Down is never a push: an
-    /// item below a fish in a settled room is supported, or it would already have
-    /// fallen. Downward movement is a carry or a drop instead.
+    /// The ways a fish can push. Down is the rare one: an item below a fish in a
+    /// settled room is supported, so it only gives way when what supports it is
+    /// that same fish - an item that wraps round the fish, lying on its back
+    /// with part of itself underneath (<c>wc</c> has one). Only placements where
+    /// the fish is holding something up are tried for it.
     /// </summary>
-    private static readonly (int Dx, int Dy)[] PushDirections = [(-1, 0), (1, 0), (0, -1)];
+    private static readonly (int Dx, int Dy)[] PushDirections = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
     private static readonly (int Dx, int Dy)[] AllDirections = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
@@ -342,20 +350,38 @@ public sealed class ItemSolver
     {
         UnitDef unit = _level.Units[unitIndex];
         Shape fishShape = _level.Models[fish].Shape;
+        Variant variant = _variants[arrangement];
 
-        foreach (int item in _items)
+        // Every TryEdge leaves the room wherever its key press took it, so
+        // anything read from the room below has to put the arrangement back
+        // first. Item positions do not depend on the arrangement at all and
+        // come from the parent's snapshot; where the fish would be holding
+        // something up is noted here, while the room is still as arranged.
+        _holdGeneration++;
+        foreach (int placement in _reach.Reached)
         {
-            (int ix, int iy, _) = _room.Position(item);
+            (int hx, int hy, _) = _reach.Decode(placement);
+            if (_reach.IsHoldingSomethingUp(_room, fish, hx, hy))
+            {
+                _holdMark[placement] = _holdGeneration;
+            }
+        }
+
+        for (int n = 0; n < _items.Length; n++)
+        {
+            int item = _items[n];
+            (int ix, int iy) = _itemsBefore[n];
             Shape itemShape = _level.Models[item].Shape;
 
             foreach ((int dx, int dy) in PushDirections)
             {
+                RestoreArrangement(parentKeyOffset, variant);
                 if (!CanPossiblyMove(item, ix, iy, dx, dy))
                 {
                     continue;
                 }
 
-                char symbol = dx < 0 ? unit.Left : dx > 0 ? unit.Right : unit.Up;
+                char symbol = dx < 0 ? unit.Left : dx > 0 ? unit.Right : dy < 0 ? unit.Up : unit.Down;
 
                 // Where the fish has to stand to make that push: one of its own
                 // cells against one of the item's, on the far side of the push.
@@ -372,27 +398,35 @@ public sealed class ItemSolver
                         if (dx != 0)
                         {
                             TryEdge(nodeIndex, g, parentKeyOffset, unitIndex, fish, arrangement, ax, ay, dx < 0, symbol, ref generated);
+                            continue;
                         }
-                        else
+
+                        // Pushing down only works on something the fish is
+                        // itself holding up.
+                        if (dy > 0 && !IsHoldingAt(ax, ay))
                         {
-                            TryEdge(nodeIndex, g, parentKeyOffset, unitIndex, fish, arrangement, ax, ay, true, symbol, ref generated);
-                            TryEdge(nodeIndex, g, parentKeyOffset, unitIndex, fish, arrangement, ax, ay, false, symbol, ref generated);
+                            continue;
                         }
+
+                        TryEdge(nodeIndex, g, parentKeyOffset, unitIndex, fish, arrangement, ax, ay, true, symbol, ref generated);
+                        TryEdge(nodeIndex, g, parentKeyOffset, unitIndex, fish, arrangement, ax, ay, false, symbol, ref generated);
                     }
                 }
             }
         }
 
-        // Carries and drops: a fish with something resting on it sends that thing
-        // somewhere by moving at all. Its own square is the only one that works,
-        // so there is nothing to route to.
-        (int fx, int fy, bool fLeft) = _room.Position(fish);
-        if (_reach.IsHoldingSomethingUp(_room, fish, fx, fy))
+        // Drops: a fish with something resting on it sends that thing somewhere
+        // by moving away. That is not only the square it starts on - a wide fish
+        // can slide along under an item without dropping it, and a turn first is
+        // a placement of its own - so the router reports every step into open
+        // water it refused because of what the fish is holding, and each of
+        // those is an edge. (Lifting is a push upwards and is found with the
+        // pushes; a step that would only crush a fish comes back as no event.)
+        foreach ((int placement, int dx, int dy) in _reach.Drops)
         {
-            TryEdge(nodeIndex, g, parentKeyOffset, unitIndex, fish, arrangement, fx, fy, fLeft, unit.Down, ref generated);
-            TryEdge(
-                nodeIndex, g, parentKeyOffset, unitIndex, fish, arrangement, fx, fy, fLeft,
-                fLeft ? unit.Left : unit.Right, ref generated);
+            (int hx, int hy, bool hLeft) = _reach.Decode(placement);
+            char symbol = dy > 0 ? unit.Down : dy < 0 ? unit.Up : dx < 0 ? unit.Left : unit.Right;
+            TryEdge(nodeIndex, g, parentKeyOffset, unitIndex, fish, arrangement, hx, hy, hLeft, symbol, ref generated);
         }
 
         // Leaving the room. Where a fish can escape from depends only on the
@@ -419,6 +453,19 @@ public sealed class ItemSolver
                 }
             }
         }
+    }
+
+    /// <summary>Whether the fish can reach this square and would have something resting on it there.</summary>
+    private bool IsHoldingAt(int x, int y)
+    {
+        if ((uint)x >= (uint)_level.Width || (uint)y >= (uint)_level.Height)
+        {
+            return false;
+        }
+
+        // Both facings of a square are reached together (a turn is always
+        // free), and what is overhead does not depend on facing.
+        return _holdMark[_reach.Placement(x, y, true)] == _holdGeneration;
     }
 
     /// <summary>
@@ -579,11 +626,6 @@ public sealed class ItemSolver
             foreach (int placement in _blockerReach.Reached)
             {
                 int cost = _blockerReach.CostOf(placement);
-                if (cost == 0)
-                {
-                    continue;
-                }
-
                 (int bx, int by, _) = _blockerReach.Decode(placement);
                 int cell = (by * _level.Width) + bx;
                 if (_routeMark[cell] == _routeGeneration)
@@ -591,7 +633,14 @@ public sealed class ItemSolver
                     continue;
                 }
 
+                // The square it already stands on is taken too: turning round
+                // there clears nothing, and used to cost one of the tries.
                 _routeMark[cell] = _routeGeneration;
+                if (cost == 0)
+                {
+                    continue;
+                }
+
                 _destinations.Add((placement, cost));
             }
 

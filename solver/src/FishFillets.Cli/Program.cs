@@ -85,6 +85,8 @@ static void PrintUsage()
                     [--threads N]  parallel expansion (default: all cores;
                                    same answer and counts as 1 at weight 1)
                     [--macro]      macro-move search (slower; see docs/005)
+                    [--layouts]    item-layout search with deferred fish
+                                   positions - a finder, not a proof (docs/024)
                     [--no-stuck]   keep states where something is stuck for
                                    good (detection is on by default - docs/020)
                     [--no-stuck-dist]  keep the dead ends, but not the
@@ -297,8 +299,11 @@ static int Solve(Corpus corpus, string[] argv)
     string? outPath = TakeOption(argv, "--out");
     bool quiet = argv.Contains("--quiet");
 
-    bool macro = argv.Contains("--macro");
-    bool items = argv.Contains("--items");
+    // Precedence when several are given: --layouts, then --items, then --macro.
+    bool layouts = argv.Contains("--layouts");
+    bool items = !layouts && argv.Contains("--items");
+    bool macro = !layouts && !items && argv.Contains("--macro");
+    string method = layouts ? "layouts" : items ? "items" : macro ? "macro" : "astar";
     Level level = corpus.LoadLevel(name);
     string? known = corpus.TryReadSolution(name, out string bundledSolution) ? bundledSolution : null;
     LevelReduction reduction = LevelReduction.Verified(level, known);
@@ -319,10 +324,10 @@ static int Solve(Corpus corpus, string[] argv)
     Console.WriteLine($"level      {name} ({level.Width}x{level.Height})");
     ReportOriginalSolution(corpus, raw, level);
     Console.WriteLine($"reduction  {reduction}");
-    Console.WriteLine($"search     {(items ? "item-moves" : macro ? "macro-moves" : "per-symbol A*")}, " +
+    Console.WriteLine($"search     {(layouts ? "layout table" : items ? "item-moves" : macro ? "macro-moves" : "per-symbol A*")}, " +
                       $"weight {weight}, node limit {maxNodes:N0}" +
                       (seconds > 0 ? $", {seconds}s limit" : "") +
-                      (!items && !macro && partialOrder != PartialOrderMode.Off ? $", partial-order {partialOrder}" : "") +
+                      (method == "astar" && partialOrder != PartialOrderMode.Off ? $", partial-order {partialOrder}" : "") +
                       (workPenalty > 0 ? $", item toll {workPenalty} (not admissible - no shortest proof)" : "") +
                       (detectStuck ? (stuckDistances ? "" : ", no stuck-wall distances") : ", no stuck-item detection") +
                       (mergeIdentical ? "" : ", identical items kept apart"));
@@ -345,19 +350,34 @@ static int Solve(Corpus corpus, string[] argv)
         Threads = int.TryParse(TakeOption(argv, "--threads"), out int th) ? Math.Max(1, th) : Environment.ProcessorCount,
     };
 
-    SolveResult result = items
-        ? new ItemSolver(level, reduction).Solve(options)
-        : macro
-            ? new MacroSolver(level, reduction).Solve(options)
-            : new Solver(level, reduction).Solve(options);
+    LayoutSolver? layoutSolver = layouts ? new LayoutSolver(level, reduction) : null;
+    SolveResult result = layoutSolver is not null
+        ? layoutSolver.Solve(options)
+        : items
+            ? new ItemSolver(level, reduction).Solve(options)
+            : macro
+                ? new MacroSolver(level, reduction).Solve(options)
+                : new Solver(level, reduction).Solve(options);
 
     Console.WriteLine(
         $"{result.Status}: expanded {result.Expanded:N0}, stored {result.StatesStored:N0}, " +
         $"f={result.DeepestF}, {result.Elapsed.TotalSeconds:F1} s");
 
+    if (layoutSolver is not null)
+    {
+        Console.WriteLine(
+            $"layouts    {layoutSolver.Layouts:N0} layouts, {layoutSolver.Entries:N0} entries, " +
+            $"travel plans {layoutSolver.JointCalls:N0} ({layoutSolver.StepAsides:N0} step-asides, {layoutSolver.JointFailures:N0} failed), " +
+            $"bound {layoutSolver.BoundEdges:N0}, rejects {layoutSolver.ReconstructionRejects:N0}" +
+            (layoutSolver.ReplayFailures > 0 ? $" ({layoutSolver.ReplayFailures:N0} REPLAY FAILURES - a bug)" : "") +
+            $", physics {layoutSolver.PhysicsCalls:N0} ({layoutSolver.Retries:N0} retries), " +
+            $"interaction edges {layoutSolver.InteractionEdges:N0} ({layoutSolver.InteractionPhysics:N0} presses), stale {layoutSolver.StaleSkips:N0}" +
+            (layoutSolver.LastRejectReason is { } why ? $"; last reject: {why}" : ""));
+    }
+
     if (!argv.Contains("--no-record"))
     {
-        Record(corpus, name, ToRecord(result, macro || items, items ? "items" : "macro"));
+        Record(corpus, name, ToRecord(result, method != "astar", method));
     }
 
     if (!result.Solved)
@@ -403,7 +423,7 @@ static int Solve(Corpus corpus, string[] argv)
             {
                 Moves = result.Moves!.Length,
                 Proven = false,
-                Method = macro ? "macro" : "astar",
+                Method = method,
                 Source = name,
                 // The provenance lives in Source, so the status stays plain -
                 // "solved" is what happened, and the missing proof is already
@@ -430,7 +450,7 @@ static int Solve(Corpus corpus, string[] argv)
 
     Console.WriteLine($"solution   {result.Moves!.Length} moves - verified" +
                       (result.Optimal
-                          ? macro ? ", shortest among macro-expressible" : ", PROVABLY SHORTEST"
+                          ? method == "macro" ? ", shortest among macro-expressible" : ", PROVABLY SHORTEST"
                           : ", not proven optimal") + compared);
     Console.WriteLine();
     Console.WriteLine(result.Moves);

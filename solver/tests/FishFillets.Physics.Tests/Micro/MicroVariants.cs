@@ -69,6 +69,8 @@ internal static class MicroVariants
         new("macro-w2", Promise.Valid, 2, l => new MacroSolver(l).Solve(Options(2))),
         new("items", Promise.Valid, 1, l => new ItemSolver(l).Solve(Options())),
         new("items-w2", Promise.Valid, 2, l => new ItemSolver(l).Solve(Options(2))),
+        new("layouts", Promise.Valid, 1, l => new LayoutSolver(l).Solve(Options())),
+        new("layouts-w2", Promise.Valid, 2, l => new LayoutSolver(l).Solve(Options(2))),
     ];
 
     public static MicroVariant Get(string id) => All.Single(v => v.Id == id);

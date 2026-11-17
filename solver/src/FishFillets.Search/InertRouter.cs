@@ -51,10 +51,23 @@ internal sealed class InertRouter
     /// <summary>Placements reached, in BFS order. Index into cost/from by placement id.</summary>
     private readonly List<int> _reached = [];
 
-    public InertRouter(Level level, LevelReduction reduction)
+    /// <summary>
+    /// Whether "holding something up" is decided exactly - by asking the engine
+    /// whether anything would fall - rather than by "something is overhead".
+    ///
+    /// <para>The coarse test is enough for <see cref="MacroSolver"/>, where a
+    /// false positive turns travel into an action node. <see cref="ItemSolver"/>
+    /// needs the exact one: there a step that is refused as travel and then moves
+    /// no item is no edge at all, so a fish under an item that is also propped up
+    /// elsewhere could never move again (solver/docs/009, docs/023).</para>
+    /// </summary>
+    private readonly bool _exactSupport;
+
+    public InertRouter(Level level, LevelReduction reduction, bool exactSupport = false)
     {
         _level = level;
         _reduction = reduction;
+        _exactSupport = exactSupport;
         _width = level.Width;
         _height = level.Height;
 
@@ -63,11 +76,28 @@ internal sealed class InertRouter
         _from = new int[placements];
         _stamp = new int[placements];
         _queue = new int[placements];
+
+        _relaxQueue = new int[placements];
+        _relaxSources = new long[placements];
+        _relaxDone = new int[placements];
     }
 
     public IReadOnlyList<int> Reached => _reached;
 
+    /// <summary>
+    /// Steps the last <see cref="Route"/> refused for one reason only: the way
+    /// was clear, but something would have fallen (or a fish been crushed).
+    /// Those are the drops, found as a by-product of routing. Only filled with
+    /// exact support.
+    /// </summary>
+    public IReadOnlyList<(int Placement, int Dx, int Dy)> Drops => _drops;
+
+    private readonly List<(int Placement, int Dx, int Dy)> _drops = [];
+
     public int CostOf(int placement) => _cost[placement];
+
+    /// <summary>The placement the last route stepped from to reach this one; -1 at its start.</summary>
+    public int PredecessorOf(int placement) => _from[placement];
 
     public int Placement(int x, int y, bool isLeft) => (((y * _width) + x) * 2) + (isLeft ? 0 : 1);
 
@@ -86,6 +116,7 @@ internal sealed class InertRouter
     public void Route(Room room, int fish, int ignore = -1)
     {
         _reached.Clear();
+        _drops.Clear();
         _head = _tail = 0;
         _generation++;
 
@@ -114,6 +145,155 @@ internal sealed class InertRouter
         }
     }
 
+    // Relax's own scratch, so that a relaxation never disturbs what the last
+    // Route left behind (CostOf, PredecessorOf and WriteRoute read it later).
+    private readonly int[] _relaxQueue;
+    private readonly long[] _relaxSources;
+    private readonly int[] _relaxDone;
+    private int _relaxGeneration;
+
+    /// <summary>
+    /// Multi-source inert travel, in place. On entry <c>field[q]</c> is the cost
+    /// of having the fish at placement q (<see cref="ushort.MaxValue"/> = not
+    /// there); on exit <c>field[q]</c> = min over sources s of
+    /// <c>field_in[s]</c> + inert distance s -> q in <paramref name="room"/> as it
+    /// stands. Same step rules as <see cref="Route"/> (turn costs 1 and is always
+    /// inert; vertical keeps facing; horizontal only when facing that way;
+    /// <see cref="IsFreeStep(Room, int, int, int, int, int, int)"/> decides each
+    /// step), so with a single source of cost 0 at the fish's own position the
+    /// result equals Route's <see cref="CostOf"/> for every reached placement and
+    /// MaxValue elsewhere.
+    ///
+    /// <para><b>Why not Dijkstra with a heap.</b> Every edge costs 1, so the only
+    /// thing out of order is the sources themselves. Sorting them once and
+    /// merging that list with a plain FIFO - always taking the cheaper head -
+    /// pops placements in non-decreasing cost. Pops being monotone means a
+    /// placement is improved by a step at most once, so the FIFO never holds more
+    /// than one entry per placement; a source improved by a step before its own
+    /// turn comes is recognised as stale and skipped.</para>
+    ///
+    /// <para>The fish stays masked at its real position. That is fine for any
+    /// source: its own cells count as free in <see cref="IsFreeStep(Room, int, int, int, int, int, int)"/>
+    /// and <see cref="Room.WouldDisturbWithFishAt"/> evaluates the destination
+    /// with the fish moved there. What it cannot see is support the fish gives
+    /// at its real position and would not give at a far-away source - the room
+    /// passed in has to be one that stays put without that fish where it is.</para>
+    /// </summary>
+    /// <param name="ignore">
+    /// A model passed through as though it were not an obstacle. With exact
+    /// support it still holds things up where it really stands.
+    /// </param>
+    public void Relax(Room room, int fish, ushort[] field, int ignore = -1)
+    {
+        int placements = _relaxQueue.Length;
+        if (field.Length != placements)
+        {
+            throw new ArgumentException($"field has {field.Length} placements, the room {placements}", nameof(field));
+        }
+
+        _relaxGeneration++;
+        int generation = _relaxGeneration;
+
+        int sources = 0;
+        for (int q = 0; q < placements; q++)
+        {
+            if (field[q] != ushort.MaxValue)
+            {
+                _relaxSources[sources++] = ((long)field[q] << 32) | (uint)q;
+            }
+        }
+
+        _relaxSources.AsSpan(0, sources).Sort();
+
+        int next = 0;          // into the sorted sources
+        int head = 0, tail = 0; // the FIFO of placements improved by a step
+
+        while (true)
+        {
+            int placement;
+            int cost;
+
+            // The cheaper of the two heads; a tie goes to the FIFO, which is as
+            // good as any order between equal costs.
+            if (head < tail && (next >= sources || field[_relaxQueue[head]] <= (int)(_relaxSources[next] >> 32)))
+            {
+                placement = _relaxQueue[head++];
+                cost = field[placement];
+            }
+            else if (next < sources)
+            {
+                long entry = _relaxSources[next++];
+                placement = (int)(entry & 0xFFFFFFFF);
+                cost = (int)(entry >> 32);
+                if (field[placement] != cost)
+                {
+                    continue; // a step got here more cheaply first
+                }
+            }
+            else
+            {
+                break;
+            }
+
+            if (_relaxDone[placement] == generation)
+            {
+                continue;
+            }
+
+            _relaxDone[placement] = generation;
+
+            int stepCost = cost + 1;
+            if (stepCost >= ushort.MaxValue)
+            {
+                continue; // nothing further can be represented
+            }
+
+            (int px, int py, bool pLeft) = Decode(placement);
+
+            // Turning is always inert.
+            RelaxTo(field, Placement(px, py, !pLeft), stepCost, generation, ref tail);
+
+            RelaxStep(room, fish, field, px, py, pLeft, 0, -1, stepCost, generation, ignore, ref tail);
+            RelaxStep(room, fish, field, px, py, pLeft, 0, 1, stepCost, generation, ignore, ref tail);
+            RelaxStep(room, fish, field, px, py, pLeft, pLeft ? -1 : 1, 0, stepCost, generation, ignore, ref tail);
+        }
+    }
+
+    private void RelaxStep(
+        Room room, int fish, ushort[] field, int px, int py, bool pLeft, int dx, int dy, int stepCost, int generation,
+        int ignore, ref int tail)
+    {
+        int nx = px + dx, ny = py + dy;
+        if ((uint)nx >= (uint)_width || (uint)ny >= (uint)_height)
+        {
+            return; // never a placement - and IsFreeStep would refuse it anyway
+        }
+
+        int target = Placement(nx, ny, pLeft);
+        if (_relaxDone[target] == generation || field[target] <= stepCost)
+        {
+            return; // settled or no better: skip the (possibly engine-backed) test
+        }
+
+        if (!IsFreeStep(room, fish, px, py, nx, ny, out _, ignore))
+        {
+            return;
+        }
+
+        RelaxTo(field, target, stepCost, generation, ref tail);
+    }
+
+    private void RelaxTo(ushort[] field, int target, int stepCost, int generation, ref int tail)
+    {
+        if (_relaxDone[target] == generation || field[target] <= stepCost)
+        {
+            return;
+        }
+
+        field[target] = (ushort)stepCost;
+        _relaxQueue[tail++] = target;
+    }
+
     private void TryStep(
         Room room, int fish, int placement, int px, int py, bool pLeft, int dx, int dy, int cost, int ignore)
     {
@@ -122,8 +302,13 @@ internal sealed class InertRouter
         // Only a genuinely free step is travel. Anything else - a push, a drop, or
         // arriving at the border - is an action the search has to see, and
         // MacroExpander picks those up separately.
-        if (!IsFreeStep(room, fish, px, py, nx, ny, ignore))
+        if (!IsFreeStep(room, fish, px, py, nx, ny, out bool drops, ignore))
         {
+            if (drops)
+            {
+                _drops.Add((placement, dx, dy));
+            }
+
             return;
         }
 
@@ -135,14 +320,27 @@ internal sealed class InertRouter
     /// destination is clear, the fish is holding nothing up, and it is not
     /// stepping onto the border.
     /// </summary>
-    public bool IsFreeStep(Room room, int fish, int px, int py, int nx, int ny, int ignore = -1)
+    public bool IsFreeStep(Room room, int fish, int px, int py, int nx, int ny, int ignore = -1) =>
+        IsFreeStep(room, fish, px, py, nx, ny, out _, ignore);
+
+    /// <param name="drops">
+    /// With exact support: the step is refused only because something would
+    /// fall or a fish would be crushed - the way itself is clear.
+    /// </param>
+    private bool IsFreeStep(Room room, int fish, int px, int py, int nx, int ny, out bool drops, int ignore)
     {
-        if (IsHoldingSomethingUp(room, fish, px, py, ignore))
+        drops = false;
+
+        // The coarse test is a sound pre-filter for the exact one: with nothing
+        // overhead nothing can lose its support.
+        bool holding = IsHoldingSomethingUp(room, fish, px, py, ignore);
+        if (holding && !_exactSupport)
         {
             return false;
         }
 
         Shape shape = _level.Models[fish].Shape;
+        bool overlapsIgnored = false;
         for (int m = 0; m < shape.MarkX.Length; m++)
         {
             int cx = nx + shape.MarkX[m], cy = ny + shape.MarkY[m];
@@ -152,14 +350,40 @@ internal sealed class InertRouter
             }
 
             int other = room.GetModel(cx, cy);
-            if (other != Room.Empty && other != fish && other != ignore)
+            if (ignore >= 0 && other == ignore)
+            {
+                overlapsIgnored = true;
+                continue;
+            }
+
+            if (other != Room.Empty && other != fish)
             {
                 return false;
             }
         }
 
         // Arriving somewhere it would leave from is an event, not a waypoint.
-        return !MightEscapeFrom(room, fish, nx, ny);
+        if (MightEscapeFrom(room, fish, nx, ny))
+        {
+            return false;
+        }
+
+        // The ignored model is passed through as an obstacle but still holds
+        // things up where it really stands, so the engine can be asked as usual -
+        // unless the fish would stand on it. WouldDisturbWithFishAt masks the
+        // fish at the destination and unmasks it again, which would wipe the
+        // ignored model's cells out of the grid; the conservative answer (not
+        // travel, and not a known drop either) keeps the room intact.
+        if (holding && overlapsIgnored)
+        {
+            return false;
+        }
+
+        // Something is overhead: travel only if it all stays up, and crushes
+        // nobody, once the fish has moved on. The destination is clear, so the
+        // engine can be asked with the fish standing there.
+        drops = holding && room.WouldDisturbWithFishAt(fish, nx, ny);
+        return !drops;
     }
 
     /// <summary>

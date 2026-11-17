@@ -61,6 +61,7 @@ corpus:propulsion;6000;1f7dc7edb8bdd234
 corpus:puzzle;6000;d9852f5719b6bf31
 corpus:pyramid;6000;a0874af2b150c339
 corpus:reactor;6000;29b366a9c4648919
+corpus:redhat;6000;7ee0f7bb44e87edb
 corpus:reef;6000;e928dcddd9b885e3
 corpus:rotate;6000;d88715eb31d0b089
 corpus:rush;6000;0a42f7cc2a3a904e
@@ -89,10 +90,12 @@ micro:goal-out-drop-hole;6000;2581a5c9bf7755c6
 micro:goal-out-push-right;6000;edac72344058fb28
 micro:goal-out-wedge;6000;b4e27037df36d8c0
 micro:heavy-gate;6000;9f6faf1e28c36fd9
+micro:heavy-shared;6000;034897f50edb92fb
 micro:identical-blocks;6000;b5367e7bbec629a5
 micro:pairwise-unsound;6000;4b71fa7b3b665a81
 micro:perf-crossing;6000;533ffa249ec62376
 micro:push-chain;6000;94d6a918771a24d4
 micro:sealed;6000;4bc44ee8f63bf49d
+micro:support-bound;6000;97457a1dcac99dc7
 micro:swim-turn;6000;1bfae2bb077362d5
 micro:two-fish-wedge;6000;69540a9d760d749b

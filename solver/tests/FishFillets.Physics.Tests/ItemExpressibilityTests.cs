@@ -23,22 +23,23 @@ namespace FishFillets.Physics.Tests;
 /// reports why it was dropped, a successor that <i>is</i> generated but then
 /// filtered away is distinguished from one that is never built at all.</para>
 ///
-/// <para><b>What it found.</b> Every unreachable case across all three levels is
-/// one cause: <see cref="InertRouter.IsFreeStep"/> refuses <i>every</i> step from
-/// a placement where <see cref="InertRouter.IsHoldingSomethingUp"/> is true, and
-/// that test is coarse by design - anything mobile directly overhead counts, with
-/// no question of whether it is also propped up elsewhere. Its comment says
-/// guessing wrong this way "only costs a search node", which is true of
-/// <see cref="MacroSolver"/>, where a false positive turns travel into an action.
-/// Here it turns travel into an <i>event edge</i>, which <c>TryEdge</c> then
-/// throws away because nothing actually fell - so a fish that walks under a wide
-/// item supported elsewhere can never move again, and the frontier closes. That
-/// is the exhaustion.</para>
+/// <para><b>What it found, and what was fixed (solver/docs/023).</b> The
+/// unreachable cases were one cause: <see cref="InertRouter.IsFreeStep"/> refused
+/// <i>every</i> step from a placement where
+/// <see cref="InertRouter.IsHoldingSomethingUp"/> is true, and that test is coarse
+/// - anything mobile directly overhead counts, with no question of whether it is
+/// also propped up elsewhere. In <see cref="MacroSolver"/> a false positive only
+/// turns travel into an action. Here it turned travel into an <i>event edge</i>,
+/// which <c>TryEdge</c> then threw away because nothing actually fell - so a fish
+/// that walked under a wide item supported elsewhere could never move again.
+/// <c>ItemSolver</c> now routes with exact support (the engine's own fixpoint),
+/// and this probe diagnoses with the same router.</para>
 ///
-/// <para>The remaining gaps are the step-aside model: the other fish in a real
-/// optimum travels to where its own next job is, up to 14 moves and cheapness
-/// rank 54, while the expansion tries its four nearest resting places. Widening
-/// that cap is not the fix - the ranking is wrong, not the number.</para>
+/// <para><b>What is left is the step-aside model, and nothing else</b>: every
+/// remaining gap reports "every step in the segment is inert". The other fish in
+/// a real optimum travels to where its own next job is, up to 14 moves and
+/// cheapness rank 69, while the expansion tries its four nearest resting places.
+/// Widening that cap is not the fix - the ranking is wrong, not the number.</para>
 /// </summary>
 [TestClass]
 public sealed class ItemExpressibilityTests
@@ -50,14 +51,16 @@ public sealed class ItemExpressibilityTests
     /// costs moves rather than solvability.
     /// </summary>
     /// <para><b>These counts are a snapshot of a known incompleteness.</b> Every
-    /// gap below has the same cause - see the class comment - and they should all
-    /// go to zero when it is fixed. <c>start</c> is at zero already, which is why
-    /// it is the one level <c>--items</c> solves.</para>
+    /// gap below is the step-aside model - see the class comment. They were
+    /// 8 / 4 / 4 before exact support (docs/023). A gap does not by itself lose
+    /// the level - the search needs <i>some</i> solution of that length, not this
+    /// one - and <c>submarine</c> reaches its optimum with one; <c>wc</c>, with
+    /// six, still exhausts.</para>
     [TestMethod]
     [DataRow("start", 0, 0)]
-    [DataRow("wc", 8, 0)]
-    [DataRow("submarine", 4, 0)]
-    [DataRow("noground", 4, 0)]
+    [DataRow("wc", 6, 0)]
+    [DataRow("submarine", 1, 0)]
+    [DataRow("noground", 0, 0)]
     public void EveryEventInAKnownOptimumIsGeneratedFromTheOneBefore(
         string levelName, int expectedGaps, int expectedOvercost)
     {
@@ -270,7 +273,7 @@ public sealed class ItemExpressibilityTests
         var parent = new Room(level);
         parent.RestoreMobile(from.Key, reduction.MobileModels);
 
-        var router = new InertRouter(level, reduction);
+        var router = new InertRouter(level, reduction, exactSupport: true);
 
         // Stage one: could the other fish have got out of the way like that?
         for (int u = 0; u < level.Units.Length; u++)
