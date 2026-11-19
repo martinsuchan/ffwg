@@ -98,6 +98,18 @@ public sealed record SolveOptions
     public bool MergeIdenticalItems { get; init; } = true;
 
     /// <summary>
+    /// After a fast move (a turn, or a step that moved only the fish), skips the
+    /// opposite symbol of that fish before simulating it: turning or stepping
+    /// straight back returns to the predecessor, and turning round right after
+    /// a horizontal step is never needed by a shortest solution (see
+    /// <c>Solver.Reversal</c> for the argument). Changes no answer's length,
+    /// and prunes real states, so it saves expansions as well as time
+    /// (docs/028). Plain A* only (<see cref="PartialOrder"/> off), where a
+    /// skipped symbol cannot change what later siblings are allowed.
+    /// </summary>
+    public bool SkipReversals { get; init; } = true;
+
+    /// <summary>
     /// Worker threads for expanding nodes (review P4). Above 1, each batch of
     /// same-f nodes has its successors simulated in parallel and merged in the
     /// order a serial search would - so at weight 1 the expansion order, every
@@ -307,6 +319,18 @@ public sealed partial class Solver
         _room.GetMoveSymbols(_symbols, out int count);
         Array.Resize(ref _symbols, count);
 
+        // Reversal and the move byte rely on this layout: four symbols per fish,
+        // up/down/left/right, and fewer than 64 in all.
+        for (int u = 0; u < level.Units.Length; u++)
+        {
+            UnitDef unit = level.Units[u];
+            if (count > MoveSymbol + 1 || _symbols[(4 * u) + 0] != unit.Up || _symbols[(4 * u) + 1] != unit.Down
+                || _symbols[(4 * u) + 2] != unit.Left || _symbols[(4 * u) + 3] != unit.Right)
+            {
+                throw new InvalidOperationException($"{level.Name}: unexpected move symbol layout");
+            }
+        }
+
         _heuristic = new ExitHeuristic(level, _reduction);
 
         Array.Fill(_symbolUnit, NoMover);
@@ -405,6 +429,7 @@ public sealed partial class Solver
         _stuck.Clear();
         _stuckProbe.Reset();
         _codec.Canonical = options.MergeIdenticalItems;
+        _skipReversals = options.SkipReversals && options.PartialOrder == PartialOrderMode.Off;
         _stuck.Canonical = options.MergeIdenticalItems;
         foreach (Worker worker in _workers)
         {
@@ -513,6 +538,7 @@ public sealed partial class Solver
                 expanded++;
 
                 byte sleep = _mode == PartialOrderMode.SleepSets ? _po[nodeIndex].Sleep : (byte)0;
+                int reversal = _skipReversals ? Reversal(nodeIndex) : -1;
                 byte done = 0;
                 bool restoreNeeded = false;
                 _room.SaveMobile(_undo, _mobile);
@@ -528,7 +554,7 @@ public sealed partial class Solver
                     // The whole point of the sleep set: a sleeping move is skipped
                     // here, before the physics runs. That is the 93% of a
                     // expansion's cost that the docs/011 reduction still paid.
-                    if ((sleep & (1 << s)) != 0)
+                    if ((sleep & (1 << s)) != 0 || s == reversal)
                     {
                         continue;
                     }
@@ -685,7 +711,7 @@ public sealed partial class Solver
                     _store.Parent(childIndex) = nodeIndex;
                     _store.Cost(childIndex) = (ushort)(g + 1);
                     _store.Estimate(childIndex) = (ushort)guide;
-                    _store.Move(childIndex) = (byte)s;
+                    _store.Move(childIndex) = MoveCode(s, _room);
                     if (_mode != PartialOrderMode.Off)
                     {
                         EnsurePo(childIndex);
@@ -1097,12 +1123,62 @@ public sealed partial class Solver
     private int Priority(int g, int h) =>
         _weight <= 1.0 ? g + h : g + (int)Math.Round(_weight * h);
 
+    // The store's move byte: the symbol index in the low six bits, and above it
+    // how that move changed the room - which is what makes it safe to skip the
+    // move that would undo it (SolveOptions.SkipReversals).
+    private const byte MoveSymbol = 0x3F;
+    private const byte MadeByTurn = 0x40;       // a fast turn on the spot
+    private const byte MadeByFishStep = 0x80;   // a fast step: only the fish moved
+
+    private bool _skipReversals;
+
+    private static byte MoveCode(int symbol, Room room) => (byte)(symbol
+        | (!room.LastMoveWasFast ? 0 : room.LastMoveWasTurn ? MadeByTurn : MadeByFishStep));
+
+    /// <summary>
+    /// The symbol index not worth trying from <paramref name="node"/>, or -1:
+    /// the opposite of the fast move it was reached by. Symbols come four per
+    /// fish in the order up, down, left, right (Room.GetMoveSymbols), so the
+    /// opposite of index s is s ^ 1.
+    /// <list type="bullet">
+    /// <item><b>After a turn</b>, the opposite symbol turns back. Facing is all
+    ///   a turn changed, so that is the predecessor exactly.</item>
+    /// <item><b>After a fast vertical step</b>, the opposite step lands in the
+    ///   cells just vacated, which nothing fell into (the round was provably
+    ///   empty), and nothing that rested elsewhere loses its support. Again the
+    ///   predecessor.</item>
+    /// <item><b>After a fast horizontal step</b>, the opposite symbol turns the
+    ///   fish round (it faces the way it stepped). That is a new state, but no
+    ///   shortest solution needs it: facing matters to nothing but that fish's
+    ///   own left/right symbols, so the turn commutes with every other move and
+    ///   can wait until just before the fish's next horizontal move. Done
+    ///   straight away instead, it is either undone (a turn back: the pair
+    ///   cancels), walks back (turn + step back = a single turn from the
+    ///   predecessor, two moves cheaper), or ends the path (a turn never solves
+    ///   anything). So some shortest path always avoids it.</item>
+    /// </list>
+    /// In the first two cases the skipped child is the predecessor, which costs
+    /// at most g - 1, so the store would have dropped it anyway. The third
+    /// really prunes states. It stays complete with duplicate detection
+    /// because the argument holds per state, whichever stored edge it was
+    /// reached by: from any state on a shortest path, if the next move of every
+    /// shortest continuation were the skipped turn, postponing that turn gives
+    /// one that starts with a different, unskipped move. If the node was since
+    /// reached more cheaply, its move byte describes that newer edge, and all of
+    /// this holds for it the same way.
+    /// </summary>
+    private int Reversal(int node)
+    {
+        byte move = _store.Move(node);
+        return (move & (MadeByTurn | MadeByFishStep)) != 0 ? (move & MoveSymbol) ^ 1 : -1;
+    }
+
     private string Reconstruct(int index)
     {
         var path = new List<char>();
         for (int i = index; _store.Parent(i) >= 0; i = _store.Parent(i))
         {
-            path.Add(_symbols[_store.Move(i)]);
+            path.Add(_symbols[_store.Move(i) & MoveSymbol]);
         }
 
         path.Reverse();

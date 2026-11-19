@@ -68,7 +68,38 @@ public sealed class Shape
 
         W = maxX + 1;
         H = maxY + 1;
+
+        // The marks with no mark of their own directly below: the only cells
+        // whose downward neighbour can be something other than this model.
+        var marks = new HashSet<(int, int)>();
+        for (int m = 0; m < count; m++)
+        {
+            marks.Add((MarkX[m], MarkY[m]));
+        }
+
+        var bottomX = new List<sbyte>();
+        var bottomY = new List<sbyte>();
+        for (int m = 0; m < count; m++)
+        {
+            if (!marks.Contains((MarkX[m], MarkY[m] + 1)))
+            {
+                bottomX.Add(MarkX[m]);
+                bottomY.Add(MarkY[m]);
+            }
+        }
+
+        BottomX = [.. bottomX];
+        BottomY = [.. bottomY];
     }
+
+    /// <summary>
+    /// The marks with no mark directly below them (the shape's lower edge, per
+    /// column). While every mark is inside the room, the cell below any other
+    /// mark is this model's own, so a support test needs only these.
+    /// </summary>
+    public readonly sbyte[] BottomX;
+
+    public readonly sbyte[] BottomY;
 
     public int MarkCount => MarkX.Length;
 }

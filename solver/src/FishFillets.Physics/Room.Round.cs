@@ -102,13 +102,15 @@ public sealed partial class Room
     public bool ApplyMove(char symbol)
     {
         // Turns and swims into open water skip the round entirely (review P2).
-        if (UseFastPath && TryFastMove(symbol))
+        if (UseFastPath && TryFastMove(symbol, out bool turn))
         {
             LastMoveWasFast = true;
+            LastMoveWasTurn = turn;
             return true;
         }
 
         LastMoveWasFast = false;
+        LastMoveWasTurn = false;
 
         if (!MakeMove(symbol))
         {

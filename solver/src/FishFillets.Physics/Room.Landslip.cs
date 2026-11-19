@@ -144,10 +144,21 @@ public sealed partial class Room
 
     private bool IsOnPad(int model)
     {
-        using ResistArena.Frame resist = GetResist(model, Dir.Down);
-        foreach (int pad in resist.Items)
+        // Same answer as collecting the resist frame below and testing each
+        // entry, without the frame: "any fixed pad" needs no de-duplication.
+        // With the whole shape inside the room, a mark whose lower neighbour is
+        // also a mark sees this model itself there, so only the lower edge
+        // can find a pad. Outside the room every probe has to stay, since an
+        // out-of-range cell reads as the border.
+        Shape shape = Level.Models[model].Shape;
+        int x = _models[model].X, y = _models[model].Y;
+        bool inside = x >= 0 && y >= 0 && x + shape.W <= _width && y + shape.H <= _height;
+        sbyte[] markX = inside ? shape.BottomX : shape.MarkX;
+        sbyte[] markY = inside ? shape.BottomY : shape.MarkY;
+        for (int m = 0; m < markX.Length; m++)
         {
-            if (IsFixedForFall(pad))
+            int pad = GetModel(x + markX[m], y + 1 + markY[m]);
+            if (pad != Empty && pad != model && IsFixedForFall(pad))
             {
                 return true;
             }

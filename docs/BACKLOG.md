@@ -225,13 +225,12 @@ recompile; a "was §X.N" in §3 refers to the previous compile's numbering.
 - **Script fixes.** `publish.ps1` stops on a failed `setup.ps1`, `build.ps1` stops
   on a failed build, `start.ps1`/`test.ps1` honour `-Port`, and `new-doc.ps1`
   writes no BOM. (docs/082)
-- **Work committed** (was §H.28). docs/057–081 and their code are in git history
-  (commits `ff8b20b`, `93f3ca9`, `00d4a3a`, `d7479ac`). docs/082's changes were
-  still on the working tree when this was written.
-- **Live site status** (was §H.27). The 2026-07-18 deploy ended up being commit
-  `93f3ca9` (incl. docs/074–076 - §H.27's "behind" note predated it), tagged **`v1.0`**.
-  Everything after it (docs/077+) is not live until the next `scripts\publish.ps1` +
-  `swa deploy`.
+- **Work committed** (was §H.28). Everything through docs/084 is in git history; the
+  latest is `f93d08e`.
+- **Live site status** (was §H.27). The 2026-07-18 deploy was commit `93f3ca9`, tagged
+  **`v1.0`**. The 2026-11-18 deploy is commit `f93d08e`, tagged **`v1.1`** (the full
+  144.8 MB package, Dutch audio included, uploaded within the SWA timeout), so everything
+  through docs/084 is live.
 - Also landed: replay MP4 export, with an AAC trial encode and a WASM AAC fallback
   (docs/078/080); the replay's still background and vector control icons
   (docs/079); fish and items swim out of the room instead of fading at the edge

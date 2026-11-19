@@ -19,25 +19,36 @@ namespace FishFillets.Search;
 /// </summary>
 internal sealed class BucketQueue
 {
-    /// <summary>A sanity cap: a priority this large is a bug (an "unreachable" estimate leaking in), not a deep level.</summary>
     private const int MaxPriority = 1 << 24;
 
-    private List<int>[] _buckets = [];
+    // Each bucket is a FIFO of fixed 4 KB blocks rather than a List<int>: a
+    // list doubles by copying, so a bucket of tens of millions of entries
+    // briefly needed its old and new array at once (1.5x its size on average,
+    // 3x at the copy) and left the old one to the GC. Blocks are recycled
+    // through a pool as buckets drain, so a long search allocates almost
+    // nothing after its first few buckets.
+    private const int BlockShift = 10;
+    private const int BlockSize = 1 << BlockShift;
 
-    /// <summary>How far into each bucket the pop cursor has got.</summary>
-    private int[] _drained = [];
-
-    /// <summary>The lowest bucket that may still hold anything.</summary>
+    private Bucket[] _buckets = [];
+    private readonly Stack<int[]> _pool = new();
+    private int _blocks;
     private int _current;
+
+    private struct Bucket
+    {
+        public List<int[]?>? Blocks;
+        public int Head;   // entries already popped
+        public int Count;  // entries pushed
+    }
 
     public void Clear()
     {
-        foreach (List<int> bucket in _buckets)
+        for (int i = 0; i < _buckets.Length; i++)
         {
-            bucket.Clear();
+            Release(ref _buckets[i]);
         }
 
-        Array.Clear(_drained);
         _current = 0;
     }
 
@@ -54,24 +65,30 @@ internal sealed class BucketQueue
             Grow(priority);
         }
 
-        _buckets[priority].Add(item);
+        ref Bucket bucket = ref _buckets[priority];
+        List<int[]?> blocks = bucket.Blocks ??= [];
+        int slot = bucket.Count & (BlockSize - 1);
+        if (slot == 0)
+        {
+            blocks.Add(Rent());
+        }
+
+        blocks[blocks.Count - 1]![slot] = item;
+        bucket.Count++;
         if (priority < _current)
         {
             _current = priority;
         }
     }
 
-    /// <summary>Takes the oldest item of the lowest non-empty bucket.</summary>
     public bool TryPop(out int item, out int priority)
     {
-        while (_current < _buckets.Length && _drained[_current] >= _buckets[_current].Count)
+        while (_current < _buckets.Length && _buckets[_current].Head >= _buckets[_current].Count)
         {
             // Nothing will be popped from it again unless something is pushed
             // into it, so give the storage back - on a long search these add up.
             // Resetting the cursor keeps that later push correct.
-            _buckets[_current].Clear();
-            _buckets[_current].TrimExcess();
-            _drained[_current] = 0;
+            Release(ref _buckets[_current]);
             _current++;
         }
 
@@ -83,19 +100,15 @@ internal sealed class BucketQueue
         }
 
         priority = _current;
-        item = _buckets[_current][_drained[_current]++];
+        item = Take(ref _buckets[_current]);
         return true;
     }
 
-    /// <summary>
-    /// Takes the next item only if it comes from bucket <paramref name="priority"/>
-    /// - for gathering a batch that the serial order would expand back to back.
-    /// </summary>
     public bool TryPopFrom(int priority, out int item)
     {
-        if (_current == priority && priority < _buckets.Length && _drained[priority] < _buckets[priority].Count)
+        if (_current == priority && priority < _buckets.Length && _buckets[priority].Head < _buckets[priority].Count)
         {
-            item = _buckets[priority][_drained[priority]++];
+            item = Take(ref _buckets[priority]);
             return true;
         }
 
@@ -103,32 +116,61 @@ internal sealed class BucketQueue
         return false;
     }
 
-    /// <summary>Bytes held by the bucket lists at their current capacity.</summary>
-    public long MemoryBytes
+    public long MemoryBytes => ((long)_blocks * BlockSize * sizeof(int)) + ((long)_buckets.Length * 16);
+
+    private int Take(ref Bucket bucket)
     {
-        get
+        // Entry i lives in block i >> BlockShift; a block goes back to the pool
+        // the moment its last entry is taken, leaving a null behind so later
+        // indices stay put.
+        List<int[]?> blocks = bucket.Blocks!;
+        int index = bucket.Head >> BlockShift;
+        int slot = bucket.Head & (BlockSize - 1);
+        int[] block = blocks[index]!;
+        int item = block[slot];
+        bucket.Head++;
+        if (slot == BlockSize - 1)
         {
-            long bytes = 0;
-            foreach (List<int> bucket in _buckets)
+            _pool.Push(block);
+            blocks[index] = null;
+        }
+
+        return item;
+    }
+
+    private void Release(ref Bucket bucket)
+    {
+        if (bucket.Blocks is { } blocks)
+        {
+            foreach (int[]? block in blocks)
             {
-                bytes += (long)bucket.Capacity * sizeof(int);
+                if (block is not null)
+                {
+                    _pool.Push(block);
+                }
             }
 
-            return bytes;
+            blocks.Clear();
         }
+
+        bucket.Head = 0;
+        bucket.Count = 0;
+    }
+
+    private int[] Rent()
+    {
+        if (_pool.TryPop(out int[]? block))
+        {
+            return block;
+        }
+
+        _blocks++;
+        return new int[BlockSize];
     }
 
     private void Grow(int priority)
     {
         int size = Math.Max(priority + 1, Math.Max(64, _buckets.Length * 2));
-        var grown = new List<int>[size];
-        Array.Copy(_buckets, grown, _buckets.Length);
-        for (int i = _buckets.Length; i < size; i++)
-        {
-            grown[i] = [];
-        }
-
-        _buckets = grown;
-        Array.Resize(ref _drained, size);
+        Array.Resize(ref _buckets, size);
     }
 }

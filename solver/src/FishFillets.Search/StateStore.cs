@@ -1,4 +1,6 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace FishFillets.Search;
 
@@ -71,9 +73,15 @@ internal sealed class StateStore
     /// <summary>As <see cref="FindOrAdd(ReadOnlySpan{byte}, out bool)"/>, with the key's <see cref="Hash"/> already computed (in parallel, by the solver's workers).</summary>
     public int FindOrAdd(ReadOnlySpan<byte> key, int hash, out bool added)
     {
+        if (key.Length != _keySize)
+        {
+            throw new ArgumentException("key has the wrong size");
+        }
+
+        ref byte probe = ref MemoryMarshal.GetReference(key);
         for (int i = _buckets[hash & _mask]; i != 0; i = Next(i - 1))
         {
-            if (key.SequenceEqual(Key(i - 1)))
+            if (KeyEquals(ref probe, ref KeyRef(i - 1)))
             {
                 added = false;
                 return i - 1;
@@ -120,8 +128,32 @@ internal sealed class StateStore
         ((long)_buckets.Length * sizeof(int))
         + ((long)_keys.Length * ChunkSize * ((sizeof(int) * 2) + (sizeof(ushort) * 2) + sizeof(byte) + _keySize));
 
+    // The accessors below skip the array bounds checks: every index they see is
+    // below _count, whose chunk exists and holds a full ChunkSize entries.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int Next(int index) => _next[index >> Shift][index & Mask];
+    private int Next(int index) =>
+        Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_next), index >> Shift)), index & Mask);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ref byte KeyRef(int index) =>
+        ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_keys), index >> Shift)), (index & Mask) * _keySize);
+
+    /// <summary>
+    /// Key comparison. Up to 16 bytes - most levels - it is two overlapping
+    /// 8-byte loads per side instead of a call into SequenceEqual.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool KeyEquals(ref byte a, ref byte b)
+    {
+        int size = _keySize;
+        if (size >= 8 && size <= 16)
+        {
+            return Unsafe.ReadUnaligned<ulong>(ref a) == Unsafe.ReadUnaligned<ulong>(ref b)
+                   && Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref a, size - 8)) == Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref b, size - 8));
+        }
+
+        return MemoryMarshal.CreateReadOnlySpan(ref a, size).SequenceEqual(MemoryMarshal.CreateReadOnlySpan(ref b, size));
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Span<byte> KeySpan(int index) => _keys[index >> Shift].AsSpan((index & Mask) * _keySize, _keySize);
@@ -158,15 +190,40 @@ internal sealed class StateStore
         }
     }
 
-    /// <summary>FNV-1a. Cheap, and collisions only cost a comparison - never correctness.</summary>
+    /// <summary>
+    /// Eight bytes at a time, finished with MurmurHash3's 64-bit avalanche so
+    /// the low bits the buckets use depend on every input bit. Collisions only
+    /// cost a comparison - never correctness. (FNV-1a, which this replaced,
+    /// took a multiply per byte.)
+    /// </summary>
     public static int Hash(ReadOnlySpan<byte> key)
     {
-        uint hash = 2166136261u;
-        foreach (byte b in key)
+        ref byte start = ref MemoryMarshal.GetReference(key);
+        int length = key.Length;
+        ulong hash = 0x9E3779B97F4A7C15UL ^ (ulong)length;
+        int i = 0;
+        for (; i + 8 <= length; i += 8)
         {
-            hash = (hash ^ b) * 16777619u;
+            ulong word = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref start, i));
+            hash = BitOperations.RotateLeft(hash ^ (word * 0x87C37B91114253D5UL), 31) * 0x4CF5AD432745937FUL;
         }
 
+        if (i < length)
+        {
+            ulong tail = 0;
+            for (int shift = 0; i < length; i++, shift += 8)
+            {
+                tail |= (ulong)Unsafe.Add(ref start, i) << shift;
+            }
+
+            hash ^= tail * 0x87C37B91114253D5UL;
+        }
+
+        hash ^= hash >> 33;
+        hash *= 0xFF51AFD7ED558CCDUL;
+        hash ^= hash >> 33;
+        hash *= 0xC4CEB9FE1A85EC53UL;
+        hash ^= hash >> 33;
         return (int)(hash & 0x7FFFFFFF);
     }
 }

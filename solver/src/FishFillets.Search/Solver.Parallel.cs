@@ -296,8 +296,15 @@ public sealed partial class Solver
         bool stuck = _stuckActive;
         StuckDetector.Verdict? parentVerdict = stuck ? _stuck.LayoutVerdict(w.Room, w.Wide, w.Stuck) : null;
 
+        // Phase 1 only reads the store; phase 2 writes it between batches.
+        int reversal = _skipReversals ? Reversal(node) : -1;
         for (int s = 0; s < _symbols.Length; s++)
         {
+            if (s == reversal)
+            {
+                continue;
+            }
+
             if (restoreNeeded)
             {
                 w.Room.RestoreMobile(w.Undo, _mobile);
@@ -356,7 +363,7 @@ public sealed partial class Solver
             Span<byte> key = _childKeys.AsSpan(o * keySize, keySize);
             _codec.Encode(w.Key, key);
             _childHash[o] = StateStore.Hash(key);
-            _childSymbol[o] = (byte)s;
+            _childSymbol[o] = MoveCode(s, w.Room);
             _childGuide[o] = (ushort)Math.Clamp(raised, 0, ushort.MaxValue);
             children++;
         }

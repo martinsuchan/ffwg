@@ -177,9 +177,30 @@ public sealed partial class Room
     /// </summary>
     public void RestoreMobile(ReadOnlySpan<byte> key, int[] models)
     {
-        foreach (int i in models)
+        // The grid depends on positions alone, so only models whose position
+        // differs from the key's need lifting out and stamping back - the same
+        // reasoning as the snapshot overload below. Consecutive pops are usually
+        // near relatives, so most models stay put. Unmask every mover before any
+        // is written back, so one restored into a cell another has not yet
+        // vacated cannot be clobbered.
+        if (_restoreMoved.Length < models.Length)
         {
-            Unmask(i);
+            _restoreMoved = new bool[models.Length];
+        }
+
+        bool[] moved = _restoreMoved;
+        for (int n = 0; n < models.Length; n++)
+        {
+            int index = models[n];
+            int offset = n * 5;
+            short x = (short)(key[offset] | (key[offset + 1] << 8));
+            short y = (short)(key[offset + 2] | (key[offset + 3] << 8));
+            bool differs = _models[index].X != x || _models[index].Y != y;
+            moved[n] = differs;
+            if (differs)
+            {
+                Unmask(index);
+            }
         }
 
         for (int n = 0; n < models.Length; n++)
@@ -189,9 +210,12 @@ public sealed partial class Room
             DecodeModel(index, key, n);
         }
 
-        foreach (int i in models)
+        for (int n = 0; n < models.Length; n++)
         {
-            Mask(i);
+            if (moved[n])
+            {
+                Mask(models[n]);
+            }
         }
 
         _lastAction = Action.No;

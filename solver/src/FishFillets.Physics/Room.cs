@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace FishFillets.Physics;
 
@@ -50,6 +51,7 @@ public sealed partial class Room
     private readonly ModelCollector _falling;
     private readonly ModelCollector _heavier;
     private readonly bool[] _stoned;
+    private readonly int[][] _cellOffsets;
 
     private readonly int _width;
     private readonly int _height;
@@ -79,6 +81,21 @@ public sealed partial class Room
         _heavier = new ModelCollector(slots);
         _stoned = new bool[slots];
 
+        // Each model's cells as offsets into the grid, for stamping a shape that
+        // lies wholly inside the room without a bounds test per cell.
+        _cellOffsets = new int[slots][];
+        for (int i = 0; i < slots; i++)
+        {
+            Shape shape = level.Models[i].Shape;
+            var offsets = new int[shape.MarkX.Length];
+            for (int m = 0; m < offsets.Length; m++)
+            {
+                offsets[m] = (shape.MarkY[m] * _width) + shape.MarkX[m];
+            }
+
+            _cellOffsets[i] = offsets;
+        }
+
         InitFastPath();
         Reset();
     }
@@ -98,6 +115,14 @@ public sealed partial class Room
     /// round, whatever it did.
     /// </summary>
     public bool LastMoveWasFast { get; private set; }
+
+    /// <summary>
+    /// Whether that fast move was a turn on the spot (as opposed to a step into
+    /// open water). Only meaningful when <see cref="LastMoveWasFast"/> is true;
+    /// false after a full round. A search uses it to skip the move that would
+    /// turn straight back.
+    /// </summary>
+    public bool LastMoveWasTurn { get; private set; }
 
     /// <summary>Number of real models (the border excluded) - loop bound everywhere.</summary>
     public int ModelCount => Level.ModelCount;
@@ -214,6 +239,19 @@ public sealed partial class Room
     {
         Shape shape = Level.Models[model].Shape;
         int x = _models[model].X, y = _models[model].Y;
+        if (IsInside(shape, x, y))
+        {
+            // Every cell is in range, so the per-cell bounds test is dropped.
+            ref short cells = ref MemoryMarshal.GetArrayDataReference(_field);
+            int origin = (y * _width) + x;
+            foreach (int offset in _cellOffsets[model])
+            {
+                Unsafe.Add(ref cells, origin + offset) = (short)model;
+            }
+
+            return;
+        }
+
         for (int m = 0; m < shape.MarkX.Length; m++)
         {
             SetModel(x + shape.MarkX[m], y + shape.MarkY[m], (short)model);
@@ -225,11 +263,32 @@ public sealed partial class Room
     {
         Shape shape = Level.Models[model].Shape;
         int x = _models[model].X, y = _models[model].Y;
+        if (IsInside(shape, x, y))
+        {
+            ref short cells = ref MemoryMarshal.GetArrayDataReference(_field);
+            int origin = (y * _width) + x;
+            foreach (int offset in _cellOffsets[model])
+            {
+                ref short cell = ref Unsafe.Add(ref cells, origin + offset);
+                if (cell == model)
+                {
+                    cell = Empty;
+                }
+            }
+
+            return;
+        }
+
         for (int m = 0; m < shape.MarkX.Length; m++)
         {
             ClearModel(x + shape.MarkX[m], y + shape.MarkY[m], model);
         }
     }
+
+    /// <summary>Whether the shape's whole bounding box at (x, y) lies inside the room.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool IsInside(Shape shape, int x, int y) =>
+        x >= 0 && y >= 0 && x + shape.W <= _width && y + shape.H <= _height;
 
     /// <summary>
     /// Everything (other than this model) occupying the cells its shape would

@@ -310,7 +310,8 @@ public static class ResultsFile
 
         var text = new StringBuilder();
         text.Append(string.Join(sep, Header)).Append('\n');
-        foreach (ResultsRow row in Rows(corpus, runs))
+        List<ResultsRow> rows = Rows(corpus, runs);
+        foreach (ResultsRow row in rows)
         {
             WriteRow(text, row, sep);
         }
@@ -342,6 +343,13 @@ public static class ResultsFile
             throw new IOException(
                 $"could not write {path} - it is probably open in another program (Excel locks CSVs " +
                 $"while they are open). The new table has been left at {temporary}.", ex);
+        }
+
+        // The formatted view of the same table (results.xlsx). Only after the
+        // CSV is safely written, and never fatal: the CSV is the record.
+        if (ResultsWorkbook.TryWrite(ResultsWorkbook.PathFor(corpus.DocsDir), rows) is { } warning)
+        {
+            Console.Error.WriteLine($"warning: {warning}");
         }
     }
 

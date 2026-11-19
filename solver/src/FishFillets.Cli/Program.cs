@@ -93,6 +93,8 @@ static void PrintUsage()
                                    stuck-wall distances in the estimate (docs/021)
                     [--no-merge]   keep identical items apart instead of
                                    storing their swaps as one state (docs/022)
+                    [--no-skip-reversals]  also simulate the move that just
+                                   undoes the last turn or fish-only step (docs/028)
                     [--partial-order sleep|pairwise]  move-ordering reduction
                                    (correct, but measured a net loss - docs/011)
                     [--work N]     charge N extra per cell of a movable item on
@@ -127,6 +129,7 @@ static void PrintUsage()
                     [--reps N] (3)          compare builds: per-expansion
                     [--threads N] (1)       speed-up and bytes per stored state
                     [--quick] [--no-stuck] [--no-stuck-dist] [--no-merge]
+                    [--no-skip-reversals]
                     [--out FILE] [--compare FILE]
 
         OPTIONS (any command)
@@ -320,6 +323,7 @@ static int Solve(Corpus corpus, string[] argv)
     bool detectStuck = !argv.Contains("--no-stuck");
     bool stuckDistances = !argv.Contains("--no-stuck-dist");
     bool mergeIdentical = !argv.Contains("--no-merge");
+    bool skipReversals = !argv.Contains("--no-skip-reversals");
 
     Console.WriteLine($"level      {name} ({level.Width}x{level.Height})");
     ReportOriginalSolution(corpus, raw, level);
@@ -345,6 +349,7 @@ static int Solve(Corpus corpus, string[] argv)
         DetectStuck = detectStuck,
         StuckDistances = stuckDistances,
         MergeIdenticalItems = mergeIdentical,
+        SkipReversals = skipReversals,
         // Plain A* expands in parallel by default (docs/019); same answer and
         // counts as one thread at weight 1.
         Threads = int.TryParse(TakeOption(argv, "--threads"), out int th) ? Math.Max(1, th) : Environment.ProcessorCount,
@@ -523,6 +528,7 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
     bool detectStuck = !argv.Contains("--no-stuck");
     bool stuckDistances = !argv.Contains("--no-stuck-dist");
     bool mergeIdentical = !argv.Contains("--no-merge");
+    bool skipReversals = !argv.Contains("--no-skip-reversals");
     string? outDir = TakeOption(argv, "--out-dir");
     int parallel = int.TryParse(TakeOption(argv, "--parallel"), out int p)
         ? p
@@ -570,6 +576,7 @@ static int SolveBatch(Corpus corpus, string[] argv, string? list)
                 DetectStuck = detectStuck,
                 StuckDistances = stuckDistances,
                 MergeIdenticalItems = mergeIdentical,
+                SkipReversals = skipReversals,
                 // Levels already run side by side here; threads per level only on request.
                 Threads = threadsPerLevel,
                 TimeLimit = TimeSpan.FromSeconds(seconds),
@@ -972,6 +979,7 @@ static int BenchSuite(Corpus corpus, string[] argv)
     bool detectStuck = !argv.Contains("--no-stuck");
     bool stuckDistances = !argv.Contains("--no-stuck-dist");
     bool mergeIdentical = !argv.Contains("--no-merge");
+    bool skipReversals = !argv.Contains("--no-skip-reversals");
 
     (string Level, long Nodes)[] suite = quick
         ? [("start", 0), ("cannons", 0)]
@@ -981,7 +989,7 @@ static int BenchSuite(Corpus corpus, string[] argv)
                      // IsDynamicCodeSupported is false under plain `dotnet run` too once a
                      // project sets PublishAot; only an AOT image has no JIT at all.
                      + (System.Runtime.JitInfo.GetCompiledMethodCount() > 0 ? " JIT" : " AOT");
-    runtime += $", {threads} thread{(threads == 1 ? "" : "s")}" + (detectStuck ? (stuckDistances ? "" : ", no stuck distances") : ", no stuck") + (mergeIdentical ? "" : ", no merge");
+    runtime += $", {threads} thread{(threads == 1 ? "" : "s")}" + (detectStuck ? (stuckDistances ? "" : ", no stuck distances") : ", no stuck") + (mergeIdentical ? "" : ", no merge") + (skipReversals ? "" : ", no reversal skip");
     Console.WriteLine($"bench suite - {runtime}, {Environment.ProcessorCount} cores, best of {reps}");
     Console.WriteLine($"{"level",-10} {"expanded",12} {"stored",12} {"seconds",8} {"k exp/s",8} {"B/state",8} {"f",5}");
 
@@ -991,7 +999,7 @@ static int BenchSuite(Corpus corpus, string[] argv)
         Level level = corpus.LoadLevel(name);
         string? known = corpus.TryReadSolution(name, out string k) ? k : null;
         LevelReduction reduction = LevelReduction.Verified(level, known);
-        var options = new SolveOptions { MaxNodes = nodes > 0 ? nodes : 20_000_000, Threads = threads, DetectStuck = detectStuck, StuckDistances = stuckDistances, MergeIdenticalItems = mergeIdentical };
+        var options = new SolveOptions { MaxNodes = nodes > 0 ? nodes : 20_000_000, Threads = threads, DetectStuck = detectStuck, StuckDistances = stuckDistances, MergeIdenticalItems = mergeIdentical, SkipReversals = skipReversals };
 
         double best = double.MaxValue;
         SolveResult? result = null;

@@ -90,6 +90,7 @@ shorter solution exists.
 | `--work N` | 0 | charge N extra per cell of a movable item on a fish's way out ([docs/013](docs/013-2026-08-17-reduction-fixes-and-work-heuristic.md)). Reaches levels A\* cannot; drops the optimality proof. Try 3, then 8 |
 | `--no-stuck` | detection on | keep states where something is stuck for good. By default they are dropped: a fish that has to leave walled in, or a goal_out item that can never move again ([docs/020](docs/020-2026-11-13-stuck-detection-by-default.md)). Always sound; 61–63% of what plain A\* stores on wc and society. Switches itself off after ~1M expansions if it has neither dropped a state nor raised an estimate |
 | `--no-merge` | merging on | keep identical items apart. By default physically identical items (same kind, shape, weight, facing, no goal) have their positions sorted in the state key, so rooms where they only swapped roles are stored once ([docs/022](docs/022-2026-11-14-merging-identical-items.md)). Changes no answer; gems proves its optimum in 0.49 M expansions instead of 2.93 M |
+| `--no-skip-reversals` | skipping on | also simulate the opposite of the fast move a state was reached by. By default, after a turn or a step that moved only the fish, the opposite symbol is skipped before the physics runs: turning or stepping straight back returns to the predecessor, and turning round right after a horizontal step is never needed by a shortest solution ([docs/028](docs/028-2026-11-19-skip-reversal-moves.md)). Changes no answer's length; 1-6 % fewer expansions |
 | `--no-stuck-dist` | distances on | keep the dead ends, but leave the estimate at the walls-only distances. By default the fish's distances out are measured with everything stuck counted as wall ([docs/021](docs/021-2026-11-14-stuck-walls-in-the-heuristic.md)) — admissible, and on library-type rooms, where an item wedges a shortcut, much tighter |
 | `--macro` | off | search over decisions (travel, then one thing that changes the world) instead of key presses — see below |
 | `--threads N` | all cores | expand nodes in parallel ([docs/019](docs/019-2026-11-13-performance-p1-p2-p4.md)). At weight 1 the answer and every count are identical to `--threads 1`, stuck detection included. `--work` and `--partial-order` run serially |
@@ -254,6 +255,19 @@ Only the run columns are recorded data — everything else is recomputed from th
 levels and the hall of fame on every write, so the table cannot drift, and
 editing those columns in a spreadsheet changes nothing. `--rebuild` forces that
 refresh after `worldfame.lua` changes or a level is added.
+
+Every write also produces **[`docs/results.xlsx`](docs/results.xlsx)**, the same
+table as an Excel workbook: counts as numbers with thousands separators, seconds
+with one decimal, `recorded` as a real date, a frozen bold header row, an
+AutoFilter on every column for sorting and filtering, and fitted column widths.
+Its `bound %` column gives the proven bound as a share of the shortest known
+solution (the hall of fame's or ours), so sorting by it shows which unproven
+levels are closest to a proof.
+It is a view only — the CSV stays the record that is read back and merged, and
+what diffs in git — so editing the workbook changes nothing. Its bytes depend only
+on the table, so it changes in a commit only when the results do. If it is open in
+Excel, the solver prints a warning, leaves the new copy as `results.xlsx.tmp` and
+carries on; the run is not lost.
 
 In the printed table `*` marks proven shortest, and `~` marks a level where the
 **bound alone reaches the hall-of-fame number**, which proves that number optimal

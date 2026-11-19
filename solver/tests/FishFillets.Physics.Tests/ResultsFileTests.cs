@@ -74,6 +74,97 @@ public sealed class ResultsFileTests
         }
     }
 
+    /// <summary>
+    /// Every save also writes results.xlsx: official levels only, typed cells,
+    /// a frozen header, an AutoFilter, a green "our" where we hold the best
+    /// known solution, and the same bytes for the same table (so a committed
+    /// copy only changes with the results).
+    /// </summary>
+    [TestMethod]
+    public void TheWorkbookShowsOfficialLevelsFormatted()
+    {
+        LevelResult Run(int moves) => new()
+        {
+            Moves = moves, Proven = true, Method = "astar", Bound = moves,
+            Expanded = 22_581_029, Stored = 23_552_378, Seconds = 105.2,
+            Status = "solved & <checked>", Recorded = "2026-08-15",
+        };
+
+        var rows = new List<ResultsRow>
+        {
+            new() { Name = "record", Branch = "Fish House", Best = 170, Bundled = 175, Run = Run(163), Order = 1 },
+            new() { Name = "behind", Branch = "Fish House", Best = 100, Bundled = 100, Run = Run(110), Order = 2 },
+            new() { Name = "record-simple", Best = 170, Run = Run(163), Order = 1, IsDerived = true },
+            new() { Name = "hand-made", Run = Run(12), Order = int.MaxValue },
+        };
+
+        var first = new MemoryStream();
+        ResultsWorkbook.Write(first, rows);
+        var second = new MemoryStream();
+        ResultsWorkbook.Write(second, rows);
+        CollectionAssert.AreEqual(first.ToArray(), second.ToArray(), "the same table should give the same bytes");
+
+        using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(first.ToArray()));
+        foreach (string part in new[] { "[Content_Types].xml", "xl/workbook.xml", "xl/styles.xml", "xl/worksheets/sheet1.xml" })
+        {
+            Assert.IsNotNull(zip.GetEntry(part), $"missing part {part}");
+        }
+
+        using var reader = new StreamReader(zip.GetEntry("xl/worksheets/sheet1.xml")!.Open());
+        var sheet = System.Xml.Linq.XDocument.Parse(reader.ReadToEnd());
+        System.Xml.Linq.XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+
+        var pane = sheet.Descendants(ns + "pane").Single();
+        Assert.AreEqual("frozen", (string?)pane.Attribute("state"));
+        Assert.AreEqual("1", (string?)pane.Attribute("ySplit"));
+        // Header + the two official levels; the simplified copy and the custom room are left out.
+        Assert.AreEqual("A1:P3", (string?)sheet.Descendants(ns + "autoFilter").Single().Attribute("ref"));
+
+        var cells = sheet.Descendants(ns + "c").ToDictionary(c => (string)c.Attribute("r")!);
+        string[] header = Enumerable.Range(0, 16).Select(i => cells[$"{(char)('A' + i)}1"].Value).ToArray();
+        CollectionAssert.AreEqual(
+            new[] { "name", "branch", "best", "bundled", "our", "width", "height", "items", "proven", "bound",
+                    "bound %", "expanded", "stored", "seconds", "status", "recorded" },
+            header);
+
+        Assert.AreEqual("record", cells["A2"].Value);
+        Assert.AreEqual("behind", cells["A3"].Value);
+        // Counts are numbers (no t= attribute) in the thousands-separator style.
+        Assert.AreEqual("22581029", (string?)cells["L2"].Element(ns + "v"));
+        Assert.IsNull(cells["L2"].Attribute("t"));
+        Assert.AreEqual("2", (string?)cells["L2"].Attribute("s"));
+        Assert.AreEqual("105.2", (string?)cells["N2"].Element(ns + "v"));
+        // 2026-08-15 as an Excel date serial.
+        Assert.AreEqual("46249", (string?)cells["P2"].Element(ns + "v"));
+        Assert.AreEqual("solved & <checked>", cells["O2"].Value);
+        // The bound as a share of the shortest known solution, in the percent style:
+        // 163 of our 163 (shorter than the record 170); 110 of the record 100.
+        Assert.AreEqual("1", (string?)cells["K2"].Element(ns + "v"));
+        Assert.AreEqual("1.1", (string?)cells["K3"].Element(ns + "v"));
+        Assert.AreEqual("6", (string?)cells["K2"].Attribute("s"));
+        // Green where our 163 beats the record 170; plain where 110 trails 100.
+        Assert.AreEqual("5", (string?)cells["E2"].Attribute("s"));
+        Assert.AreEqual("2", (string?)cells["E3"].Attribute("s"));
+    }
+
+    [TestMethod]
+    public void SavingAlsoWritesTheWorkbook()
+    {
+        Corpus corpus = TemporaryCorpus(out string root);
+        try
+        {
+            ResultsFile.Save(corpus, new Dictionary<string, LevelResult>
+            {
+                ["test-level"] = new() { Moves = 10, Status = "solved", Method = "astar" },
+            });
+            Assert.IsTrue(File.Exists(ResultsWorkbook.PathFor(corpus.DocsDir)), "a save should write the workbook too");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [TestMethod]
     public void SavingKeepsThePreviousTableAsABackup()
     {

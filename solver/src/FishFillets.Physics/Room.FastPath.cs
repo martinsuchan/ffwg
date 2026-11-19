@@ -78,8 +78,9 @@ public sealed partial class Room
     /// provably changes nothing else. False means "not handled here" - the caller
     /// runs the full path, which also decides whether the move is legal at all.
     /// </summary>
-    private bool TryFastMove(char symbol)
+    private bool TryFastMove(char symbol, out bool turn)
     {
+        turn = false;
         if (_lastAction != Action.No)
         {
             return false;
@@ -108,6 +109,7 @@ public sealed partial class Room
             {
                 m.IsLeft = !m.IsLeft;   // Unit::goLeft/goRight against your facing: a turn
                 FinishFastMove();
+                turn = true;
                 return true;
             }
 
