@@ -14,7 +14,7 @@ fdto;;Branch of the New Generation;243;Masaaki Irie;243;;33;23;21;no;astar;;117;
 rotate;;Branch of the New Generation;213;Masaaki Irie;213;;28;14;15;no;astar;;171;237075319;241837442;1025,0;node limit reached;2026-11-18
 nowall;;Branch of the New Generation;413;Bertram Felgenhauer;420;;30;34;12;no;astar;;48;6791485;9189522;300,0;time limit reached;2026-11-19
 hole;;Branch of the New Generation;459;Masaaki Irie;465;463;50;40;8;no;window;;107;1901487;0;148,9;improved by 2;2026-08-15
-key;;Branch of the New Generation;524;David Glass;524;;37;36;23;no;astar;;86;22601786;27911668;300,0;time limit reached;2026-11-19
+key;;Branch of the New Generation;524;David Glass;524;522;37;36;23;no;window;;86;27359435;0;115,0;improved by 2;2026-11-20
 keys;;Branch of the New Generation;281;Erik Hajduk;281;;22;22;15;no;astar;;99;236555605;256586646;1637,0;node limit reached;2026-11-18
 linux;;Branch of the New Generation;596;Zmiter Nikitin;656;652;29;32;13;no;window;;107;1116521;0;51,1;improved by 4;2026-08-15
 submarine;;Ship Wrecks;83;Pavel Danihelka;83;83;37;15;6;yes;astar;;83;162860;174487;3,8;solved;2026-08-15
@@ -36,7 +36,7 @@ cannons;;Silver's Ship;39;Pavel Danihelka;39;39;30;27;16;yes;astar;;39;215117;35
 kitchen;;Silver's Ship;564;Josef Peterka;564;;51;34;19;no;astar;;162;29882258;33494720;300,0;time limit reached;2026-11-19
 cabin2;;Silver's Ship;383;David Glass;383;;28;24;8;no;astar;;204;251156685;275734642;1036,9;node limit reached;2026-11-18
 captain;;Silver's Ship;417;Erik Hajduk;417;;41;29;22;no;astar;;156;14780110;18683044;300,0;time limit reached;2026-11-19
-map;;Silver's Ship;1541;Gabor Braun;2127;2097;48;33;23;no;window;;43;31855792;0;19005,8;improved by 30;2026-08-15
+map;;Silver's Ship;1541;Gabor Braun;2127;2075;48;33;23;no;window;;43;305558718;0;1926,1;improved by 22;2026-11-20
 elevator1;;City In the Deep;200;Pavel Danihelka;200;;34;36;7;no;astar;;118;27637524;30608705;300,0;time limit reached;2026-11-19
 city;;City In the Deep;481;Gabor Braun;485;;50;23;15;no;astar;;95;24559347;31175490;300,0;time limit reached;2026-11-19
 ufo;;City In the Deep;283;Gabor Braun;283;;48;30;16;no;astar;;164;21895852;24239149;300,0;time limit reached;2026-11-19
@@ -54,7 +54,7 @@ steel;;UFO;185;Josef Peterka;185;;42;25;23;no;astar;;166;208800067;232194139;180
 steel-simple;steel;UFO;185;Josef Peterka;185;;42;25;21;no;astar;;153;12430797;16777219;600,8;time limit reached;2026-08-15
 corridor;;UFO;523;Amic Frouvelle;523;;34;37;25;no;astar;;166;28431880;32371312;300,0;time limit reached;2026-11-19
 experiments;;UFO;706;Zmiter Nikitin;706;;48;35;76;no;astar;;79;10818741;15918263;300,0;time limit reached;2026-11-19
-propulsion;;UFO;1964;Zmiter Nikitin;1964;;41;38;20;no;astar;;62;18782463;22607715;300,0;time limit reached;2026-11-19
+propulsion;;UFO;1964;Zmiter Nikitin;1964;1962;41;38;20;no;window;;62;319565041;0;1062,2;improved by 2;2026-11-20
 electromagnet;;UFO Exit;458;David Glass;458;;48;20;21;no;astar;;66;232929900;330549373;1800,0;time limit reached;2026-11-19
 corals;;Coral reef;242;David Glass;252;;28;25;5;no;astar;;134;250438315;314143042;1082,9;node limit reached;2026-11-19
 labyrinth;;Coral reef;278;Mark Byers;278;;43;38;3;no;astar;;148;21911785;24612564;300,0;time limit reached;2026-11-19
@@ -79,12 +79,12 @@ duckie;;Dump;96;Martin Suchan;98;96;27;21;10;yes;astar;;96;42790676;54022263;216
 duckie-simple;duckie;Dump;96;Martin Suchan;98;;27;21;7;no;astar;;90;25858727;33555116;600,4;time limit reached;2026-08-15
 puzzle;;Dump;142;Fern Lopesbr;142;;53;39;31;no;astar;;72;12909632;18711077;300,0;time limit reached;2026-11-19
 dump;;Dump;426;Josef Peterka;426;;43;32;34;no;astar;;191;9985578;13460937;300,0;time limit reached;2026-11-19
-barrel;;Dump;1229;Zmiter Nikitin;1237;1231;50;39;17;no;window;;100;3841163;0;390,6;improved by 6;2026-08-15
+barrel;;Dump;1229;Zmiter Nikitin;1237;1223;50;39;17;no;window;;100;225627053;0;1138,1;improved by 8;2026-11-19
 tetris;;Secret Computer;134;Gabor Braun;134;;51;32;13;no;astar;;74;8514579;13370323;300,1;time limit reached;2026-11-19
 emulator;;Secret Computer;620;Gabor Braun;620;;47;36;20;no;astar;;180;18422189;28571164;300,1;time limit reached;2026-11-19
 warcraft;;Secret Computer;573;Josef Peterka;573;;52;37;21;no;astar;;169;32801320;36468768;300,0;time limit reached;2026-11-19
 windoze;;Secret Computer;525;Zmiter Nikitin;525;;45;33;35;;;;;;;;;
 hardware;;Secret Computer;629;Zmiter Nikitin;629;;40;27;17;no;astar;;133;18842018;22954621;300,0;time limit reached;2026-11-19
-floppy;;Secret Computer;890;Aleš Zimmermann;946;;51;35;12;no;astar;;64;31016113;36851066;300,0;time limit reached;2026-11-19
-redhat;;Branch of the New Generation;287;Mattia Onofri;287;;33;31;12;no;astar;;85;48314562;63609595;300,0;time limit reached;2026-11-19
+floppy;;Secret Computer;890;Aleš Zimmermann;946;944;51;35;12;no;window;;64;162071697;0;3445,1;improved by 2;2026-11-20
+redhat;;Branch of the New Generation;287;Mattia Onofri;287;283;33;31;12;no;window;;85;47691350;0;121,3;improved by 4;2026-11-20
 ending;;;;;;;29;27;5;;;;;;;;;

@@ -200,14 +200,22 @@ Re-solves windows of a known solution, splicing in anything shorter. This is wha
 found the four solutions shorter than the bundled ones. It only finds *local*
 shortcuts — it preserves both ends of each window, so it can never discover a
 globally different route ([`docs/003`](docs/003-2026-08-14-window-optimizer.md)).
+It searches the windows of each pass in parallel with the main solver's state
+table, skips windows already known to hold nothing, and matches a window's end
+up to swapped identical items ([`docs/029`](docs/029-2026-11-19-window-optimizer-rework.md)).
+Without `--moves` it starts from the bundled solution, not from `solutions/`.
 
 | option | default | meaning |
 | --- | --- | --- |
 | `--window N` | 16 | window length in moves. Bigger reaches further and costs exponentially more |
 | `--stride N` | 1 | gap between window starts |
-| `--nodes N` | 2,000,000 | per-window search budget |
+| `--nodes N` | 2,000,000 | per-window search budget (each thread holds one window's table) |
+| `--threads N` | all cores | windows searched side by side; the result does not depend on it |
+| `--seconds N` | none | stop after N s, keeping what was found |
+| `--no-merge` | off | match a window's end state exactly, not up to swapped identical items |
+| `--no-skip-reversals` | off | also simulate moves that undo a fast move |
 | `--moves S` | the bundled solution | improve this string instead |
-| `--out FILE` | — | write the result |
+| `--out FILE` | — | write the result; rewritten after every pass that shortens it |
 | `--quiet`, `--no-record` | off | as above |
 
 ```

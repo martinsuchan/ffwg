@@ -60,7 +60,22 @@ internal sealed class StateStore
 
     public void Clear()
     {
-        Array.Clear(_buckets);
+        // The window optimiser clears one store per window, thousands of times,
+        // and most windows store a handful of states in a bucket array grown by
+        // an earlier, bigger one - so a nearly empty table zeroes just the
+        // chains it used instead of the whole array.
+        if (_count < _buckets.Length >> 4)
+        {
+            for (int i = 0; i < _count; i++)
+            {
+                _buckets[Hash(KeySpan(i)) & _mask] = 0;
+            }
+        }
+        else
+        {
+            Array.Clear(_buckets);
+        }
+
         _count = 0;
     }
 

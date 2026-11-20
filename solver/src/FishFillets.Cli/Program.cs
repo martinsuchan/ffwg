@@ -111,7 +111,16 @@ static void PrintUsage()
           ffsolve improve <level>           shorten a known solution by re-solving
                                             windows of it (local shortcuts only)
                     [--window N] (16) [--stride N] (1) [--nodes N] (2,000,000)
-                    [--moves S] [--out FILE] [--quiet] [--no-record]
+                                   per window
+                    [--threads N]  windows side by side (default: all cores;
+                                   the result does not depend on it)
+                    [--seconds N]  stop after N s, keeping what was found
+                    [--no-merge]   match the window's end state exactly, not
+                                   up to swapped identical items
+                    [--no-skip-reversals]  also simulate moves that undo a
+                                   fast move
+                    [--moves S] [--out FILE] (rewritten after every pass that
+                                   shortens the solution) [--quiet] [--no-record]
 
         INSPECT
           ffsolve results [--unsolved]      what has been solved, and how close
@@ -838,6 +847,10 @@ static int Improve(Corpus corpus, string[] argv)
     int window = int.TryParse(TakeOption(argv, "--window"), out int w) ? w : 16;
     int stride = int.TryParse(TakeOption(argv, "--stride"), out int s) ? s : 1;
     long nodeLimit = long.TryParse(TakeOption(argv, "--nodes"), out long n) ? n : 2_000_000;
+    int threads = int.TryParse(TakeOption(argv, "--threads"), out int th) ? Math.Max(1, th) : Environment.ProcessorCount;
+    int seconds = int.TryParse(TakeOption(argv, "--seconds"), out int sec) ? sec : 0;
+    bool mergeIdentical = !argv.Contains("--no-merge");
+    bool skipReversals = !argv.Contains("--no-skip-reversals");
     string? outPath = TakeOption(argv, "--out");
     bool quiet = argv.Contains("--quiet");
 
@@ -850,12 +863,36 @@ static int Improve(Corpus corpus, string[] argv)
         return 2;
     }
 
-    Console.WriteLine($"{name}: {moves.Length} moves, window {window}, stride {stride}, node limit {nodeLimit:N0}");
+    Console.WriteLine(
+        $"{name}: {moves.Length} moves, window {window}, stride {stride}, node limit {nodeLimit:N0}, {threads} thread(s)"
+        + (seconds > 0 ? $", {seconds} s limit" : "")
+        + (mergeIdentical ? "" : ", identical items kept apart")
+        + (skipReversals ? "" : ", no reversal skip"));
+
+    void Save(string improved)
+    {
+        // Only a replayed solution is ever written, so a run stopped at any
+        // point leaves a valid file behind.
+        if (outPath is not null && SolutionValidator.Validate(new Room(level), improved).Solved)
+        {
+            File.WriteAllText(outPath, $"\nsaved_moves = '{improved}'\n");
+        }
+    }
 
     var optimizer = new WindowOptimizer(level);
     var sw = Stopwatch.StartNew();
-    OptimizeResult result = optimizer.Optimize(
-        moves, window, stride, nodeLimit, quiet ? null : Console.WriteLine);
+    OptimizeResult result = optimizer.Optimize(moves, new WindowOptions
+    {
+        Window = window,
+        Stride = stride,
+        NodeLimit = nodeLimit,
+        Threads = threads,
+        TimeLimit = seconds > 0 ? TimeSpan.FromSeconds(seconds) : null,
+        MergeIdenticalItems = mergeIdentical,
+        SkipReversals = skipReversals,
+        Progress = quiet ? null : Console.WriteLine,
+        Improved = Save,
+    });
     sw.Stop();
 
     // Never trust a spliced solution on the optimiser's word - replay it.
@@ -878,7 +915,7 @@ static int Improve(Corpus corpus, string[] argv)
             Method = "window",
             Expanded = result.NodesExplored,
             Seconds = Math.Round(sw.Elapsed.TotalSeconds, 1),
-            Status = result.Saved > 0 ? $"improved by {result.Saved}" : "no improvement",
+            Status = (result.Saved > 0 ? $"improved by {result.Saved}" : "no improvement") + (result.TimedOut ? ", time limit" : ""),
             Recorded = DateTime.UtcNow.ToString("yyyy-MM-dd"),
         });
     }
@@ -886,8 +923,8 @@ static int Improve(Corpus corpus, string[] argv)
     Console.WriteLine();
     Console.WriteLine($"{result.OriginalLength} -> {result.Moves.Length} moves ({result.Saved} saved) - verified");
     Console.WriteLine(
-        $"{result.Passes} pass(es), {result.WindowsImproved} window(s) improved, " +
-        $"{result.NodesExplored:N0} nodes in {sw.Elapsed.TotalSeconds:F1} s");
+        $"{result.Passes} pass(es), {result.WindowsSearched:N0} window(s) searched, {result.WindowsImproved} improved, " +
+        $"{result.NodesExplored:N0} nodes in {sw.Elapsed.TotalSeconds:F1} s" + (result.TimedOut ? " - time limit reached" : ""));
 
     if (result.Saved > 0)
     {

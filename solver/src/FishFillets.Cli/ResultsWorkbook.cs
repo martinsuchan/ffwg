@@ -15,7 +15,8 @@ namespace FishFillets.Cli;
 /// and custom rooms stay in the CSV, where the solver needs them. Nor does the
 /// workbook say how a solution was found: derivedFrom, bestAuthor, method and
 /// source are left out. An "our" cell is green where we hold the best known
-/// solution, i.e. one at least as short as the hall of fame's. "bound %" is the
+/// solution, i.e. one at least as short as the hall of fame's, and a "bundled"
+/// cell where the game's own solution already is. "bound %" is the
 /// proven lower bound as a share of the shortest known solution.</para>
 ///
 /// <para>The CSV stays the record: it is what <see cref="ResultsFile.Load"/>
@@ -46,7 +47,7 @@ public static class ResultsWorkbook
     private const int StyleInteger = 2;
     private const int StyleDecimal = 3;
     private const int StyleDate = 4;
-    private const int StyleBest = 5;   // integer on green: "our" matches or beats the hall of fame
+    private const int StyleBest = 5;   // integer on green: "our" or "bundled" matches or beats the hall of fame
     private const int StylePercent = 6;
 
     private static readonly (string Name, Kind Kind)[] Columns =
@@ -91,12 +92,18 @@ public static class ResultsWorkbook
     /// <summary>The column holding our move count, which <see cref="StyleBest"/> may colour.</summary>
     private static readonly int OurColumn = Array.FindIndex(Columns, c => c.Name == "our");
 
+    /// <summary>The column holding the bundled solution's length, which <see cref="StyleBest"/> may colour.</summary>
+    private static readonly int BundledColumn = Array.FindIndex(Columns, c => c.Name == "bundled");
+
     /// <summary>A level of the game itself: on the world map, and not a hand-simplified copy.</summary>
     public static bool IsOfficial(ResultsRow row) => !row.IsDerived && row.Order != int.MaxValue;
 
     /// <summary>Whether our solution is the best known one - as short as the hall of fame's, or shorter.</summary>
     public static bool HoldsBest(ResultsRow row) =>
         row.Run is { Moves: > 0 } run && row.Best > 0 && run.Moves <= row.Best;
+
+    /// <summary>Whether the bundled solution is already as short as the hall of fame's, or shorter.</summary>
+    public static bool BundledIsBest(ResultsRow row) => row.Bundled > 0 && row.Best > 0 && row.Bundled <= row.Best;
 
     public static void Write(Stream output, IReadOnlyList<ResultsRow> allRows)
     {
@@ -125,10 +132,12 @@ public static class ResultsWorkbook
     {
         var values = new List<object?[]>(rows.Count);
         var best = new List<bool>(rows.Count);
+        var bundledBest = new List<bool>(rows.Count);
         foreach (ResultsRow row in rows)
         {
             values.Add(Values(row));
             best.Add(HoldsBest(row));
+            bundledBest.Add(BundledIsBest(row));
         }
 
         string lastCell = $"{ColumnName(Columns.Length - 1)}{rows.Count + 1}";
@@ -182,7 +191,7 @@ public static class ResultsWorkbook
                         break;
                     case Kind.Integer:
                         AppendNumber(xml, cell, Convert.ToString(value, CultureInfo.InvariantCulture)!,
-                            c == OurColumn && best[r] ? StyleBest : StyleInteger);
+                            (c == OurColumn && best[r]) || (c == BundledColumn && bundledBest[r]) ? StyleBest : StyleInteger);
                         break;
                     case Kind.Decimal:
                         AppendNumber(xml, cell, ((double)value).ToString("0.0##", CultureInfo.InvariantCulture), StyleDecimal);

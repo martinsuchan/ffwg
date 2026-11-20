@@ -77,7 +77,7 @@ public sealed class ResultsFileTests
     /// <summary>
     /// Every save also writes results.xlsx: official levels only, typed cells,
     /// a frozen header, an AutoFilter, a green "our" where we hold the best
-    /// known solution, and the same bytes for the same table (so a committed
+    /// known solution (and a green "bundled" where the game's own already is), and the same bytes for the same table (so a committed
     /// copy only changes with the results).
     /// </summary>
     [TestMethod]
@@ -145,6 +145,9 @@ public sealed class ResultsFileTests
         // Green where our 163 beats the record 170; plain where 110 trails 100.
         Assert.AreEqual("5", (string?)cells["E2"].Attribute("s"));
         Assert.AreEqual("2", (string?)cells["E3"].Attribute("s"));
+        // The same for the bundled solution: 175 trails the record 170, 100 equals the record 100.
+        Assert.AreEqual("2", (string?)cells["D2"].Attribute("s"));
+        Assert.AreEqual("5", (string?)cells["D3"].Attribute("s"));
     }
 
     [TestMethod]
