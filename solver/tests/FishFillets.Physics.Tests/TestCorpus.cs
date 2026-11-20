@@ -16,9 +16,14 @@ internal static class TestCorpus
     /// <summary>A fresh, settled room for a corpus level.</summary>
     public static Room Room(string level) => new(Instance.LoadLevel(level));
 
+    /// <summary>
+    /// The game's own solution, from legacy/solution/old/ where a shorter one
+    /// replaced it. Tests pin node counts, shortcuts and reductions to these
+    /// move strings, so they stay put when a better solution lands.
+    /// </summary>
     public static string Solution(string level)
     {
-        Assert.IsTrue(Instance.TryReadSolution(level, out string moves), $"no reference solution for {level}");
+        Assert.IsTrue(Instance.TryReadOriginalSolution(level, out string moves), $"no reference solution for {level}");
         return moves;
     }
 }

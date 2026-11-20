@@ -80,11 +80,32 @@ public sealed class Corpus
     /// <code>saved_moves = 'uuuuuulllDDDRRR...'</code>
     /// which is the same flat symbol string the browser port records and replays
     /// (docs/021), so no Lua interpreter is involved.
+    ///
+    /// This is the best solution known, which the web sandbox replays. Where the
+    /// solver found a shorter one, it replaced the game's own, and the game's own
+    /// moved to <c>legacy/solution/old/</c>: see <see cref="TryReadOriginalSolution"/>.
     /// </summary>
-    public bool TryReadSolution(string name, out string moves)
+    public bool TryReadSolution(string name, out string moves) =>
+        TryReadMoves(Path.Combine(SolutionsDir, name + ".lua"), out moves);
+
+    /// <summary>
+    /// The solution the game shipped with: <c>legacy/solution/old/&lt;name&gt;.lua</c>
+    /// where a shorter one has replaced it, else the same file as
+    /// <see cref="TryReadSolution"/>. The "bundled" length in the results, and the
+    /// tests pinned to the original move strings, read this one.
+    /// </summary>
+    public bool TryReadOriginalSolution(string name, out string moves)
+    {
+        string old = Path.Combine(SolutionsDir, OriginalSolutionsFolder, name + ".lua");
+        return File.Exists(old) ? TryReadMoves(old, out moves) : TryReadSolution(name, out moves);
+    }
+
+    /// <summary>The subfolder of <see cref="SolutionsDir"/> holding the game's own solutions that a shorter one replaced.</summary>
+    public const string OriginalSolutionsFolder = "old";
+
+    private static bool TryReadMoves(string path, out string moves)
     {
         moves = "";
-        string path = Path.Combine(SolutionsDir, name + ".lua");
         if (!File.Exists(path))
         {
             return false;

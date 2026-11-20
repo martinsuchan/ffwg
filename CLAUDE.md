@@ -47,7 +47,10 @@ scripts\new-doc.ps1 "<slug>"   # scaffold the next docs/NNN entry + add it to th
 ## Conventions
 
 - **Never modify `legacy/`.** Both new trees read it as-is; work around Lua 5.0-isms or data
-  quirks at load time in the consuming code (see `web/CLAUDE.md`).
+  quirks at load time in the consuming code (see `web/CLAUDE.md`). The one exception is
+  `legacy/solution/`. It holds the **best known** solution per level, which `/sandbox`
+  replays. Where the solver found a shorter one (`solver/solutions/`), the game's original
+  moved to `legacy/solution/old/` and is kept there. Do this only when the user asks.
 - **Dev log:** when a notable feature/decision lands (not small edits), add the next
   `docs/NNN-YYYY-MM-DD-slug.md` via `scripts/new-doc.ps1` (web) or the next
   `solver/docs/NNN-...` (solver): what changed, why, what's open — without being asked.

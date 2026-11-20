@@ -38,6 +38,30 @@ public sealed class ReferenceSolutionTests
         Assert.IsTrue(result.Solved, $"{level}: all {moves.Length} moves applied but the room is not solved");
     }
 
+    /// <summary>The game's own solutions that a shorter one replaced, in legacy/solution/old/.</summary>
+    public static IEnumerable<object[]> ReplacedLevels =>
+        Directory.EnumerateFiles(Path.Combine(TestCorpus.Instance.SolutionsDir, Corpus.OriginalSolutionsFolder), "*.lua")
+            .Select(path => new object[] { Path.GetFileNameWithoutExtension(path) })
+            .OrderBy(row => (string)row[0], StringComparer.Ordinal);
+
+    /// <summary>
+    /// A replaced original is kept, still reaches Solved, and the solution that
+    /// took its place is strictly shorter: otherwise it should not have moved.
+    /// </summary>
+    [TestMethod]
+    [DynamicData(nameof(ReplacedLevels))]
+    public void ReplacedOriginal_StillSolves_AndIsLongerThanItsReplacement(string level)
+    {
+        Corpus corpus = TestCorpus.Instance;
+        Assert.IsTrue(corpus.TryReadOriginalSolution(level, out string original), $"no original for {level}");
+        Assert.IsTrue(corpus.TryReadSolution(level, out string best), $"{level}: an original in old/ but no solution replacing it");
+
+        SolutionResult result = SolutionValidator.Validate(new Room(corpus.LoadLevel(level)), original);
+        Assert.IsNull(result.Error, $"{level}: {result.Error}");
+        Assert.IsTrue(result.Solved, $"{level}: the original no longer reaches Solved");
+        Assert.IsLessThan(original.Length, best.Length, $"{level}: the replacement is not shorter than the original");
+    }
+
     /// <summary>
     /// Guards the theory above against passing vacuously. A missing or truncated
     /// solver/levels export would otherwise silently reduce it to zero cases -

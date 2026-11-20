@@ -389,7 +389,7 @@ public static class ResultsFile
                 // As with Branch below: a level with no hall-of-fame entry leaves
                 // the tuple at its default, whose Author is null, not empty.
                 BestAuthor = fame.Author ?? "",
-                Bundled = corpus.TryReadSolution(basis, out string bundled) ? bundled.Length : 0,
+                Bundled = corpus.TryReadOriginalSolution(basis, out string bundled) ? bundled.Length : 0,
                 Width = facts.Width,
                 Height = facts.Height,
                 Items = facts.Items,

@@ -1,2 +1,1 @@
-
-saved_moves = 'luulurrrrrUruullllrrrurddllllulrrddllddrruuuuuLLLLddddrrrdrLuurdddddrrrrrrrrrrRRRDDDDDDDRRRRRRRRRR'
+saved_moves = 'ulullrrrurrrUruuLURRDLLuLLLLrLLddrrrrddllLLRRRullRRlllddDrrrddrDDuRddrrrrrrrrrrURDDDDDRRRRRRRRRR'

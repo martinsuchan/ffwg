@@ -455,7 +455,7 @@ static int Solve(Corpus corpus, string[] argv)
     // A simplified room has no bundled solution of its own, so it is measured
     // against the one for the level it came from - which is the number that
     // actually says whether the detour was worth taking.
-    int reference = corpus.TryReadSolution(raw.SourceLevel ?? name, out string bundled) ? bundled.Length : -1;
+    int reference = corpus.TryReadOriginalSolution(raw.SourceLevel ?? name, out string bundled) ? bundled.Length : -1;
     string compared = reference < 0
         ? ""
         : result.Moves!.Length < reference ? $"  ({reference - result.Moves.Length} SHORTER than the bundled {reference})"
