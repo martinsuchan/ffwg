@@ -1,6 +1,6 @@
 import { type LuaEngine } from "wasmoon";
 
-import { fetchCompatSource, fetchLegacyFile, getAudioManifest } from "./levelLoader";
+import { fetchCompatSource, fetchLegacyFile, getAudioManifest, musicTrackName } from "./levelLoader";
 import { createLuaEngine } from "./luaEngine";
 import {
   resolveSoundPath,
@@ -205,8 +205,7 @@ export async function createDemoScript(
     lua.global.set("options_getParam", (name: string) => (name === "lang" ? DIALOG_LANG : ""));
 
     lua.global.set("sound_playMusic", (track: string) => {
-      const basename = track.replace(/^music\//, "").replace(/\.ogg$/, "");
-      state.pendingMusic = { type: "play", track: basename };
+      state.pendingMusic = { type: "play", track: musicTrackName(track) };
     });
     lua.global.set("sound_stopMusic", () => {
       state.pendingMusic = { type: "stop" };

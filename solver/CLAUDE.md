@@ -13,12 +13,12 @@ rendering, Lua, audio or UI. Independent of `web/`; shares only the rules and le
 ```
 src/FishFillets.Physics/   rules: Level, Room, ApplyMove, IsSolved (its own port of legacy/src/level)
 src/FishFillets.Search/    A*, window optimiser, level reduction, stuck detection, heuristics
-src/FishFillets.Cli/       `ffsolve` (solve, improve, verify, results, reduce, info, bench)
+src/FishFillets.Cli/       `ffsolve` (solve, improve, smooth, verify, results, reduce, info, bench)
 src/FishFillets.Editor/    `ffedit`, WPF editor for simplifying levels
 tests/                     MSTest suite
 levels/*.json              exported level geometry (generated, checked in)
 solutions/                 solutions shorter than the bundled ones
-docs/                      milestone log, hall of fame, results.csv
+docs/                      milestone log, hall of fame, results.csv, window-results.csv
 ```
 
 ## Build, run, test

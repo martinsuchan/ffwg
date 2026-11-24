@@ -4,6 +4,7 @@ import { loadWorldMap } from "./lua/worldMapLoader";
 import { WorldMapScene } from "./scenes/WorldMapScene";
 import { LevelScene } from "./scenes/LevelScene";
 import { ReplayScene } from "./scenes/ReplayScene";
+import { CompareScene } from "./scenes/CompareScene";
 import { DemoScene } from "./scenes/DemoScene";
 import { CreditsScene } from "./scenes/CreditsScene";
 import { IntroScene } from "./scenes/IntroScene";
@@ -43,6 +44,7 @@ async function boot(): Promise<void> {
       new WorldMapScene(worldMapData),
       LevelScene,
       ReplayScene,
+      CompareScene,
       DemoScene,
       CreditsScene,
       IntroScene,

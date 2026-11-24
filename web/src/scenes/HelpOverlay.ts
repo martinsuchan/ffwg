@@ -2,11 +2,12 @@ import Phaser from "phaser";
 
 import { crispText } from "./sceneUtils";
 import { t } from "../i18n";
+import { isSandboxMode } from "../game/appMode";
 
 /** The controls reference, shown only on demand (F1). Each line is a fixed key
  *  label (not translated) + an i18n key for the localized description (docs/073),
  *  rendered in two aligned columns. */
-const HELP_LINES: Array<[string, string]> = [
+const ALL_HELP_LINES: Array<[string, string]> = [
   ["Arrow keys", "help_move_active"],
   ["W A S D", "help_move_big"],
   ["I J K L", "help_move_small"],
@@ -16,6 +17,7 @@ const HELP_LINES: Array<[string, string]> = [
   ["Hold right-click", "help_push"],
   ["Backspace", "help_restart"],
   ["P", "help_replay"],
+  ["C", "help_compare"],
   ["F2 / F3", "help_saveload"],
   ["F5 / F6", "help_toggles"],
   ["F10", "help_settings"],
@@ -23,6 +25,11 @@ const HELP_LINES: Array<[string, string]> = [
   ["Esc", "help_backmap"],
   ["F1", "help_help"],
 ];
+
+/** C (solution compare, docs/086) exists only in /sandbox. */
+function helpLines(): Array<[string, string]> {
+  return isSandboxMode() ? ALL_HELP_LINES : ALL_HELP_LINES.filter(([key]) => key !== "C");
+}
 
 /**
  * A modal controls-help popup shown on F1 and dismissed with Esc or the OK
@@ -78,10 +85,10 @@ export class HelpOverlay {
       lineSpacing: 4,
     });
     const keyCol = this.scene.add
-      .text(0, 0, HELP_LINES.map(([key]) => key).join("\n"), { ...rowStyle, color: "#9fd0ff" })
+      .text(0, 0, helpLines().map(([key]) => key).join("\n"), { ...rowStyle, color: "#9fd0ff" })
       .setOrigin(0, 0);
     const descCol = this.scene.add
-      .text(0, 0, HELP_LINES.map(([, descKey]) => t(descKey)).join("\n"), rowStyle)
+      .text(0, 0, helpLines().map(([, descKey]) => t(descKey)).join("\n"), rowStyle)
       .setOrigin(0, 0);
 
     const okButton = this.scene.add

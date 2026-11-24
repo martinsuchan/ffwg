@@ -32,6 +32,7 @@ import {
 } from "../storage/levelStorage";
 import { loadSettings, saveSettings } from "../storage/settingsStorage";
 import { isSandboxMode } from "../game/appMode";
+import { pushLevelView } from "../navigation";
 import { OptionsOverlay } from "./OptionsOverlay";
 import { t } from "../i18n";
 
@@ -409,6 +410,10 @@ export class LevelScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-BACKSPACE", () => this.whenPlaying(() => this.restart()));
     this.input.keyboard!.on("keydown-SPACE", () => this.whenPlaying(() => this.engine.switchFish()));
     this.input.keyboard!.on("keydown-P", () => this.whenPlaying(() => void this.launchReplay()));
+    // C: compare two solutions side by side - sandbox only (docs/086).
+    this.input.keyboard!.on("keydown-C", () => {
+      if (isSandboxMode()) this.whenPlaying(() => this.launchCompare());
+    });
     this.input.keyboard!.on("keydown-F2", () => this.whenPlaying(() => this.saveGame()));
     this.input.keyboard!.on("keydown-F3", () => this.whenPlaying(() => this.loadLatestGame()));
     // F5 toggles the step counter (legacy show_steps), F6 toggles subtitles
@@ -947,6 +952,17 @@ export class LevelScene extends Phaser.Scene {
     this.feedbackTimer = this.time.delayedCall(1500, () => this.feedbackText.setVisible(false));
   }
 
+  /** C (sandbox): two solutions of this level side by side, lined up by the
+   *  states they pass through - see docs/086. CompareScene loads them itself. */
+  private launchCompare(): void {
+    pushLevelView(); // browser Back leaves the compare view for this level (docs/087)
+    this.scene.start("compare", {
+      levelData: this.levelData,
+      poster: this.poster,
+      depth: this.depth,
+    });
+  }
+
   /** P: launch a watchable replay - see docs/025. Plays the player's own
    *  solved solution (docs/026) if this level has been solved here before.
    *  In sandbox mode (docs/045) it also falls back to the bundled
@@ -970,6 +986,7 @@ export class LevelScene extends Phaser.Scene {
       // Carry poster/depth so Esc back from the replay restores this level
       // fully. returnTo defaults to "level", and ReplayScene only plays a
       // poster for the worldmap (Pedometer) path, so passing it is safe here.
+      pushLevelView(); // browser Back leaves the replay for this level (docs/087)
       this.scene.start("replay", {
         levelData: this.levelData,
         moves,

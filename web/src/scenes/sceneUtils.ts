@@ -29,9 +29,15 @@ const MAX_FRAMEBUFFER = 4096;
  *  scales it ~1:1 and text/graphics stay crisp instead of being stretched up
  *  from the smaller windowed framebuffer (docs/065). Capped so the framebuffer
  *  never exceeds MAX_FRAMEBUFFER. */
-function renderFactor(nativeW: number, nativeH: number): number {
+function renderFactor(nativeW: number, nativeH: number, fitWindow: boolean): number {
   const windowed = gameRenderScale();
-  if (!isFullscreenActive()) return windowed;
+  if (!isFullscreenActive()) {
+    if (!fitWindow) return windowed;
+    // A scene wider than one room (CompareScene's two rooms, docs/086) shrinks
+    // to the browser window rather than spill past it.
+    const fit = Math.min((window.innerWidth - 16) / nativeW, (window.innerHeight - 16) / nativeH);
+    return Math.max(0.25, Math.min(windowed, fit));
+  }
   const dpr = window.devicePixelRatio || 1;
   const fit = Math.min(window.innerWidth / nativeW, window.innerHeight / nativeH);
   const cap = MAX_FRAMEBUFFER / Math.max(nativeW, nativeH);
@@ -40,7 +46,7 @@ function renderFactor(nativeW: number, nativeH: number): number {
 
 /** The scene + native size the last applyRenderScale ran for - re-applied when
  *  fullscreen toggles (the factor + layout mode both change). */
-let lastRenderTarget: { scene: Phaser.Scene; nativeW: number; nativeH: number } | null = null;
+let lastRenderTarget: { scene: Phaser.Scene; nativeW: number; nativeH: number; fitWindow: boolean } | null = null;
 
 /** Set while ReplayScene renders a video export at a fixed framebuffer size
  *  (docs/078) - a fullscreen toggle must not resize the canvas mid-export. */
@@ -54,9 +60,9 @@ export function setRenderScaleLocked(locked: boolean): void {
  *  windowed (NONE, factor) and fullscreen (FIT, fit-factor) forms. */
 export function reapplyRenderScale(): void {
   if (!lastRenderTarget || renderScaleLocked) return;
-  const { scene, nativeW, nativeH } = lastRenderTarget;
+  const { scene, nativeW, nativeH, fitWindow } = lastRenderTarget;
   if (scene.scene.isActive() || scene.scene.isPaused()) {
-    applyRenderScale(scene, nativeW, nativeH);
+    applyRenderScale(scene, nativeW, nativeH, { fitWindow });
   }
 }
 
@@ -85,11 +91,17 @@ export function crispText(
  * CSS == framebuffer (1:1, no browser stretch). While fullscreen, FIT owns the
  * CSS box (letterboxing to the screen), so we only refresh instead.
  */
-export function applyRenderScale(scene: Phaser.Scene, nativeW: number, nativeH: number): void {
-  lastRenderTarget = { scene, nativeW, nativeH };
+export function applyRenderScale(
+  scene: Phaser.Scene,
+  nativeW: number,
+  nativeH: number,
+  options: { fitWindow?: boolean } = {},
+): void {
+  const fitWindow = options.fitWindow ?? false;
+  lastRenderTarget = { scene, nativeW, nativeH, fitWindow };
   const scale = scene.scale;
   const fullscreen = isFullscreenActive();
-  const factor = renderFactor(nativeW, nativeH);
+  const factor = renderFactor(nativeW, nativeH, fitWindow);
   const fbW = nativeW * factor;
   const fbH = nativeH * factor;
 

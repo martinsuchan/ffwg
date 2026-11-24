@@ -222,6 +222,233 @@ fame's:
 - **Both are recorded.** They are verified, saved in `solutions/` and
   recorded in `results.csv`.
 
+## The five levels short of the hall of fame that only the old optimiser had seen
+
+Of the 11 levels where no solution as short as the hall of fame's was known,
+6 were windowed above. These are the other 5. Windows were 16-40, with 5M
+nodes per window and 600 s per window size. A reboot cut the run during city;
+it was resumed at city's window 36.
+
+| level | from | to | hall of fame | windows 36 / 40 |
+|---|---|---|---|---|
+| hole | 463 | **441** | 459 | all searched |
+| city | 485 | 485 | 481 | all searched |
+| nowall | 420 | 420 | 413 | 230 and 58 of 419, time limit |
+| pavement | 512 | 512 | 500 | 274 and 147 of 511, time limit |
+| hanoi | 432 | 432 | 402 | all searched, 8 s and 16 s |
+
+- **hole, 441.** This is 18 below the hall of fame (Masaaki Irie) and 24
+  below the bundled 465. Window 28 found nine 2-4 move shortcuts around moves
+  113-232, and window 32 found one more. The old optimiser had stopped at
+  window 18. The solution is verified, saved in `solutions/hole.lua` and
+  recorded in `results.csv`.
+- **hanoi is cheap.** Window 40 took 16 s for the whole solution, so much bigger
+  windows are within reach there.
+- **nowall and pavement hit the time limit** from window 36 on. The
+  `--window-log` probes above show why: those windows run into the node limit.
+
+## Later fixes (2026-11-21)
+
+- **Only full-length windows.** A window used to start at every move, so the
+  last `window - 1` were shorter tail windows, like pavement's 511 windows of
+  32 in 512 moves instead of 481. Each of them lies inside the last full
+  window, which finds the shortest path to the end, so they found nothing new.
+  They cost up to 9 % of a pass at window 48. Now the last window ends at the
+  end of the solution, and with a stride the last full window is added off
+  the stride. `EveryWindow_IsReported_WithHowFarItGot` and
+  `AStride_StillCoversTheEnd` pin both.
+- **`--window-log FILE`.** It prints one line per window to the console and
+  appends it to a CSV: outcome (`shortcut`, `none`, `node-limit`,
+  `time-limit`), the bound reached, nodes, stored states and seconds.
+  `WindowOptions.WindowDone` reports it.
+- **Windows' power throttling.** A detached run has a hidden window and below-normal
+  priority. Windows 11 ran it in efficiency mode: 12 workers "Ready" but
+  sharing about 3 cores. `ffsolve` now opts out at start
+  (`PowerThrottling.cs`). City at window 36 for 30 s went from 11.6M to
+  25.4M nodes, the same as a foreground run. The machine was also held at
+  41 % clock by its firmware, because the battery is worn to 19 % of its
+  capacity. That is a hardware limit, outside the solver.
+- **Pavement probes, 20M nodes per window.** The bound reached grows about
+  1.36x per move:
+
+  | window | where | outcome | bound reached | nodes | stored |
+  |---|---|---|---|---|---|
+  | 48 | 0-48 | none | 48/48 | 1.9M | 1.9M |
+  | 48 | 64-112 | none | 48/48 | 11.3M | 11.3M |
+  | 48 | 128-176 | cut | 44/48 | 13.6M | 24.2M |
+  | 64 | 0-64 | cut | 55/64 | 16.7M | 28.6M |
+  | 100 | 0-100 | node limit | 58/100 | 20M | 33.2M |
+
+  A window of 100 would need around 10^12 nodes. A* reached bound 149 on the
+  whole level, but that only says that no solution is shorter than 149. A
+  window has to reach its own length to rule a shortcut out, which is as hard
+  as proving a level that long optimal. The window heuristic sees only the
+  fish, so this is what an item-aware heuristic would change.
+
+- **Growing windows with per-window limits, resumable (`improve --grow`).**
+  - `--grow N` repeats the rounds at window + N, + 2N, and so on. It stops
+    after the first size at which some window hit a per-window limit: that
+    size is as far as the limits reach.
+  - `--window-seconds` and `--window-memory` are per-window limits, like
+    `--nodes` (`--nodes 0` drops the node limit). The memory is what the
+    worker's table and queue hold.
+  - `--order spread` (the default at first, sequential again since; the user
+    found the log easier to follow in order) searches one window per thread at 1/(t+1),
+    2/(t+1)... of the solution first. After that it always takes the middle of
+    the widest stretch not yet searched. A run stopped early has therefore
+    sampled the whole solution evenly, instead of only its start.
+  - `--state FILE` appends every window as it ends. A rerun skips the windows
+    it covers: ruled out, or stopped by a limit no smaller than the current
+    one. The id is the two rooms and the length, so a window stays known
+    after a splice elsewhere moves it.
+  - `--out` is now rewritten the moment a window finds a shortcut, with the
+    round's shortcuts so far spliced into a replayed copy. `--resume` starts
+    from it. Stopping and rerunning the same command loses only the windows
+    in flight.
+  - Tests: `SpreadOrder_SeedsEvenly_ThenSplitsTheWidestGap`,
+    `PerWindowLimits_StopAWindow_NotTheRun` and
+    `KnownWindows_AreSkipped_AndAShortcutIsSavedAtOnce`. A finished round gives
+    the same moves, nodes and windows in either order.
+
+- **A stronger window bound (`--heuristic`, default `full`).**
+  - **The fish, around the walls.** Each fish's distance to its target cell
+    and facing is the walls-only BFS of the main solver's exit bound
+    (`RelaxedDistance.ToCell`), not the straight line. The proven-immobile
+    items count as walls.
+  - **The items.** The bound also takes the item furthest from its target, if
+    that is more. Sideways and up an item moves only when a fish move pushes
+    it, one cell per move, and down for free. With identical items merged, an
+    item may take its twin's target. The fish are summed, the items are
+    combined by their maximum, and the two by the larger.
+  - **Two traps, caught by the new tests.**
+    - An item touching the border slides out over it for free. linux moves
+      one 10 cells up in 9 moves, so the items are measured only inside the
+      room.
+    - windoze's output plug lets a fish leave anywhere in the room, so there
+      a fish's way out gets no bound. The old straight-line bound had this
+      fault already, at 31 against 29 real moves.
+  - **Tests (`WindowHeuristicTests`).**
+    - On all 81 corpus solutions, the bound between any two steps up to 40
+      apart, merged and kept apart, may not exceed the moves the solution
+      takes between them.
+    - On cannons, hole, start, briefcase and barrel, every window finds
+      exactly what a search with no bound finds, and each stronger bound
+      searches no more nodes.
+  - **Pavement, the same probe windows** (20M nodes, 240 s, 2 threads):
+
+    | window | where | Manhattan | full |
+    |---|---|---|---|
+    | 48 | 0-48 | none, 1.89M nodes, 20 s | none, 1.02M nodes, 15 s |
+    | 48 | 64-112 | none, 11.3M nodes, 183 s | none, 5.55M nodes, 117 s |
+    | 48 | 128-176 | bound 44 | bound 46 |
+    | 48 | 192-240 | bound 36 | bound 38 |
+    | 64 | 0-64 | bound 55 | bound 56 |
+    | 100 | 0-100 | bound 58 | bound 58 |
+
+    - **Nodes:** proving a window empty takes half the nodes.
+    - **Time:** a node costs about 30 % more, because the item bound loops over
+      every item. So the time saved is 25-35 %, and a time-limited window
+      gets 1-2 moves further.
+    - **Overall:** a real gain, but not the step change that windows of 100
+      would need.
+
+- **With `--grow N`, the stride is N.** A window of W at any start lies
+  inside a window of W + N that starts on a multiple of N. A window finds
+  every shortcut inside it, so a round at W + N on a stride of N covers the
+  whole round before it, with 1/N of the windows. In general, stride s at
+  window W covers every stretch of up to W - s + 1 moves.
+  `AStrideOfS_AtWPlusS_FindsWhatEveryWindowOfW_Finds` pins it on hole and
+  linux.
+  - **What it saves depends on how fast a window's cost grows** with its
+    length. On hole, window 32 on stride 4 took 24M nodes and found 441.
+    Window 28 on stride 1 took 29M nodes and found 443.
+  - **The guarantee holds only for windows that finish.** A window that hits
+    a limit leaves the smaller windows inside it uncovered. That happens only
+    at the size where `--grow` stops anyway.
+
+- **The per-window memory limit counts the window's own states.** At first
+  it compared the worker's held capacity with the limit. A worker's table
+  keeps whatever a bigger window grew it to, so after one big window every
+  later window on that worker stopped at its first check. That happened to
+  21 of the 22 corals windows at size 56 and 2 GB, after 4,096 nodes and
+  0.02 s each. Now a window is charged its stored states times
+  key + 29 bytes: the store's fields, plus its share of the buckets and of
+  the queue. `TheMemoryLimit_ChargesAWindowOnlyForItsOwnStates` fails on the
+  old accounting.
+- **The log names the windows that hit a limit.** The line is printed when
+  it happens, and the summary lists them, for example
+  `[80..136] memory-limit at bound 52/56`. A size where a window hit a limit
+  is still searched to its end. Only the next size is not started.
+
+- **The per-window time limit is processor time.** The 10 minutes are
+  charged in the window thread's own CPU time (`ThreadClock`,
+  `GetThreadTimes`), not by the wall clock. Pavement's windows of 44 were
+  running when the machine went into Modern Standby from 17:42:49 to
+  17:56:27. They woke with 14 minutes on the clock and about 2 of real work,
+  and four of them were cut within the same second, at bounds 38-42 of 44.
+  Those four were taken out of the state file and searched again.
+  `TheWindowClock_CountsWork_NotWaiting` pins it. The whole run's
+  `--seconds` stays wall-clock.
+
+- **The window optimiser's own record (`docs/window-results.csv`, `.xlsx`).**
+  - Every round goes there, one level at one window size, stride and bound:
+    windows ruled out, shortened, limited or not reached, the stretch it
+    covered, the limits, and the cost.
+  - The workbook's *levels* sheet shows how far each level has got.
+  - `results.csv` now gets a window run only when it shortened the solution.
+    This closes the open point about window runs overwriting the counts of
+    the run that set the bound.
+  - The rows of this entry's earlier runs were filled in from their logs.
+    Those runs did not log node-limit hits, so they leave `limited` and
+    `covered` blank.
+  - `results.xlsx` and the new workbook share one writer (`SheetWriter`), and
+    `results.xlsx` comes out byte for byte the same.
+
+## Growing runs with every change above (2026-11-22)
+
+Settings: `--window 16 --grow 4` (stride 4), 4 threads, `--nodes 0`,
+`--window-seconds 600 --window-memory 6`, `--heuristic full`.
+
+- **redhat, regression check:** from the bundled original (287), it again finds 283.
+- **map: 2075 → 2001** (74 shorter, 126 below the game's 2127; hall of fame 1541).
+  - The run had 16 passes, searched 4,668 windows, found 28 shortcuts in 2.0G nodes and took 5.4 h.
+  - Window 36 alone went from 2035 to 2001. The stretch at moves 1108-1144 shortened three times, 36 → 34 → 32 → 28.
+  - 18 windows of 36 hit the time limit, around moves 444-528, 588-628 and 1372-1428, so window 40 was not started.
+  - The result was replayed by `ffsolve verify` and by the web port's physics, and
+    promoted to `solutions/map.lua` and `legacy/solution/map.lua`. The game's
+    original stays in `old/`.
+- **The queue.** The same settings then run level after level:
+  1. the six levels the window optimiser had shortened before;
+  2. every level not yet run this way and not proven optimal, longest known solution first.
+
+  Verified shortenings are promoted as they come in.
+
+  | level | from | to | last window |
+  |---|---|---|---|
+  | propulsion | 1962 | **1940** | 48, 2 windows at the time limit; 2.8 h |
+  | barrel | 1223 | **1219** | 40, 1 window at the time limit; 37 min |
+  | floppy | 944 | 944 | 40, 2 windows at the time limit; 35 min |
+  | linux | 652 | **650** | 68, 4 windows at the time limit and 1 at 3 GB; 2.6 h |
+  | key | 522 | 522 | 60, 2 windows at the time limit; 53 min |
+  | hole | 441 | **439** | 52, 2 windows at the time limit; 34 min (bundled was 463) |
+  | grail | 1691 | **1689** | 44, 2 windows at 3 GB (~94 B a state, 34M states, at 87-91 % of the time); 44 min |
+  | rush | 852 | 852 | 92, 6 windows at 3 GB (57M states, at bound 86-88); 2.8 h |
+  | experiments | 706 | 706 | 32, 3 windows at the time limit (moves 348-388); 20 min |
+  | hardware | 629 | 629 | 64, 2 windows at the time limit (moves 332-400); 1.2 h |
+
+  **Threads and memory.** The queue ran on 4 threads until linux's window 68. It then
+  moved to 8 threads. Within 25 minutes those workers held 15 GB of the machine's 32 GB, with
+  0.5 GB of commit left. A worker keeps its table at the size its biggest window grew it to.
+  Windows of 68 reached 47M states, about 49 bytes each.
+
+  The per-window limit therefore does not bound the whole process; threads times
+  that limit does. The queue now runs 6 threads with `--window-memory 3`, at most
+  about 18 GB.
+
+  At 3 GB a window holds about 65M states. That is close to what the
+  fastest windows reach in 10 minutes. linux's [416..484] stopped there at 567 s, bound
+  66/68.
+
 ## Open
 
 - **A last window that accepts any solved room.** At present the last window
@@ -235,9 +462,5 @@ fame's:
 
 - **The heuristic still ignores items.** A window where only items differ is
   pruned by the cost limit alone. That is where the remaining time goes.
-- **A recorded window run overwrites the row's counts.** It replaces the
-  `expanded`, `stored` and `seconds` that belonged to the run that set the
-  bound (seen on hole, linux, map and barrel). Separate columns for the
-  bound's run would fix that.
 - **Without `--moves`, `improve` starts from the bundled solution**, not from
   the shorter one in `solutions/`.

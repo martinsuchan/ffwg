@@ -20,13 +20,13 @@ game. `ffsolve results` is the live scoreboard.
 ```
 solver/
   src/FishFillets.Physics/   the rules: Level, Room, ApplyMove, IsSolved
-  src/FishFillets.Search/    A*, the window optimiser, the level reduction
+  src/FishFillets.Search/    A*, the window optimiser, the level reduction, the smoother
   src/FishFillets.Cli/       the `ffsolve` console app
   src/FishFillets.Editor/    `ffedit`, a WPF editor for simplifying levels
   tests/                     MSTest suite (dotnet test)
   levels/                    exported level geometry (checked in, 82 levels)
   solutions/                 solutions shorter than the bundled ones
-  docs/                      milestone log, hall of fame, results.csv
+  docs/                      milestone log, hall of fame, results.csv, window-results.csv
 ```
 
 ## Getting started
@@ -203,7 +203,7 @@ globally different route ([`docs/003`](docs/003-2026-08-14-window-optimizer.md))
 It searches the windows of each pass in parallel with the main solver's state
 table, skips windows already known to hold nothing, and matches a window's end
 up to swapped identical items ([`docs/029`](docs/029-2026-11-19-window-optimizer-rework.md)).
-Without `--moves` it starts from the bundled solution, not from `solutions/`.
+Without `--moves` it starts from `legacy/solution/`, which holds the best solution known (root docs/085).
 
 | option | default | meaning |
 | --- | --- | --- |
@@ -214,9 +214,19 @@ Without `--moves` it starts from the bundled solution, not from `solutions/`.
 | `--seconds N` | none | stop after N s, keeping what was found |
 | `--no-merge` | off | match a window's end state exactly, not up to swapped identical items |
 | `--no-skip-reversals` | off | also simulate moves that undo a fast move |
+| `--grow N`, `--max-window N` | off | after a full round at one size, grow the window by N and go again; stops after the first size at which a window hits a per-window limit, or at `--max-window`. The stride then defaults to N. That loses nothing: a window of the last size, starting anywhere, lies inside one of this size starting on the stride, and a window finds every shortcut inside it. In general a stride s at window W covers every stretch of up to W - s + 1 moves |
+| `--grow-per-start` | off | with `--grow`: a window that hits a per-window limit blocks only its own start room, not the whole run. Larger windows from that room are skipped (logged as `blocked`); the others go on growing until every window of a size is blocked, or `--max-window`/`--seconds` ([docs/030](docs/030-2026-11-22-incremental-windows.md)) |
+| `--window-seconds N`, `--window-memory GB` | none | per-window limits, like `--nodes`: a window that reaches one gives up and reports how far it got. `--nodes 0` drops the node limit. The memory is the worker's state table and queue |
+| `--order sequential\|spread` | sequential | the order windows are searched in: from the start of the solution to its end. `spread` starts one window per thread at 1/(t+1), 2/(t+1)... of the solution, then always the middle of the widest stretch not yet searched, so a run stopped early has sampled the whole solution evenly. A finished round gives the same result in either order |
+| `--heuristic full\|walls\|manhattan` | full | the window search's lower bound. `walls`: each fish's distance to its target around the walls, facing included (the walls-only BFS of the main solver's exit bound). `full`: that, or the item furthest from its target if more (sideways and up it moves only when pushed, one cell a move; down is free; sliding out over the border is free). `manhattan`: straight lines, as before docs/029's rework. All are admissible |
+| `--state FILE` | — | every window searched, appended as it ends. A rerun skips each window it covers: one ruled out, or one stopped by a limit no smaller than the current one. Windows are known by their two rooms and length, so they stay known after a splice elsewhere |
+| `--resume` | off | start from the solution in `--out`, if there is one. `--out` is rewritten as soon as a window finds a shortcut, not only after a round, so stop and rerun the same command at any time |
+| `--window-log FILE` | — | one line per window searched, to the console and appended to FILE as CSV (`level;window;pass;start;end;length;outcome;bound;nodes;stored;seconds`). `outcome` is `shortcut`, `none` (ruled out), `node-limit` or `time-limit`; `bound` is how far the search got: no path between the window's two rooms is shorter |
 | `--moves S` | the bundled solution | improve this string instead |
 | `--out FILE` | — | write the result; rewritten after every pass that shortens it |
-| `--quiet`, `--no-record` | off | as above |
+| `--quiet` | off | as above |
+| `--no-record` | off | don't put a shortened solution into `docs/results.csv`. A run that shortens nothing never goes there |
+| `--no-window-record` | off | don't add the rounds to `docs/window-results.csv` (below) |
 
 ```
 ffsolve improve barrel --window 18 --out solutions\barrel.lua
@@ -237,6 +247,32 @@ Every solution the solver produces is already verified before it is reported;
 this is for checking one by hand, or for confirming a solution against a
 *different* level (see below).
 
+## `smooth` — reorder a solution so it reads like a person's
+
+```
+ffsolve smooth <level>                 # legacy/solution against legacy/solution/old
+ffsolve smooth <level> --from F.lua [--reference R.lua | --no-reference] [--out F.lua]
+ffsolve smooth --all [--write]         # every level whose original was replaced
+```
+
+A shortcut from `improve`, or an A* solution, is shortest but often switches fish on
+nearly every move (`DdDdDdDd`). `smooth` keeps the length and changes only the order:
+
+1. Where the solution and the reference (the game's original) pass through the same
+   two states, and the reference needs no more moves between them, it takes the
+   reference's moves (`luuu` → `uuul`) and locks them.
+2. In what is left, it swaps a run of one fish with the next run of the other, or
+   shifts one move by up to 8 places. A change is kept when the replay through
+   it ends in the same state and the trace then passes through more of the
+   reference's states, or the same number of them with fewer fish switches.
+
+Both steps repeat until nothing changes. It is sound for the reason the window
+splice is: equal state keys are interchangeable. As in A*, the keys merge identical
+items that traded places, so such states still count as the same. It does no search and takes well
+under a second on any level. `--write` puts a changed result into
+`legacy/solution` and, where the level has one, `solver/solutions`. Details and
+the first numbers: [`docs/031`](docs/031-2026-11-23-smooth.md).
+
 ## `results` — the scoreboard
 
 ```
@@ -245,6 +281,34 @@ ffsolve results --unsolved   # only what is still open, and how close the bound 
 ffsolve results --rebuild    # refresh the file from the corpus, without searching
 ffsolve results --rebuild --separator culture   # rewrite it for the local Excel
 ```
+
+### The window optimiser's record
+
+`improve` writes every round, one level at one window size, stride and bound,
+to **[`docs/window-results.csv`](docs/window-results.csv)** and its workbook
+`window-results.xlsx`. They are kept apart from `results.csv`, which records
+solutions and bounds. A round run again replaces its row. A resumed round
+counts the windows its `--state` file already knew.
+
+| column | |
+| --- | --- |
+| `level`, `window`, `stride`, `heuristic` | the round |
+| `from`, `to` | solution length before and after it |
+| `windows`, `ruledOut`, `shortcuts`, `limited`, `notSearched` | its windows: proven to hold no shortcut, shortened, stopped by a per-window limit, not reached before the run's time limit |
+| `covered` | the longest stretch the round proved has no shortcut anywhere: `window - stride + 1`. Only when every window was searched and none was limited |
+| `nodeLimit`, `windowSeconds`, `windowMemoryGb` | the per-window limits |
+| `nodes`, `seconds`, `note`, `recorded` | the cost, and what to know about the row |
+
+The workbook's **levels** sheet sums up each level: its length now (green when
+it matches or beats the hall of fame), the longest stretch covered, the largest
+window whose round finished, and the largest window tried with how many of its
+windows hit a limit. The **rounds** sheet lists every row of the CSV.
+
+The rows before 2026-11-21 were taken from the run logs. Those runs did not
+log which windows hit their node limit, so they have no `limited` or
+`covered`. Their note says so.
+
+### The results record
 
 The record is **[`docs/results.csv`](docs/results.csv)**, written by the solver
 itself — one row per level, in the order the game is played, grouped by branch:
@@ -328,6 +392,20 @@ ffsolve info gems
 
 Room size, model counts by weight, the move symbols and branching factor, goals,
 and whether the freshly-loaded room is settled and solvable.
+
+## `ladder` — incremental windows, measured
+
+```
+ffsolve ladder linux --from solutions\linux.lua --starts 400,460,500 --window 32 --max-window 64 --store-pruned
+ffsolve ladder key --every 40 --window 32 --max-window 56 --threads 2 --log ladder.csv
+```
+
+For each start, grows the window by `--grow` (4) from `--window` to `--max-window` twice: a fresh search per
+size, and one state table kept across the sizes (the ladder, re-scoring every stored state for each new target).
+`--store-pruned` also keeps the children over the limit in the table. Prints both per size and the totals
+(expansions, skipped, re-scored, seconds, table size); exits with 1 if outcome, bound or shortcut length ever differ.
+Limits as in `improve` (`--nodes`, `--window-seconds`, `--window-memory`), charged to the whole ladder. An experiment,
+not yet used by `improve` ([docs/030](docs/030-2026-11-22-incremental-windows.md)).
 
 ## `bench` — simulation throughput
 

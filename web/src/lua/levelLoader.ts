@@ -52,6 +52,10 @@ export interface LevelData {
   bgPicture: string;
   models: LevelModel[];
   waves: RoomWaves;
+  /** The track code.lua's init starts (its first sound_playMusic), or null - for
+   *  views that play the level without its live Lua, like CompareScene (docs/086).
+   *  The live engine still drives the music in play and replay. */
+  music: string | null;
 }
 
 interface HostModel {
@@ -186,6 +190,13 @@ export function extractRuntimeIncludes(source: string, levelName: string): Set<s
     for (const m of line.matchAll(codenameRe)) runtime.add(m[1] + levelName + m[2]);
   }
   return runtime;
+}
+
+/** sound_playMusic()'s raw legacy path ("music/rybky14.ogg", relative to
+ *  legacy/, as Path::dataReadPath reads it) -> the bare basename
+ *  convert-music.ps1 names its output files with ("rybky14"). */
+export function musicTrackName(path: string): string {
+  return path.replace(/^music\//, "").replace(/\.ogg$/, "");
 }
 
 /**
@@ -456,6 +467,7 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
   let room: { width: number; height: number; picture: string } | null = null;
   // Default = WavyPicture's own constructor default: no waves (amp 0).
   let waves: RoomWaves = { amp: 0, periode: 1, speed: 0 };
+  let music: string | null = null;
 
   try {
     lua.global.set(
@@ -576,7 +588,9 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     // since we only care about the goal-setting statements that follow
     // them, not sound/restart-flavored text. initModels() itself is real
     // now (INIT_MODELS_SOURCE, doString'd below) - see docs/024.
-    lua.global.set("sound_playMusic", () => {});
+    lua.global.set("sound_playMusic", (track: string) => {
+      music ??= musicTrackName(track);
+    });
     lua.global.set("getRestartCount", () => 1);
     lua.global.set("dialog_addFont", () => {});
     // No-op: code.lua's own file_include(...) targets are pre-fetched and
@@ -651,6 +665,7 @@ export async function loadLevelModels(levelName: string): Promise<LevelData> {
     roomHeight: loadedRoom.height,
     bgPicture: loadedRoom.picture,
     waves,
+    music,
     models: hostModels.map((model) => ({
       kind: model.kind,
       x: model.x,

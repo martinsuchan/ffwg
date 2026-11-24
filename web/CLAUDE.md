@@ -24,8 +24,9 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
   `Landslip`, `Cube`, `Unit`, `Goal`, `ModelFactory`, `Room`, `FinderAlg`, `MouseControl`,
   `Controls` (active fish, queued key, move recording). `GameEngine.ts` wraps a Room
   (`RenderModel` snapshot, `getMoves`, `isFresh`, `askFieldIndex`...). `SolutionValidator.ts`
-  = headless replay. `UnitAnimator.ts` = *which* fish anim (port of `level_update.lua`).
-  `timing.ts` = `CYCLE_MS`. `worldMapState.ts` = node states/progression. `appMode.ts` =
+  = headless replay. `SolutionDiff.ts` = two solutions lined up by game states (086).
+  `UnitAnimator.ts` = *which* fish anim (port of `level_update.lua`). `timing.ts` = `CYCLE_MS`.
+  `worldMapState.ts` = node states/progression. `appMode.ts` =
   `/` standard vs `/sandbox`.
 - `lua/` — `levelLoader.ts`: one-shot engine per level load (models.lua + code.lua →
   `LevelData`), `LEGACY_ROOT`/`fetchLegacyFile`, manifests. `levelScript.ts`: the
@@ -35,8 +36,9 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
   `dialogSound.ts`: shared dialog/sound-path helpers. `luaEngine.ts`: `createLuaEngine()`,
   the only `LuaFactory` construction (bundled `glue.wasm`).
 - `scenes/` — `WorldMapScene` (hub; launches levels and prewarms their live engine),
-  `LevelScene` (play), `ReplayScene`, `DemoScene` (movie/poster), `IntroScene`,
-  `CreditsScene`; overlays `HelpOverlay`, `OptionsOverlay`, `PedometerUI`, `SaveSlotUI`,
+  `LevelScene` (play), `ReplayScene`, `CompareScene` (sandbox, key C: two solutions side by
+  side via `ComparePane` + the DOM panel `CompareUI`, 086), `DemoScene` (movie/poster),
+  `IntroScene`, `CreditsScene`; overlays `HelpOverlay`, `OptionsOverlay`, `PedometerUI`, `SaveSlotUI`,
   `SubtitleStack`; `ModelAnimator` (one per model: frames + position from the shared clock),
   `AudioManager` + `audioEngine` (Web Audio buffers), `WavyBackground` (bg ripple shader),
   `zxEffect` / `mirrorEffect` (legacy `EffectZx` / `EffectMirror` draw effects: CanvasTexture;
@@ -49,7 +51,7 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
 - `storage/` — localStorage: `levelStorage` (best solutions + save slots), `settingsStorage`,
   `playtime`, `progressBackup` (JSON backup/restore, re-validates solutions).
 - `i18n.ts` (`t()`; legacy `labels.lua` + port-only labels), `navigation.ts` (browser
-  Back → map), `fullscreen.ts` (native F11 layout).
+  Back → map; replay/compare opened from a level → that level, 087), `fullscreen.ts` (native F11 layout).
 - `public/lua/` — `lua50-compat.lua` shim + generated manifests; `public/assets/` = converted
   assets (**gitignored**, produced by `scripts/convert-assets.ps1`; change the scripts, not
   the output). `tools/` = Node build helpers. `tests/` = e2e suite.
@@ -73,8 +75,8 @@ TypeScript + Vite. Grid cell = 15 px (`legacy/src/level/View.h` `SCALE`).
 - **Content serving:** legacy files are fetched at `/legacy/` — dev middleware in
   `vite.config.ts`, copied into `publish/` for prod (041, 042).
 - **Modes:** `/` = real progression + own solutions only; `/sandbox` = all unlocked +
-  bundled reference solutions (045). Saves are multi-slot and include pickled Lua model state
-  (026).
+  bundled reference solutions (045) + the solution compare view (086). Saves are
+  multi-slot and include pickled Lua model state (026).
 
 ## Invariants and gotchas (each cost a real bug)
 

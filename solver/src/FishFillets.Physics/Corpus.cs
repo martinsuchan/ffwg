@@ -91,8 +91,9 @@ public sealed class Corpus
     /// <summary>
     /// The solution the game shipped with: <c>legacy/solution/old/&lt;name&gt;.lua</c>
     /// where a shorter one has replaced it, else the same file as
-    /// <see cref="TryReadSolution"/>. The "bundled" length in the results, and the
-    /// tests pinned to the original move strings, read this one.
+    /// <see cref="TryReadSolution"/>. The tests pinned to the original move
+    /// strings read this one. The results' "bundled" column does not: it shows
+    /// what legacy/solution holds now.
     /// </summary>
     public bool TryReadOriginalSolution(string name, out string moves)
     {

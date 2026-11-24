@@ -55,29 +55,53 @@ internal sealed class RelaxedDistance
     public static RelaxedDistance ToExit(Level level, int model, bool[] walls, bool freeFall)
     {
         int w = level.Width, h = level.Height;
+        var sources = new List<int>();
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                if (Fits(level, model, walls, x, y) && CanLeave(level, model, walls, x, y))
+                {
+                    int cell = (y * w) + x;
+                    sources.Add(cell * 2);
+                    sources.Add((cell * 2) + 1);
+                }
+            }
+        }
+
+        return Search(level, model, walls, freeFall, sources);
+    }
+
+    /// <summary>
+    /// Distance for a fish to stand at one anchor cell with one facing: what the
+    /// window optimiser needs, whose target is a whole room. The same walls-only
+    /// relaxation as <see cref="ToExit"/>, from a single source.
+    /// </summary>
+    public static RelaxedDistance ToCell(Level level, int model, bool[] walls, int x, int y, bool isLeft)
+    {
+        var sources = new List<int>();
+        if ((uint)x < (uint)level.Width && (uint)y < (uint)level.Height && Fits(level, model, walls, x, y))
+        {
+            sources.Add((((y * level.Width) + x) * 2) + (isLeft ? 0 : 1));
+        }
+
+        return Search(level, model, walls, freeFall: false, sources);
+    }
+
+    /// <summary>Backward 0-1 BFS from the zero-distance (cell, facing) nodes.</summary>
+    private static RelaxedDistance Search(Level level, int model, bool[] walls, bool freeFall, List<int> sources)
+    {
+        int w = level.Width, h = level.Height;
         var distance = new int[w * h * 2];
         Array.Fill(distance, Unreachable);
 
         // 0-1 BFS: free-fall edges cost 0, everything else 1. A deque keeps that
         // in order without a full priority queue.
         var queue = new LinkedList<int>();
-
-        for (int y = 0; y < h; y++)
+        foreach (int node in sources)
         {
-            for (int x = 0; x < w; x++)
-            {
-                if (!Fits(level, model, walls, x, y) || !CanLeave(level, model, walls, x, y))
-                {
-                    continue;
-                }
-
-                for (int f = 0; f < 2; f++)
-                {
-                    int node = (((y * w) + x) * 2) + f;
-                    distance[node] = 0;
-                    queue.AddLast(node);
-                }
-            }
+            distance[node] = 0;
+            queue.AddLast(node);
         }
 
         while (queue.Count > 0)

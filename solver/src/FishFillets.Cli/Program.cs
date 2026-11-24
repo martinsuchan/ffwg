@@ -24,6 +24,9 @@ if (argv.Length == 0 || argv[0] is "-h" or "--help" or "help")
 
 string command = argv[0];
 
+// A detached search would otherwise run in Windows' efficiency mode (PowerThrottling.cs).
+PowerThrottling.Disable();
+
 Corpus corpus;
 try
 {
@@ -48,9 +51,11 @@ try
     return command switch
     {
         "verify" => Verify(corpus, argv),
+        "smooth" => Smooth(corpus, argv),
         "info" => Info(corpus, argv),
         "bench" => Bench(corpus, argv),
         "improve" => Improve(corpus, argv),
+        "ladder" => Ladder(corpus, argv),
         "solve" => Solve(corpus, argv),
         "reduce" => Reduce(corpus, argv),
         "results" => Results(corpus, argv),
@@ -119,6 +124,35 @@ static void PrintUsage()
                                    up to swapped identical items
                     [--no-skip-reversals]  also simulate moves that undo a
                                    fast move
+                    [--grow N] [--max-window N]  after a full round, grow the
+                                   window by N and go again, until a window hits
+                                   a per-window limit (or --max-window). The
+                                   stride defaults to N: each round still covers
+                                   every window of the round before
+                    [--grow-per-start]  with --grow: a window that hits a limit
+                                   stops only its own start - the next sizes
+                                   skip that start and go on with the others,
+                                   until every start is stopped (docs/030)
+                    [--window-seconds N] [--window-memory GB]  per-window
+                                   limits, as --nodes (0 = no node limit)
+                    [--order sequential|spread] (sequential)  from the start
+                                   of the solution; or spread: the first
+                                   windows at 1/(t+1), 2/(t+1)... of it, then
+                                   always the middle of the widest stretch
+                                   not yet searched
+                    [--heuristic full|walls|manhattan] (full)  the window
+                                   bound: the fish's distance around the walls
+                                   and the items' pushes still needed (full),
+                                   the fish alone (walls), or straight lines
+                    [--state FILE] every window searched, kept across runs:
+                                   a rerun skips what it covers
+                    [--resume]     start from --out if it holds a solution
+                    [--no-window-record]  do not add the rounds to
+                                   docs/window-results.csv (and .xlsx); results.csv
+                                   gets the run only if it shortened the solution
+                    [--window-log FILE]  one line per window searched, to the
+                                   console and appended to FILE as CSV: outcome,
+                                   bound reached, nodes, stored states, seconds
                     [--moves S] [--out FILE] (rewritten after every pass that
                                    shortens the solution) [--quiet] [--no-record]
 
@@ -131,8 +165,29 @@ static void PrintUsage()
                                   is the local Windows one, which is what Excel
                                   opens a CSV with. Sticks for later writes.
           ffsolve verify <level> | --all | <level> --moves S
+          ffsolve smooth <level>            reorder a solution's moves, same length,
+                                            so it reads like a person's (docs/031):
+                                            the original's moves where they fit,
+                                            elsewhere fewer fish switches
+                    [--moves S | --from FILE.lua]  (default legacy/solution)
+                    [--reference FILE.lua | --no-reference]  (default the
+                                   game's original, legacy/solution/old)
+                    [--out FILE]
+          ffsolve smooth --all [--write]    every level whose original a shorter
+                                            solution replaced; --write puts the
+                                            result in legacy/solution and
+                                            solver/solutions
           ffsolve reduce <level> | --all    models the analysis proves immobile
           ffsolve info <level>              size, models, goals, branching factor
+          ffsolve ladder <level>            experiment (docs/030): per start, the
+                                            growing windows searched fresh vs on
+                                            one incremental table
+                    [--starts a,b,c | --every N] (40) [--window N] (32)
+                    [--grow N] (4) [--max-window N] [--threads N] (1)
+                    [--window-seconds N] [--window-memory GB] [--nodes N]
+                    [--moves S | --from FILE.lua] [--log FILE.csv]
+                    [--store-pruned]  the ladder also keeps the children a
+                                   rung leaves out: no node expanded twice
           ffsolve bench <level> [--rounds N] (200)   physics replay throughput
           ffsolve bench --suite             wall clock of fixed A* searches, to
                     [--reps N] (3)          compare builds: per-expansion
@@ -455,7 +510,7 @@ static int Solve(Corpus corpus, string[] argv)
     // A simplified room has no bundled solution of its own, so it is measured
     // against the one for the level it came from - which is the number that
     // actually says whether the detour was worth taking.
-    int reference = corpus.TryReadOriginalSolution(raw.SourceLevel ?? name, out string bundled) ? bundled.Length : -1;
+    int reference = corpus.TryReadSolution(raw.SourceLevel ?? name, out string bundled) ? bundled.Length : -1;
     string compared = reference < 0
         ? ""
         : result.Moves!.Length < reference ? $"  ({reference - result.Moves.Length} SHORTER than the bundled {reference})"
@@ -721,6 +776,10 @@ static int Results(Corpus corpus, string[] argv)
         }
 
         ResultsFile.Update(corpus, _ => { }, separator);
+        if (WindowResults.Rebuild(corpus) is { } windowWarning)
+        {
+            Console.Error.WriteLine($"warning: {windowWarning}");
+        }
 
         char used = ResultsFile.DetectSeparator(ResultsFile.PathFor(corpus.DocsDir)) ?? ',';
         Console.WriteLine(
@@ -833,6 +892,156 @@ static int Reduce(Corpus corpus, string[] argv)
     return 0;
 }
 
+// ------------------------------------------------------------------ ladder --
+
+// The ladder experiment (solver/docs/030): per start, the growing windows searched
+// fresh, one A* each, against one incremental search on a single state table.
+static int Ladder(Corpus corpus, string[] argv)
+{
+    if (argv.Length < 2)
+    {
+        Console.Error.WriteLine("ladder needs a level name");
+        return 2;
+    }
+
+    var inv = System.Globalization.CultureInfo.InvariantCulture;
+    string name = argv[1];
+    int window = int.TryParse(TakeOption(argv, "--window"), out int w) ? w : 32;
+    int grow = int.TryParse(TakeOption(argv, "--grow"), out int g) ? Math.Max(1, g) : 4;
+    int maxWindow = int.TryParse(TakeOption(argv, "--max-window"), out int mw) ? mw : window + (4 * grow);
+    long nodeLimit = long.TryParse(TakeOption(argv, "--nodes"), out long n) ? (n <= 0 ? long.MaxValue : n) : long.MaxValue;
+    int threads = int.TryParse(TakeOption(argv, "--threads"), out int th) ? Math.Max(1, th) : 1;
+    int windowSeconds = int.TryParse(TakeOption(argv, "--window-seconds"), out int wsec) ? Math.Max(0, wsec) : 0;
+    double windowGb = double.TryParse(TakeOption(argv, "--window-memory"), System.Globalization.NumberStyles.Float, inv, out double gb) ? gb : 0;
+    string? startsText = TakeOption(argv, "--starts");
+    int every = int.TryParse(TakeOption(argv, "--every"), out int ev) ? Math.Max(1, ev) : 0;
+    string? from = TakeOption(argv, "--from");
+    string? logPath = TakeOption(argv, "--log");
+    string moves = TakeOption(argv, "--moves") ?? "";
+    bool storePruned = argv.Contains("--store-pruned");
+
+    Level level = corpus.LoadLevel(name);
+    if (moves.Length == 0 && from is not null)
+    {
+        moves = ReadSavedMoves(File.ReadAllText(from)) ?? "";
+    }
+
+    if (moves.Length == 0 && !corpus.TryReadSolution(name, out moves))
+    {
+        Console.Error.WriteLine($"no solution for {name} - pass --moves or --from");
+        return 2;
+    }
+
+    List<int> starts = startsText is not null
+        ? [.. startsText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => int.Parse(s, inv))]
+        : [.. Enumerable.Range(0, ((moves.Length - window) / Math.Max(1, every == 0 ? 40 : every)) + 1).Select(k => k * (every == 0 ? 40 : every))];
+    starts = [.. starts.Where(s => s >= 0 && s + window <= moves.Length)];
+
+    var options = new WindowOptions
+    {
+        NodeLimit = nodeLimit,
+        Threads = threads,
+        WindowTimeLimit = windowSeconds > 0 ? TimeSpan.FromSeconds(windowSeconds) : null,
+        WindowMemoryLimit = windowGb > 0 ? (long)(windowGb * 1024 * 1024 * 1024) : null,
+    };
+
+    Console.WriteLine(
+        $"{name}: {moves.Length} moves, {starts.Count} start(s), windows {window}..{maxWindow} by {grow}, {threads} thread(s)"
+        + (windowSeconds > 0 ? $", {windowSeconds} s" : "") + (windowGb > 0 ? $", {windowGb.ToString("0.##", inv)} GB" : "")
+        + (windowSeconds > 0 || windowGb > 0 ? " per window (per ladder for the incremental one)" : "")
+        + (storePruned ? ", the ladder stores pruned children" : ""));
+
+    StreamWriter? log = null;
+    if (logPath is not null)
+    {
+        bool fresh = !File.Exists(logPath) || new FileInfo(logPath).Length == 0;
+        log = new StreamWriter(logPath, append: true) { AutoFlush = true };
+        if (fresh)
+        {
+            log.WriteLine("level;start;window;mode;outcome;bound;shortcut;expanded;skipped;rescored;stored;seconds");
+        }
+    }
+
+    var gate = new object();
+    int mismatches = 0;
+    void Done(LadderStart r)
+    {
+        lock (gate)
+        {
+            Console.WriteLine($"start {r.Start}:");
+            for (int k = 0; k < Math.Max(r.Fresh.Count, r.Incremental.Count); k++)
+            {
+                LadderRung? f = k < r.Fresh.Count ? r.Fresh[k] : null;
+                LadderRung? c = k < r.Incremental.Count ? r.Incremental[k] : null;
+                bool comparable = f is not null && c is not null
+                    && f.Outcome is WindowOutcome.NoShortcut or WindowOutcome.Shortcut
+                    && c.Outcome is WindowOutcome.NoShortcut or WindowOutcome.Shortcut;
+                bool same = !comparable
+                    || (f!.Outcome == c!.Outcome && f.Bound == c.Bound && f.Shortcut?.Length == c.Shortcut?.Length);
+                if (!same)
+                {
+                    mismatches++;
+                }
+
+                string Cell(LadderRung? x, bool incremental) => x is null ? "-" : string.Create(inv,
+                    $"{KnownWindow.Name(x.Outcome),-12} {x.Bound,3} {x.Expanded,13:N0}{(incremental ? string.Create(inv, $" +{x.Skipped,11:N0} skip {x.Rescored,11:N0} rescore") : "")} {x.Seconds,7:F1} s");
+                Console.WriteLine(string.Create(inv,
+                    $"  {(f ?? c)!.Window,3}  fresh {Cell(f, false)}  | ladder {Cell(c, true)}{(same ? "" : "  MISMATCH")}"));
+                foreach ((LadderRung? x, string mode) in new[] { (f, "fresh"), (c, "ladder") })
+                {
+                    if (x is not null)
+                    {
+                        log?.WriteLine(string.Create(inv,
+                            $"{name};{r.Start};{x.Window};{mode};{KnownWindow.Name(x.Outcome)};{x.Bound};{x.Shortcut?.Length.ToString(inv) ?? ""};{x.Expanded};{x.Skipped};{x.Rescored};{x.Stored};{x.Seconds:F2}"));
+                    }
+                }
+            }
+        }
+    }
+
+    var sw = Stopwatch.StartNew();
+    IReadOnlyList<LadderStart> results = new WindowOptimizer(level).Ladder(moves, starts, window, grow, maxWindow, options, Done, storePruned);
+    log?.Dispose();
+
+    // Totals over the rungs both modes reached, so a limit hit by one only does not skew them.
+    long freshNodes = 0, ladderNodes = 0, rescored = 0, skipped = 0, freshStored = 0, ladderStored = 0;
+    double freshSecs = 0, ladderSecs = 0;
+    foreach (LadderStart r in results)
+    {
+        int both = Math.Min(r.Fresh.Count, r.Incremental.Count);
+        for (int k = 0; k < both; k++)
+        {
+            freshNodes += r.Fresh[k].Expanded;
+            freshSecs += r.Fresh[k].Seconds;
+            ladderNodes += r.Incremental[k].Expanded;
+            rescored += r.Incremental[k].Rescored;
+            skipped += r.Incremental[k].Skipped;
+            ladderSecs += r.Incremental[k].Seconds;
+        }
+
+        if (both > 0)
+        {
+            // The memory each needs: the largest table of the fresh windows, the ladder's last.
+            freshStored += r.Fresh.Take(both).Max(x => (long)x.Stored);
+            ladderStored += r.Incremental[both - 1].Stored;
+        }
+    }
+
+    Console.WriteLine();
+    Console.WriteLine(string.Create(inv,
+        $"rungs reached by both: fresh {freshNodes:N0} expansions in {freshSecs:F1} s; ladder {ladderNodes:N0} expansions "
+        + $"(+{skipped:N0} skipped, {rescored:N0} re-scored) in {ladderSecs:F1} s"));
+    if (freshNodes > 0 && freshSecs > 0)
+    {
+        Console.WriteLine(string.Create(inv,
+            $"ladder: {100.0 * ladderNodes / freshNodes:F0} % of the expansions, {100.0 * ladderSecs / freshSecs:F0} % of the time; "
+            + $"tables {100.0 * ladderStored / Math.Max(1, freshStored):F0} % of the fresh windows' largest; "
+            + $"{mismatches} mismatch(es); {sw.Elapsed.TotalSeconds:F0} s wall"));
+    }
+
+    return mismatches == 0 ? 0 : 1;
+}
+
 // ----------------------------------------------------------------- improve --
 
 static int Improve(Corpus corpus, string[] argv)
@@ -843,31 +1052,86 @@ static int Improve(Corpus corpus, string[] argv)
         return 2;
     }
 
+    var inv = System.Globalization.CultureInfo.InvariantCulture;
     string name = argv[1];
     int window = int.TryParse(TakeOption(argv, "--window"), out int w) ? w : 16;
-    int stride = int.TryParse(TakeOption(argv, "--stride"), out int s) ? s : 1;
-    long nodeLimit = long.TryParse(TakeOption(argv, "--nodes"), out long n) ? n : 2_000_000;
+    string? strideText = TakeOption(argv, "--stride");
+    long nodeLimit = long.TryParse(TakeOption(argv, "--nodes"), out long n) ? (n <= 0 ? long.MaxValue : n) : 2_000_000;
     int threads = int.TryParse(TakeOption(argv, "--threads"), out int th) ? Math.Max(1, th) : Environment.ProcessorCount;
     int seconds = int.TryParse(TakeOption(argv, "--seconds"), out int sec) ? sec : 0;
+    int windowSeconds = int.TryParse(TakeOption(argv, "--window-seconds"), out int wsec) ? Math.Max(0, wsec) : 0;
+    double windowGb = double.TryParse(TakeOption(argv, "--window-memory"), System.Globalization.NumberStyles.Float, inv, out double gb) ? gb : 0;
+    long windowBytes = windowGb > 0 ? (long)(windowGb * 1024 * 1024 * 1024) : long.MaxValue;
+    int grow = int.TryParse(TakeOption(argv, "--grow"), out int g) ? Math.Max(0, g) : 0;
+
+    // Growing by N, a stride of N loses nothing: every window of the last size
+    // lies inside a window of this size that starts on the stride, so each
+    // round covers all of the round before at a quarter of the windows (N = 4).
+    int stride = int.TryParse(strideText, out int st) ? Math.Max(1, st) : grow > 0 ? grow : 1;
+    int maxWindow = int.TryParse(TakeOption(argv, "--max-window"), out int mw) ? mw : int.MaxValue;
+    string orderText = TakeOption(argv, "--order") ?? "sequential";
+    string heuristicText = TakeOption(argv, "--heuristic") ?? "full";
     bool mergeIdentical = !argv.Contains("--no-merge");
     bool skipReversals = !argv.Contains("--no-skip-reversals");
     string? outPath = TakeOption(argv, "--out");
+    string? windowLog = TakeOption(argv, "--window-log");
+    string? statePath = TakeOption(argv, "--state");
+    bool resume = argv.Contains("--resume");
+    bool recordWindows = !argv.Contains("--no-window-record");
     bool quiet = argv.Contains("--quiet");
+    bool perStart = grow > 0 && argv.Contains("--grow-per-start");
+    var policy = new GrowPolicy();
+
+    WindowOrder order;
+    switch (orderText)
+    {
+        case "spread": order = WindowOrder.Spread; break;
+        case "sequential": order = WindowOrder.Sequential; break;
+        default:
+            Console.Error.WriteLine($"--order must be spread or sequential (got '{orderText}')");
+            return 2;
+    }
+
+    WindowHeuristic heuristic;
+    switch (heuristicText)
+    {
+        case "full": heuristic = WindowHeuristic.WallsAndItems; break;
+        case "walls": heuristic = WindowHeuristic.Walls; break;
+        case "manhattan": heuristic = WindowHeuristic.Manhattan; break;
+        default:
+            Console.Error.WriteLine($"--heuristic must be full, walls or manhattan (got '{heuristicText}')");
+            return 2;
+    }
 
     Level level = corpus.LoadLevel(name);
 
+    // --resume picks up the best solution a stopped run left in --out.
     string moves = TakeOption(argv, "--moves") ?? "";
-    if (moves.Length == 0 && !corpus.TryReadSolution(name, out moves))
+    string source = moves.Length > 0 ? "--moves" : "legacy/solution";
+    if (resume && outPath is not null && File.Exists(outPath)
+        && ReadSavedMoves(File.ReadAllText(outPath)) is { Length: > 0 } saved
+        && SolutionValidator.Validate(new Room(level), saved).Solved)
+    {
+        moves = saved;
+        source = outPath;
+    }
+    else if (moves.Length == 0 && !corpus.TryReadSolution(name, out moves))
     {
         Console.Error.WriteLine($"no solution to improve for {name} - pass --moves");
         return 2;
     }
 
     Console.WriteLine(
-        $"{name}: {moves.Length} moves, window {window}, stride {stride}, node limit {nodeLimit:N0}, {threads} thread(s)"
-        + (seconds > 0 ? $", {seconds} s limit" : "")
+        $"{name}: {moves.Length} moves (from {source}), window {window}" + (grow > 0 ? $" growing by {grow}" + (maxWindow < int.MaxValue ? $" up to {maxWindow}" : "") : "")
+        + $", stride {stride}, {order.ToString().ToLowerInvariant()} order, {heuristicText} bound, {threads} thread(s)"
+        + (nodeLimit < long.MaxValue ? $", {nodeLimit:N0} nodes" : "")
+        + (windowSeconds > 0 ? $", {windowSeconds} s" : "")
+        + (windowBytes < long.MaxValue ? $", {windowGb.ToString("0.##", inv)} GB" : "")
+        + (nodeLimit < long.MaxValue || windowSeconds > 0 || windowBytes < long.MaxValue ? " per window" : "")
+        + (seconds > 0 ? $", {seconds} s in all" : "")
         + (mergeIdentical ? "" : ", identical items kept apart")
-        + (skipReversals ? "" : ", no reversal skip"));
+        + (skipReversals ? "" : ", no reversal skip")
+        + (perStart ? ", each start grows until it hits a limit" : ""));
 
     void Save(string improved)
     {
@@ -879,66 +1143,450 @@ static int Improve(Corpus corpus, string[] argv)
         }
     }
 
+    // --state: every window searched, kept across runs. A window ruled out,
+    // or stopped by a limit no smaller than the current one, is skipped when
+    // the run is started again. A window the run itself stopped is not kept.
+    var known = new Dictionary<string, KnownWindow>(StringComparer.Ordinal);
+    StreamWriter? stateWriter = null;
+    if (statePath is not null)
+    {
+        if (File.Exists(statePath))
+        {
+            foreach (string line in File.ReadLines(statePath).Skip(1))
+            {
+                if (KnownWindow.Parse(line) is { } k)
+                {
+                    known[k.Id] = k;
+                }
+            }
+
+            Console.WriteLine($"{known.Count:N0} window(s) known from {statePath}");
+        }
+
+        bool fresh = !File.Exists(statePath) || new FileInfo(statePath).Length == 0;
+        stateWriter = new StreamWriter(statePath, append: true) { AutoFlush = true };
+        if (fresh)
+        {
+            stateWriter.WriteLine(KnownWindow.Header);
+        }
+    }
+
+    // One line per window, to the console and appended to --window-log as CSV:
+    // how far each search got, so the limits can be set from what the windows
+    // actually needed. Workers report concurrently, so the writes are locked.
+    StreamWriter? logWriter = null;
+    if (windowLog is not null)
+    {
+        bool fresh = !File.Exists(windowLog) || new FileInfo(windowLog).Length == 0;
+        logWriter = new StreamWriter(windowLog, append: true) { AutoFlush = true };
+        if (fresh)
+        {
+            logWriter.WriteLine("level;window;pass;start;end;length;outcome;bound;nodes;stored;seconds");
+        }
+    }
+
+    var logLock = new object();
+    int size = window;
+    bool limitedAtSize = false;
+    var limitedWindows = new List<string>(); // this size's windows stopped by a per-window limit
+    var outcomes = new Dictionary<string, string>(StringComparer.Ordinal); // this size's windows, by id, for window-results.csv
+    int knownAtSize = 0;
+
+    // [start..end] padded to the solution's length, so the columns after it line up.
+    int digits = Math.Max(1, moves.Length.ToString(inv).Length);
+    string Span(WindowReport r) => $"[{r.Start.ToString(inv).PadLeft(digits)}..{r.End.ToString(inv).PadLeft(digits)}]";
+
+    bool IsKnownBarren(string id)
+    {
+        if (perStart && policy.Skips(id))
+        {
+            lock (logLock)
+            {
+                outcomes[id] = "blocked"; // its start hit a limit at a smaller size
+            }
+
+            return true;
+        }
+
+        if (!known.TryGetValue(id, out KnownWindow? k) || !k.Covers(nodeLimit, windowSeconds, windowBytes, heuristicText))
+        {
+            return false;
+        }
+
+        lock (logLock)
+        {
+            outcomes[id] = k.Outcome;
+            knownAtSize++;
+        }
+
+        if (k.Outcome != "none")
+        {
+            if (perStart)
+            {
+                policy.Limited(id);
+            }
+
+            limitedAtSize = true; // a limit was hit at this size, in an earlier run
+            lock (logLock)
+            {
+                limitedWindows.Add($"{k.Outcome} at bound {k.Bound}/{k.Length} (an earlier run)");
+            }
+        }
+
+        return true;
+    }
+
+    void WindowDone(WindowReport r)
+    {
+        string outcome = KnownWindow.Name(r.Outcome);
+        lock (logLock)
+        {
+            outcomes[r.Id] = outcome;
+        }
+
+        if (r.HitLimit)
+        {
+            limitedAtSize = true;
+            if (perStart)
+            {
+                policy.Limited(r.Id);
+            }
+
+            string where = $"{Span(r)} {outcome} at bound {r.Bound}/{r.Length}";
+            lock (logLock)
+            {
+                limitedWindows.Add(where);
+                if (!quiet && grow > 0)
+                {
+                    Console.WriteLine(perStart
+                        ? $"  window {where}: this start grows no further; the others go on"
+                        : $"  window {where}: the other windows of size {size} still run; size {size + grow} will not start");
+                }
+            }
+        }
+
+        lock (logLock)
+        {
+            if (logWriter is not null)
+            {
+                Console.WriteLine(string.Create(inv,
+                    $"    {Span(r)} {outcome,-12} bound {r.Bound,3}/{r.Length,-3} {r.Nodes,13:N0} nodes {r.Stored,13:N0} stored {r.Seconds,8:F1} s"));
+                logWriter.WriteLine(string.Create(inv,
+                    $"{name};{size};{r.Pass};{r.Start};{r.End};{r.Length};{outcome};{r.Bound};{r.Nodes};{r.Stored};{r.Seconds:F2}"));
+            }
+
+            if (stateWriter is not null && r.Outcome is not (WindowOutcome.Stopped or WindowOutcome.Shortcut))
+            {
+                var k = new KnownWindow(r.Id, outcome, r.Bound, r.Length, r.Nodes, nodeLimit, windowSeconds, windowBytes, heuristicText);
+                known[r.Id] = k;
+                stateWriter.WriteLine(k.ToLine());
+            }
+        }
+    }
+
+    // One row of window-results.csv per size: what this round found, and the
+    // longest stretch it proved free of shortcuts. A resumed round counts the
+    // windows its state file already knew, and adds to the time already spent.
+    void RecordRound(OptimizeResult result, int from, TimeSpan spent)
+    {
+        int last = Math.Max(0, from - size);
+        int expected = from < 2 ? 0 : (last / stride) + 1 + (last % stride != 0 ? 1 : 0);
+        int ruledOut = outcomes.Values.Count(o => o == "none");
+        int shortcuts = outcomes.Values.Count(o => o == "shortcut");
+        int limited = outcomes.Values.Count(o => o is "node-limit" or "memory-limit" or "window-time" or "blocked");
+        int stoppedCount = outcomes.Values.Count(o => o == "stopped");
+        int notSearched = stoppedCount + (result.TimedOut ? Math.Max(0, expected - outcomes.Count) : 0);
+        int? covered = notSearched == 0 && limited == 0 ? Math.Min(size - stride + 1, from) : null;
+
+        long nodes = result.NodesExplored;
+        double secs = spent.TotalSeconds;
+        if (knownAtSize > 0
+            && WindowResults.Load(corpus.DocsDir).FirstOrDefault(r => r.Key == (name, size, stride, heuristicText)) is { } before)
+        {
+            nodes += before.Nodes;
+            secs += before.Seconds;
+        }
+
+        string? warning = WindowResults.Record(corpus, [new WindowRound(
+            name, size, stride, heuristicText, from, result.Moves.Length,
+            Math.Max(expected, outcomes.Count), ruledOut, shortcuts, limited, notSearched, covered,
+            nodeLimit == long.MaxValue ? null : nodeLimit, windowSeconds > 0 ? windowSeconds : null,
+            windowBytes == long.MaxValue ? null : windowGb,
+            nodes, Math.Round(secs, 1), result.TimedOut ? "run time limit" : "",
+            DateTime.UtcNow.ToString("yyyy-MM-dd"))]);
+        if (warning is not null)
+        {
+            Console.Error.WriteLine($"warning: {warning}");
+        }
+    }
+
     var optimizer = new WindowOptimizer(level);
     var sw = Stopwatch.StartNew();
-    OptimizeResult result = optimizer.Optimize(moves, new WindowOptions
+    int original = moves.Length;
+    long totalNodes = 0;
+    int totalSearched = 0, totalImproved = 0, totalPasses = 0;
+    bool timedOut = false;
+    string stopReason = "";
+
+    while (true)
     {
-        Window = window,
-        Stride = stride,
-        NodeLimit = nodeLimit,
-        Threads = threads,
-        TimeLimit = seconds > 0 ? TimeSpan.FromSeconds(seconds) : null,
-        MergeIdenticalItems = mergeIdentical,
-        SkipReversals = skipReversals,
-        Progress = quiet ? null : Console.WriteLine,
-        Improved = Save,
-    });
+        TimeSpan? remaining = seconds > 0 ? TimeSpan.FromSeconds(seconds) - sw.Elapsed : null;
+        if (remaining is { } left && left <= TimeSpan.Zero)
+        {
+            timedOut = true;
+            break;
+        }
+
+        limitedAtSize = false;
+        limitedWindows.Clear();
+        outcomes.Clear();
+        knownAtSize = 0;
+        policy.NextSize();
+        int sizeFrom = moves.Length;
+        TimeSpan sizeStart = sw.Elapsed;
+        if (grow > 0)
+        {
+            Console.WriteLine($"--- window {size} from {moves.Length} moves, {sw.Elapsed.TotalSeconds:F0} s so far");
+        }
+
+        OptimizeResult result = optimizer.Optimize(moves, new WindowOptions
+        {
+            Window = size,
+            Stride = stride,
+            NodeLimit = nodeLimit,
+            Threads = threads,
+            Order = order,
+            Heuristic = heuristic,
+            TimeLimit = remaining,
+            WindowTimeLimit = windowSeconds > 0 ? TimeSpan.FromSeconds(windowSeconds) : null,
+            WindowMemoryLimit = windowBytes < long.MaxValue ? windowBytes : null,
+            IsKnownBarren = known.Count > 0 || stateWriter is not null || perStart ? IsKnownBarren : null,
+            MergeIdenticalItems = mergeIdentical,
+            SkipReversals = skipReversals,
+            Progress = quiet ? null : Console.WriteLine,
+            Improved = Save,
+            WindowDone = WindowDone,
+        });
+
+        moves = result.Moves;
+        if (recordWindows)
+        {
+            RecordRound(result, sizeFrom, sw.Elapsed - sizeStart);
+        }
+
+        totalNodes += result.NodesExplored;
+        totalSearched += result.WindowsSearched;
+        totalImproved += result.WindowsImproved;
+        totalPasses += result.Passes;
+        if (result.TimedOut)
+        {
+            timedOut = true;
+            break;
+        }
+
+        if (grow == 0)
+        {
+            break;
+        }
+
+        if (perStart)
+        {
+            // Only when every window of this size was skipped for its start: the
+            // ones that hit a limit now are skipped from the next size on.
+            int listed = GrowPolicy.WindowCount(sizeFrom, size, stride);
+            if (policy.BlockedAtSize >= listed)
+            {
+                stopReason = $"every start is blocked at size {size} ({policy.Blocked} start(s) hit a per-window limit)";
+                break;
+            }
+
+            if (limitedAtSize && !quiet)
+            {
+                Console.WriteLine($"  {policy.Blocked} start(s) blocked so far; size {size + grow} skips them");
+            }
+        }
+        else if (limitedAtSize)
+        {
+            stopReason = $"every window of size {size} was searched, {limitedWindows.Count} of them hit a per-window limit, "
+                + $"so size {size + grow} was not started: {string.Join("; ", limitedWindows.Take(10))}"
+                + (limitedWindows.Count > 10 ? $"; and {limitedWindows.Count - 10} more" : "");
+            break;
+        }
+
+        if (size + grow > Math.Min(maxWindow, moves.Length))
+        {
+            stopReason = $"next window would exceed {Math.Min(maxWindow, moves.Length)}";
+            break;
+        }
+
+        size += grow;
+    }
+
     sw.Stop();
+    logWriter?.Dispose();
+    stateWriter?.Dispose();
 
     // Never trust a spliced solution on the optimiser's word - replay it.
-    SolutionResult check = SolutionValidator.Validate(new Room(level), result.Moves);
+    SolutionResult check = SolutionValidator.Validate(new Room(level), moves);
     if (!check.Solved)
     {
         Console.Error.WriteLine($"BUG: the improved solution does not solve the level ({check.Error})");
         return 3;
     }
 
-    if (!argv.Contains("--no-record"))
+    int saved2 = original - moves.Length;
+    // results.csv records solutions, so a window run goes there only when it
+    // shortened one; every round goes to window-results.csv instead. (Recording
+    // a run that found nothing replaced the counts of the run that set the
+    // level's bound - see docs/029.)
+    if (saved2 > 0 && !argv.Contains("--no-record"))
     {
         // Window results are never proven optimal - they are the best the
-        // decomposition found, not a bound. Recorded so the table shows how a
-        // level's best was reached, not just its length.
+        // decomposition found, not a bound.
         Record(corpus, name, new LevelResult
         {
-            Moves = result.Moves.Length,
+            Moves = moves.Length,
             Proven = false,
             Method = "window",
-            Expanded = result.NodesExplored,
+            Expanded = totalNodes,
             Seconds = Math.Round(sw.Elapsed.TotalSeconds, 1),
-            Status = (result.Saved > 0 ? $"improved by {result.Saved}" : "no improvement") + (result.TimedOut ? ", time limit" : ""),
+            Status = (saved2 > 0 ? $"improved by {saved2}" : "no improvement") + (timedOut ? ", time limit" : ""),
             Recorded = DateTime.UtcNow.ToString("yyyy-MM-dd"),
         });
     }
 
     Console.WriteLine();
-    Console.WriteLine($"{result.OriginalLength} -> {result.Moves.Length} moves ({result.Saved} saved) - verified");
+    Console.WriteLine($"{original} -> {moves.Length} moves ({saved2} saved) - verified");
     Console.WriteLine(
-        $"{result.Passes} pass(es), {result.WindowsSearched:N0} window(s) searched, {result.WindowsImproved} improved, " +
-        $"{result.NodesExplored:N0} nodes in {sw.Elapsed.TotalSeconds:F1} s" + (result.TimedOut ? " - time limit reached" : ""));
+        $"{totalPasses} pass(es), {totalSearched:N0} window(s) searched, {totalImproved} improved, " +
+        $"{totalNodes:N0} nodes in {sw.Elapsed.TotalSeconds:F1} s" + (timedOut ? " - time limit reached" : "")
+        + (grow > 0 ? $"; last window {size}" + (stopReason.Length > 0 ? $" ({stopReason})" : "") : ""));
 
-    if (result.Saved > 0)
+    if (saved2 > 0)
     {
         Console.WriteLine();
-        Console.WriteLine(result.Moves);
+        Console.WriteLine(moves);
     }
 
     if (outPath is not null)
     {
-        File.WriteAllText(outPath, $"\nsaved_moves = '{result.Moves}'\n");
+        File.WriteAllText(outPath, $"\nsaved_moves = '{moves}'\n");
         Console.WriteLine($"written to {outPath}");
     }
 
     return 0;
+}
+
+/// <summary>The saved_moves string of a solution file, or null.</summary>
+static string? ReadSavedMoves(string text)
+{
+    int a = text.IndexOf("saved_moves", StringComparison.Ordinal);
+    int open = a < 0 ? -1 : text.IndexOf('\'', a);
+    int close = open < 0 ? -1 : text.IndexOf('\'', open + 1);
+    return close < 0 ? null : text[(open + 1)..close];
+}
+
+// ------------------------------------------------------------------ smooth --
+
+// Reorders a solution's moves without making it longer (solver/docs/031): the game's
+// original moves where they fit between shared states, elsewhere fewer fish switches.
+static int Smooth(Corpus corpus, string[] argv)
+{
+    bool all = argv.Contains("--all");
+    bool write = argv.Contains("--write");
+    bool noReference = argv.Contains("--no-reference");
+    string? moves = TakeOption(argv, "--moves");
+    string? from = TakeOption(argv, "--from");
+    string? referenceFile = TakeOption(argv, "--reference");
+    string? outPath = TakeOption(argv, "--out");
+    if (!all && argv.Length < 2)
+    {
+        Console.Error.WriteLine("smooth needs a level name, or --all");
+        return 2;
+    }
+
+    if (all && (moves ?? from ?? referenceFile ?? outPath) is not null)
+    {
+        Console.Error.WriteLine("smooth --all takes no --moves/--from/--reference/--out");
+        return 2;
+    }
+
+    // --all: the levels whose original moved to legacy/solution/old.
+    string oldDir = Path.Combine(corpus.SolutionsDir, Corpus.OriginalSolutionsFolder);
+    IReadOnlyList<string> levels = all
+        ? corpus.LevelNames.Where(l => File.Exists(Path.Combine(oldDir, l + ".lua"))).ToList()
+        : [argv[1]];
+    string ownDir = Path.Combine(Path.GetDirectoryName(corpus.LevelsDir) ?? ".", "solutions");
+
+    var inv = System.Globalization.CultureInfo.InvariantCulture;
+    Console.WriteLine($"{"level",-12} {"moves",11} {"switches",11} {"from orig.",13} {"shared states",15} {"changes",8} {"s",6}");
+    int failures = 0;
+    foreach (string level in levels)
+    {
+        if (!corpus.HasLevel(level))
+        {
+            Console.WriteLine($"{level,-12} no exported level");
+            failures++;
+            continue;
+        }
+
+        string? input = moves;
+        if (input is null && from is not null)
+        {
+            input = ReadSavedMoves(File.ReadAllText(from)) ?? throw new InvalidDataException($"{from}: no saved_moves");
+        }
+
+        if (input is null && !corpus.TryReadSolution(level, out input))
+        {
+            Console.WriteLine($"{level,-12} no solution");
+            failures++;
+            continue;
+        }
+
+        string? reference = null;
+        if (referenceFile is not null)
+        {
+            reference = ReadSavedMoves(File.ReadAllText(referenceFile)) ?? throw new InvalidDataException($"{referenceFile}: no saved_moves");
+        }
+        else if (!noReference && corpus.TryReadOriginalSolution(level, out string original))
+        {
+            reference = original;
+        }
+
+        SmoothResult r = new SolutionSmoother(corpus.LoadLevel(level)).Smooth(input, reference);
+        string Pct(int x) => r.Moves.Length == 0 ? "-" : (100.0 * x / r.Moves.Length).ToString("0", inv) + "%";
+        Console.WriteLine(string.Create(inv,
+            $"{level,-12} {r.InputLength,5}->{r.Moves.Length,-5} {r.SwitchesBefore,4} -> {r.SwitchesAfter,-4} " +
+            $"{Pct(r.ReferenceMovesBefore),5} -> {Pct(r.ReferenceMovesAfter),-5} " +
+            $"{r.SharedStatesBefore,6} -> {r.SharedStatesAfter,-6} {r.Accepted,8} {r.Seconds,6:0.0}"));
+
+        if (outPath is not null)
+        {
+            File.WriteAllText(outPath, $"\nsaved_moves = '{r.Moves}'\n");
+            Console.WriteLine($"  written to {outPath}");
+        }
+
+        if (write && r.Changed)
+        {
+            foreach (string dir in new[] { corpus.SolutionsDir, ownDir })
+            {
+                string path = Path.Combine(dir, level + ".lua");
+                if (dir == corpus.SolutionsDir || File.Exists(path))
+                {
+                    File.WriteAllText(path, $"\nsaved_moves = '{r.Moves}'\n");
+                }
+            }
+
+            Console.WriteLine($"  written to legacy/solution{(File.Exists(Path.Combine(ownDir, level + ".lua")) ? " and solver/solutions" : "")}");
+        }
+
+        if (r.Moves.Length < r.InputLength)
+        {
+            Console.WriteLine($"  {level}: {r.InputLength - r.Moves.Length} move(s) shorter - record it in results.csv");
+        }
+    }
+
+    return failures == 0 ? 0 : 1;
 }
 
 // ------------------------------------------------------------------- bench --

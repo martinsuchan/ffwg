@@ -31,9 +31,11 @@
   `*.lua`. It replays all 81, the new ones included. `publish.ps1` copies
   `solution/**`, so `old/` ships too, unused.
 - **The solver keeps measuring against the originals.**
-  - `Corpus.TryReadOriginalSolution` prefers `old/`. The results' `bundled`
-    column and the test helper `TestCorpus.Solution` use it, so pinned node
-    counts and shortcuts stay put.
+  - `Corpus.TryReadOriginalSolution` prefers `old/`. The test helper
+    `TestCorpus.Solution` uses it, so pinned node counts and shortcuts stay
+    put.
+  - The results' `bundled` column shows what `legacy/solution/` holds now, so
+    the best solution for the 9 levels, as the user asked.
   - `verify`, and `improve` without `--moves`, use the best solution.
   - A new test checks every file in `old/`: it must still reach Solved, and
     its replacement must be strictly shorter.

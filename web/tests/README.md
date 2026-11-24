@@ -56,6 +56,8 @@ in `main.ts` (gated on `import.meta.env.DEV`, so it never ships in production).
 | `10-plan-interrupt` | start-of-level greet (first round drives nothing, queued key moves on round 2); a death and a model fully out each interrupt the plan once and unbusy all models; `LevelScript.interruptPlan()` empties a real Lua plan FIFO (docs/082) |
 | `11-zx-effect` | emulator's room runs the `zx` draw effect: one model on the effect canvas, exact ZX corner colours (lossless emulator atlas), steps once per cycle (docs/084) |
 | `12-mirror-effect` | submarine's mirror: capture + shader right after the mirror (last model) and before the UI, body sprite hidden, camera framebuffer on; a real glass pixel equals its mirrored source left of the mirror (docs/084) |
+| `13-solution-compare` | sandbox compare (key C): the state diff on synthetic input, every `legacy/solution/old` original lined up with its replacement (segments tile both, diffs start/end in shared states, twin items as a set), and the scene: level music, arrow steps, playing redhat's difference with the shorter side waiting (docs/086) |
+| `14-replay-bands-and-back` | the replay's hint line and media buttons in bands above/below the room (narrowest room noground + barrel; step counter stays in the room), and browser Back from replay and compare to the level, then to the map, with one Back after Esc (docs/087) |
 
 `05`, `06` and `09` are the slowest (~52 s / ~39 s / ~28 s, headless Chromium against the dev server).
 

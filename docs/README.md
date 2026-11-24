@@ -107,3 +107,5 @@ Other standing files: [BACKLOG.md](BACKLOG.md) (open items + FF NG feature compa
 - [083](083-2026-11-17-redhat-level-import.md) — The redhat level: imported from upstream data, secret branch off emulator
 - [084](084-2026-11-17-mirror-and-zx-draw-effects.md) — The mirror and zx draw effects; lossless WebP policy
 - [085](085-2026-11-20-best-solutions-in-the-sandbox.md) — The sandbox replays the best known solutions; originals kept in legacy/solution/old
+- [086](086-2026-11-21-solution-compare.md) — Solution compare in the sandbox: two solutions side by side, lined up by game states (key C)
+- [087](087-2026-11-22-replay-bands-and-back.md) — The replay's controls in bands outside the room; browser Back leaves replay/compare for the level

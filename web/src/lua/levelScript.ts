@@ -9,6 +9,7 @@ import {
   extractFileIncludes,
   extractRuntimeIncludes,
   getAudioManifest,
+  musicTrackName,
 } from "./levelLoader";
 import {
   resolveSoundPath,
@@ -897,8 +898,7 @@ export async function createLevelScript(
     // relative to legacy/) - strip it down to the bare basename
     // convert-music.ps1 names its output files with ("rybky14").
     lua.global.set("sound_playMusic", (track: string) => {
-      const basename = track.replace(/^music\//, "").replace(/\.ogg$/, "");
-      state.pendingMusicCommand = { type: "play", track: basename };
+      state.pendingMusicCommand = { type: "play", track: musicTrackName(track) };
     });
     lua.global.set("sound_stopMusic", () => {
       state.pendingMusicCommand = { type: "stop" };

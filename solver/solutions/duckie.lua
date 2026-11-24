@@ -1,1 +1,2 @@
-saved_moves = 'ulullrrrurrrUruuLURRDLLuLLLLrLLddrrrrddllLLRRRullRRlllddDrrrddrDDuRddrrrrrrrrrrURDDDDDRRRRRRRRRR'
+
+saved_moves = 'luullrrrurrrUruuLURRDLLuLLLLLLrddrrrrddllLLRRRulllllddrrrddruRRDDDRddrrrrrrrrrrURDDDDDRRRRRRRRRR'

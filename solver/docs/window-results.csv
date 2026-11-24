@@ -1,0 +1,418 @@
+﻿level;window;stride;heuristic;from;to;windows;ruledOut;shortcuts;limited;notSearched;covered;nodeLimit;windowSeconds;windowMemoryGb;nodes;seconds;note;recorded
+atlantis;16;1;manhattan;572;572;571;571;0;;0;;5000000;;;354739;1.5;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+atlantis;16;4;full;572;572;140;140;0;0;0;13;;600;3;52358;0.7;;2026-11-23
+atlantis;20;1;manhattan;572;572;571;571;0;;0;;5000000;;;1737672;6.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+atlantis;20;4;full;572;572;139;139;0;0;0;17;;600;3;243093;0.6;;2026-11-23
+atlantis;24;1;manhattan;572;572;571;571;0;;0;;5000000;;;7127265;27.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+atlantis;24;4;full;572;572;138;138;0;0;0;21;;600;3;1014163;2.2;;2026-11-23
+atlantis;28;1;manhattan;572;572;571;571;0;;0;;5000000;;;23937119;90.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+atlantis;28;4;full;572;572;137;137;0;0;0;25;;600;3;3502602;7.2;;2026-11-23
+atlantis;32;1;manhattan;572;572;571;571;0;;0;;5000000;;;68884995;290.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+atlantis;32;4;full;572;572;136;136;0;0;0;29;;600;3;10185583;20.6;;2026-11-23
+atlantis;36;4;full;572;572;135;135;0;0;0;33;;600;3;25671902;53.1;;2026-11-23
+atlantis;40;4;full;572;572;134;134;0;0;0;37;;600;3;57240003;118.2;;2026-11-23
+atlantis;44;4;full;572;572;133;133;0;0;0;41;;600;3;116133590;242.3;;2026-11-23
+atlantis;48;4;full;572;570;251;250;1;0;0;45;;600;3;428161588;983.6;;2026-11-23
+atlantis;52;4;full;570;570;131;131;0;0;0;49;;600;3;411075873;1130.8;;2026-11-23
+atlantis;56;4;full;570;570;130;128;0;2;0;;;600;3;722656035;1710.6;;2026-11-23
+atlantis;60;4;full;570;570;129;120;0;9;0;;;600;3;990813917;2125.8;;2026-11-23
+atlantis;64;4;full;570;570;128;111;0;17;0;;;600;3;1146940323;2410.7;;2026-11-23
+atlantis;68;4;full;570;570;127;101;0;26;0;;;600;3;1251987112;2667.3;;2026-11-23
+atlantis;72;4;full;570;570;126;92;0;34;0;;;600;3;1399093754;2897.7;;2026-11-23
+atlantis;76;4;full;570;570;125;0;0;34;91;;;600;3;0;28.3;run time limit;2026-11-23
+barrel;16;4;full;1203;1203;298;298;0;0;0;13;;600;3;123666;1.0;;2026-11-23
+barrel;20;1;manhattan;1231;1231;1230;1230;0;;0;;5000000;;;3607267;19.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+barrel;20;4;full;1203;1203;297;297;0;0;0;17;;600;3;551987;2.4;;2026-11-23
+barrel;24;1;manhattan;1231;1231;1230;1230;0;;0;;5000000;;;14817008;81.5;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+barrel;24;4;full;1203;1203;296;296;0;0;0;21;;600;3;2242972;9.3;;2026-11-23
+barrel;28;1;manhattan;1231;1231;1230;1230;0;;0;;5000000;;;59491794;297.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+barrel;28;4;full;1203;1203;295;295;0;0;0;25;;600;3;9057596;45.8;;2026-11-23
+barrel;32;1;manhattan;1231;1223;1433;1429;4;;0;;5000000;;;225627053;1138.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+barrel;32;4;full;1203;1203;294;294;0;0;0;29;;600;3;37510459;192.4;;2026-11-23
+barrel;36;1;manhattan;1223;1223;1222;250;0;;972;;5000000;;;243485590;1262.8;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-19
+barrel;36;4;full;1203;1203;293;293;0;0;0;33;;600;3;157324757;744.4;;2026-11-23
+barrel;40;1;manhattan;1223;1223;1222;177;0;;1045;;5000000;;;249042085;1297.8;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-19
+barrel;40;4;full;1203;1203;292;292;0;0;0;37;;600;3;460387045;2165.3;;2026-11-23
+barrel;44;4;full;1203;1203;291;285;0;6;0;;;600;3;265978540;1147.5;;2026-11-23
+barrel;48;4;full;1203;1203;290;272;0;18;0;;;600;3;1344098006;3910.0;;2026-11-23
+barrel;52;4;full;1203;1195;337;290;2;45;0;;;600;3;2428797125;7137.0;;2026-11-23
+barrel;56;4;full;1195;1195;286;24;0;45;217;;;600;3;410031421;1292.9;run time limit;2026-11-23
+cancan;16;1;manhattan;578;578;577;577;0;;0;;5000000;;;149330;0.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+cancan;16;4;full;578;578;142;142;0;0;0;13;;600;3;22644;0.5;;2026-11-24
+cancan;20;1;manhattan;578;578;577;577;0;;0;;5000000;;;476458;1.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+cancan;20;4;full;578;578;141;141;0;0;0;17;;600;3;73473;0.2;;2026-11-24
+cancan;24;1;manhattan;578;578;577;577;0;;0;;5000000;;;1338241;7.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+cancan;24;4;full;578;578;140;140;0;0;0;21;;600;3;206174;0.5;;2026-11-24
+cancan;28;1;manhattan;578;578;577;577;0;;0;;5000000;;;3432651;14.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+cancan;28;4;full;578;578;139;139;0;0;0;25;;600;3;525971;1.1;;2026-11-24
+cancan;32;1;manhattan;578;578;577;577;0;;0;;5000000;;;8859145;35.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+cancan;32;4;full;578;578;138;138;0;0;0;29;;600;3;1388717;3.0;;2026-11-24
+cancan;36;4;full;578;578;137;137;0;0;0;33;;600;3;3861039;9.8;;2026-11-24
+cancan;40;4;full;578;578;136;136;0;0;0;37;;600;3;9515589;20.8;;2026-11-24
+cancan;44;4;full;578;578;135;135;0;0;0;41;;600;3;21138155;49.3;;2026-11-24
+cancan;48;4;full;578;578;134;134;0;0;0;45;;600;3;46377442;109.9;;2026-11-24
+cancan;52;4;full;578;578;133;133;0;0;0;49;;600;3;97382003;236.9;;2026-11-24
+cancan;56;4;full;578;578;132;132;0;0;0;53;;600;3;190090948;475.5;;2026-11-24
+cancan;60;4;full;578;578;131;131;0;0;0;57;;600;3;342810539;888.8;;2026-11-24
+cancan;64;4;full;578;578;130;128;0;2;0;;;600;3;570773267;1321.5;;2026-11-24
+cancan;68;4;full;578;578;129;123;0;6;0;;;600;3;752946643;1722.0;;2026-11-24
+city;16;1;manhattan;485;485;484;484;0;;0;;5000000;;;256271;1.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+city;20;1;manhattan;485;485;484;484;0;;0;;5000000;;;954399;4.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+city;24;1;manhattan;485;485;484;484;0;;0;;5000000;;;3055782;15.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+city;28;1;manhattan;485;485;484;484;0;;0;;5000000;;;8604796;45.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+city;32;1;manhattan;485;485;484;484;0;;0;;5000000;;;20964176;108.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+city;36;1;manhattan;485;485;484;484;0;;0;;5000000;;;48601297;60.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+city;40;1;manhattan;485;485;484;484;0;;0;;5000000;;;111822092;128.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+city;40;4;full;485;485;113;113;0;0;0;37;;600;6;16285405;69.6;;2026-11-21
+city;44;4;full;485;485;112;112;0;0;0;41;;600;6;36418302;150.5;;2026-11-21
+city;48;4;full;485;485;111;111;0;0;0;45;;600;6;80384678;330.7;;2026-11-21
+city;52;4;full;485;485;110;110;0;0;0;49;;600;6;169905754;702.7;;2026-11-21
+city;56;4;full;485;485;109;109;0;0;0;53;;600;6;57497298;565.0;;2026-11-21
+city;60;4;full;485;485;108;102;0;6;0;;;600;6;579368891;2384.6;;2026-11-21
+corals;8;1;manhattan;252;252;251;251;0;;0;;5000000;;;2253;0.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;12;1;manhattan;252;252;251;251;0;;0;;5000000;;;19442;0.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;16;1;manhattan;252;252;251;251;0;;0;;5000000;;;91770;0.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;20;1;manhattan;252;252;251;251;0;;0;;5000000;;;333531;1.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;24;1;manhattan;252;252;251;251;0;;0;;5000000;;;975013;2.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;28;1;manhattan;252;252;251;251;0;;0;;20000000;;;2616740;3.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;32;1;manhattan;252;252;251;251;0;;0;;20000000;;;6925248;9.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;36;1;manhattan;252;252;251;251;0;;0;;20000000;;;18922498;25.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;40;1;manhattan;252;252;251;251;0;;0;;20000000;;;57480540;82.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+corals;44;1;manhattan;252;252;251;251;0;;0;;50000000;;;178675320;368.2;old optimiser: node-limit hits not logged (counted as ruled out);2026-11-19
+corals;48;1;manhattan;252;252;251;251;0;;0;;50000000;;;513250470;1162.0;old optimiser: node-limit hits not logged (counted as ruled out);2026-11-19
+corals;52;1;manhattan;252;252;251;76;0;;175;;50000000;;;593942010;9322.2;old optimiser: node-limit hits not logged (counted as ruled out), run time limit;2026-11-19
+corals;52;4;full;252;252;51;51;0;0;0;49;;600;5;215692746;385.3;;2026-11-22
+corals;56;4;full;252;252;50;48;0;2;0;;;600;5;515516732;983.9;;2026-11-22
+corals;60;4;full;252;252;49;42;0;7;0;;;600;5;695683189;1692.1;;2026-11-22
+corals;64;4;full;252;252;48;40;0;8;0;;;600;5;737204595;1666.7;;2026-11-22
+corals;68;4;full;252;252;47;35;0;12;0;;;600;5;1148633677;2403.3;;2026-11-22
+corals;72;4;full;252;252;46;30;0;16;0;;;600;5;1187150150;2520.6;;2026-11-22
+corals;76;4;full;252;252;45;21;0;24;0;;;600;5;1096520753;2337.1;;2026-11-22
+corals;80;4;full;252;252;44;17;0;27;0;;;600;5;382229702;801.7;;2026-11-22
+corals;84;4;full;252;252;43;16;0;27;0;;;600;5;117872583;217.9;;2026-11-22
+corals;88;4;full;252;252;42;15;0;27;0;;;600;5;125881728;230.0;;2026-11-22
+corals;92;4;full;252;252;41;14;0;27;0;;;600;5;131537082;241.1;;2026-11-22
+corals;96;4;full;252;252;40;13;0;27;0;;;600;5;132366937;248.0;;2026-11-22
+corals;100;4;full;252;252;39;12;0;27;0;;;600;5;132615581;256.4;;2026-11-22
+corals;104;4;full;252;252;38;11;0;27;0;;;600;5;132777932;244.6;;2026-11-22
+corals;108;4;full;252;252;37;10;0;27;0;;;600;5;132951485;253.6;;2026-11-22
+corals;112;4;full;252;252;36;9;0;27;0;;;600;5;133305118;248.5;;2026-11-22
+corals;116;4;full;252;252;35;8;0;27;0;;;600;5;132656276;249.2;;2026-11-22
+corals;120;4;full;252;252;34;7;0;27;0;;;600;5;126392340;240.4;;2026-11-22
+corals;124;4;full;252;252;33;6;0;27;0;;;600;5;118590884;242.8;;2026-11-22
+corals;128;4;full;252;252;32;5;0;27;0;;;600;5;108948544;226.8;;2026-11-22
+corals;132;4;full;252;252;31;4;0;27;0;;;600;5;96754072;207.2;;2026-11-22
+corals;136;4;full;252;252;30;3;0;27;0;;;600;5;83219551;188.9;;2026-11-22
+corals;140;4;full;252;252;29;2;0;27;0;;;600;5;61577313;197.7;;2026-11-22
+corals;144;4;full;252;252;28;1;0;27;0;;;600;5;34165032;202.5;;2026-11-22
+corals;148;4;full;252;252;27;0;0;27;0;;;600;5;0;0.0;;2026-11-22
+duckie;8;1;manhattan;98;98;97;97;0;;0;;5000000;;;1698;0.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+duckie;12;1;manhattan;98;98;97;97;0;;0;;5000000;;;12395;0.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+duckie;16;1;manhattan;98;98;97;97;0;;0;;5000000;;;57363;0.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+duckie;20;1;manhattan;98;98;97;97;0;;0;;5000000;;;201714;1.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+duckie;24;1;manhattan;98;98;97;97;0;;0;;5000000;;;639136;2.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+duckie;28;1;manhattan;98;98;97;97;0;;0;;5000000;;;1758055;4.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+duckie;32;1;manhattan;98;98;97;97;0;;0;;5000000;;;4290225;10.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+duckie;36;1;manhattan;98;98;97;97;0;;0;;20000000;;;10008644;21.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+duckie;40;1;manhattan;98;98;97;97;0;;0;;20000000;;;21904743;46.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+electromagnet;16;1;manhattan;458;458;457;457;0;;0;;5000000;;;352504;1.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+electromagnet;20;1;manhattan;458;458;457;457;0;;0;;5000000;;;1612083;5.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+electromagnet;24;1;manhattan;458;458;457;457;0;;0;;5000000;;;6314311;22.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+electromagnet;28;1;manhattan;458;458;457;457;0;;0;;5000000;;;24826979;72.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+electromagnet;32;1;manhattan;458;458;457;457;0;;0;;5000000;;;100614532;431.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+emulator;16;1;manhattan;620;620;619;619;0;;0;;5000000;;;476722;3.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+emulator;16;4;full;620;620;152;152;0;0;0;13;;600;3;62898;0.9;;2026-11-24
+emulator;20;1;manhattan;620;620;619;619;0;;0;;5000000;;;2496267;14.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+emulator;20;4;full;620;620;151;151;0;0;0;17;;600;3;318858;1.2;;2026-11-24
+emulator;24;1;manhattan;620;620;619;619;0;;0;;5000000;;;10585771;65.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+emulator;24;4;full;620;620;150;150;0;0;0;21;;600;3;1340568;4.5;;2026-11-24
+emulator;28;1;manhattan;620;620;619;619;0;;0;;5000000;;;39935617;248.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+emulator;28;4;full;620;620;149;149;0;0;0;25;;600;3;4811461;15.8;;2026-11-24
+emulator;32;1;manhattan;620;620;619;409;0;;210;;5000000;;;97157907;600.1;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-20
+emulator;32;4;full;620;620;148;148;0;0;0;29;;600;3;15991377;56.0;;2026-11-24
+emulator;36;4;full;620;620;147;147;0;0;0;33;;600;3;50085464;192.4;;2026-11-24
+emulator;40;4;full;620;620;146;146;0;0;0;37;;600;3;151515933;562.8;;2026-11-24
+emulator;44;4;full;620;620;145;143;0;2;0;;;600;3;431827745;1443.7;;2026-11-24
+emulator;48;4;full;620;620;144;131;0;13;0;;;600;3;787318951;2451.6;;2026-11-24
+emulator;52;4;full;620;620;143;117;0;26;0;;;600;3;947486828;2771.6;;2026-11-24
+emulator;56;4;full;620;620;142;106;0;36;0;;;600;3;896399726;2521.3;;2026-11-24
+emulator;60;4;full;620;620;141;92;0;49;0;;;600;3;979793776;2754.5;;2026-11-24
+emulator;64;4;full;620;620;140;45;0;53;42;;;600;3;594142391;1623.3;run time limit;2026-11-24
+experiments;16;1;manhattan;706;706;705;705;0;;0;;5000000;;;658101;5.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+experiments;16;4;full;706;706;174;174;0;0;0;13;;600;3;94302;2.5;;2026-11-22
+experiments;20;1;manhattan;706;706;705;705;0;;0;;5000000;;;3411117;28.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+experiments;20;4;full;706;706;173;173;0;0;0;17;;600;3;504391;12.2;;2026-11-22
+experiments;24;1;manhattan;706;706;705;705;0;;0;;5000000;;;15315954;127.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+experiments;24;4;full;706;706;172;172;0;0;0;21;;600;3;2273218;61.2;;2026-11-22
+experiments;28;1;manhattan;706;706;705;350;0;;355;;5000000;;;26841618;600.2;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-20
+experiments;28;4;full;706;706;171;171;0;0;0;25;;600;3;9011481;306.9;;2026-11-22
+experiments;32;1;manhattan;706;706;705;335;0;;370;;5000000;;;65090087;600.3;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-20
+experiments;32;4;full;706;706;170;167;0;3;0;;;600;3;29705878;835.8;;2026-11-22
+experiments;36;4;full;706;706;169;164;0;5;0;;;600;3;51740214;1308.2;;2026-11-22
+experiments;40;4;full;706;706;168;157;0;11;0;;;600;3;104361364;2481.3;;2026-11-22
+experiments;44;4;full;706;706;167;143;0;24;0;;;600;3;181711771;4856.8;;2026-11-22
+fdto;16;1;manhattan;243;243;242;242;0;;0;;5000000;;;99051;1.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+fdto;20;1;manhattan;243;243;242;242;0;;0;;5000000;;;816818;8.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+fdto;24;1;manhattan;243;243;242;242;0;;0;;5000000;;;4118069;31.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+fdto;28;1;manhattan;243;243;242;242;0;;0;;5000000;;;17486335;118.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+fdto;32;1;manhattan;243;243;242;242;0;;0;;5000000;;;66429708;405.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+floppy;16;1;manhattan;946;946;945;945;0;;0;;5000000;;;952441;4.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+floppy;16;4;full;944;944;233;233;0;0;0;13;;600;3;130829;0.6;;2026-11-23
+floppy;20;1;manhattan;946;946;945;945;0;;0;;5000000;;;4538546;24.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+floppy;20;4;full;944;944;232;232;0;0;0;17;;600;3;623222;2.1;;2026-11-23
+floppy;24;1;manhattan;946;944;945;655;1;;289;;5000000;;;9927513;766.7;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-19
+floppy;24;4;full;944;944;231;231;0;0;0;21;;600;3;2415470;8.5;;2026-11-23
+floppy;28;1;manhattan;944;944;943;654;0;;289;;5000000;;;34159666;1537.8;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-19
+floppy;28;4;full;944;944;230;230;0;0;0;25;;600;3;9170034;34.5;;2026-11-23
+floppy;32;1;manhattan;944;944;943;658;0;;285;;5000000;;;112493531;1112.1;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-19
+floppy;32;4;full;944;944;229;229;0;0;0;29;;600;3;33463257;149.2;;2026-11-23
+floppy;36;4;full;944;944;228;228;0;0;0;33;;600;3;110233250;606.4;;2026-11-23
+floppy;40;4;full;944;944;227;225;0;2;0;;;600;3;273606777;1275.9;;2026-11-23
+floppy;44;4;full;944;944;226;222;0;4;0;;;600;3;538253382;1561.7;;2026-11-23
+floppy;48;4;full;944;944;225;215;0;10;0;;;600;3;994986556;2489.2;;2026-11-23
+floppy;52;4;full;944;944;224;209;0;15;0;;;600;3;1858613610;4535.9;;2026-11-23
+floppy;56;4;full;944;944;223;143;0;39;41;;;600;3;2616728049;5812.6;run time limit;2026-11-23
+gods;16;1;manhattan;533;533;532;532;0;;0;;5000000;;;255214;0.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+gods;16;4;full;533;533;131;131;0;0;0;13;;600;3;35395;0.6;;2026-11-22
+gods;20;1;manhattan;533;533;532;532;0;;0;;5000000;;;1187901;3.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+gods;20;4;full;533;533;130;130;0;0;0;17;;600;3;163938;0.4;;2026-11-22
+gods;24;1;manhattan;533;533;532;532;0;;0;;5000000;;;4215848;12.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+gods;24;4;full;533;533;129;129;0;0;0;21;;600;3;633598;1.0;;2026-11-22
+gods;28;1;manhattan;533;533;532;532;0;;0;;5000000;;;12511366;39.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+gods;28;4;full;533;533;128;128;0;0;0;25;;600;3;1953425;3.3;;2026-11-22
+gods;32;1;manhattan;533;533;532;532;0;;0;;5000000;;;32249353;83.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+gods;32;4;full;533;533;127;127;0;0;0;29;;600;3;5188759;9.2;;2026-11-22
+gods;36;4;full;533;533;126;126;0;0;0;33;;600;3;12184043;22.4;;2026-11-22
+gods;40;4;full;533;533;125;125;0;0;0;37;;600;3;26499366;54.7;;2026-11-22
+gods;44;4;full;533;533;124;124;0;0;0;41;;600;3;55392688;116.4;;2026-11-22
+gods;48;4;full;533;533;123;123;0;0;0;45;;600;3;112603130;229.3;;2026-11-22
+gods;52;4;full;533;533;122;122;0;0;0;49;;600;3;218503720;459.9;;2026-11-23
+gods;56;4;full;533;533;121;121;0;0;0;53;;600;3;408980985;843.9;;2026-11-23
+gods;60;4;full;533;533;120;119;0;1;0;;;600;3;716893740;1419.8;;2026-11-23
+gods;64;4;full;533;533;119;116;0;3;0;;;600;3;1121995907;2084.9;;2026-11-23
+gods;68;4;full;533;533;118;107;0;11;0;;;600;3;1660559940;3139.4;;2026-11-23
+gods;72;4;full;533;533;117;100;0;17;0;;;600;3;1970294809;3514.2;;2026-11-23
+gods;76;4;full;533;533;116;50;0;23;43;;;600;3;1367887973;2500.2;run time limit;2026-11-23
+grail;16;1;manhattan;1691;1691;1690;1690;0;;0;;5000000;;;1141928;8.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+grail;16;4;full;1689;1689;420;420;0;0;0;13;;600;3;205025;1.3;;2026-11-23
+grail;20;1;manhattan;1691;1691;1690;1690;0;;0;;5000000;;;5123927;36.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+grail;20;4;full;1689;1689;419;419;0;0;0;17;;600;3;890647;3.3;;2026-11-23
+grail;24;1;manhattan;1691;1691;1690;1690;0;;0;;5000000;;;18274916;130.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+grail;24;4;full;1689;1689;418;418;0;0;0;21;;600;3;3052682;11.3;;2026-11-23
+grail;28;1;manhattan;1691;1691;1690;1690;0;;0;;5000000;;;59618884;321.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+grail;28;4;full;1689;1689;417;417;0;0;0;25;;600;3;9740952;36.8;;2026-11-23
+grail;32;1;manhattan;1691;1691;1690;548;0;;1142;;5000000;;;45402489;600.2;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-19
+grail;32;4;full;1689;1689;416;416;0;0;0;29;;600;3;28107611;102.7;;2026-11-23
+grail;36;4;full;1689;1689;415;415;0;0;0;33;;600;3;76458997;275.5;;2026-11-23
+grail;40;4;full;1689;1689;414;414;0;0;0;37;;600;3;204417867;740.4;;2026-11-23
+grail;44;4;full;1689;1689;413;411;0;2;0;;;600;3;425887023;1535.1;;2026-11-23
+grail;48;4;full;1689;1689;412;404;0;8;0;;;600;3;804065444;2716.3;;2026-11-23
+grail;52;4;full;1689;1689;411;393;0;18;0;;;600;3;1334180705;4485.6;;2026-11-23
+grail;56;4;full;1689;1689;410;365;0;45;0;;;600;3;1868994434;6333.4;;2026-11-23
+grail;60;4;full;1689;1689;409;54;0;47;308;;;600;3;193692933;818.5;run time limit;2026-11-23
+hanoi;16;1;manhattan;432;432;431;431;0;;0;;5000000;;;136555;0.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hanoi;20;1;manhattan;432;432;431;431;0;;0;;5000000;;;378320;0.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hanoi;24;1;manhattan;432;432;431;431;0;;0;;5000000;;;914360;0.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hanoi;28;1;manhattan;432;432;431;431;0;;0;;5000000;;;2153497;2.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hanoi;32;1;manhattan;432;432;431;431;0;;0;;5000000;;;4761054;4.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hanoi;36;1;manhattan;432;432;431;431;0;;0;;5000000;;;9872121;8.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hanoi;40;1;manhattan;432;432;431;431;0;;0;;5000000;;;19208031;16.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hanoi;44;1;manhattan;432;432;389;389;0;0;0;44;;600;5;34668719;71.2;seconds: window time / 4 threads;2026-11-21
+hanoi;48;1;manhattan;432;432;385;385;0;0;0;48;;600;5;58159452;118.3;seconds: window time / 4 threads;2026-11-21
+hanoi;52;1;manhattan;432;432;381;381;0;0;0;52;;600;5;93710527;189.5;seconds: window time / 4 threads;2026-11-21
+hanoi;56;1;manhattan;432;432;377;377;0;0;0;56;;600;5;146446680;303.1;seconds: window time / 4 threads;2026-11-21
+hanoi;60;1;manhattan;432;432;373;373;0;0;0;60;;600;5;220583046;462.7;seconds: window time / 4 threads;2026-11-21
+hanoi;64;1;manhattan+full;432;432;369;369;0;0;0;64;;600;5;284410852;690.7;seconds: window time / 4 threads;2026-11-21
+hanoi;68;1;full;432;432;365;365;0;0;0;68;;600;5;328355169;891.3;seconds: window time / 4 threads;2026-11-21
+hanoi;72;1;full;432;432;361;111;0;0;250;;;600;5;139004776;378.2;seconds: window time / 4 threads, stopped by the user;2026-11-21
+hanoi;72;4;full;432;432;91;91;0;0;0;69;;600;5;119716125;323.0;seconds: window time / 4 threads;2026-11-21
+hanoi;76;4;full;432;432;90;30;0;0;60;;;600;5;46600872;122.0;seconds: window time / 4 threads, stopped by the user;2026-11-21
+hardware;16;1;manhattan;629;629;628;628;0;;0;;5000000;;;442306;1.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+hardware;16;4;full;629;629;155;155;0;0;0;13;;600;3;56750;0.1;;2026-11-22
+hardware;20;1;manhattan;629;629;628;628;0;;0;;5000000;;;1431356;5.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+hardware;20;4;full;629;629;154;154;0;0;0;17;;600;3;207370;0.4;;2026-11-22
+hardware;24;1;manhattan;629;629;628;628;0;;0;;5000000;;;3558175;13.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+hardware;24;4;full;629;629;153;153;0;0;0;21;;600;3;560375;1.1;;2026-11-22
+hardware;28;1;manhattan;629;629;628;628;0;;0;;5000000;;;8421141;30.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+hardware;28;4;full;629;629;152;152;0;0;0;25;;600;3;1379396;2.7;;2026-11-22
+hardware;32;1;manhattan;629;629;628;628;0;;0;;5000000;;;19252570;72.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+hardware;32;4;full;629;629;151;151;0;0;0;29;;600;3;3225471;6.3;;2026-11-22
+hardware;36;4;full;629;629;150;150;0;0;0;33;;600;3;7303822;14.2;;2026-11-22
+hardware;40;4;full;629;629;149;149;0;0;0;37;;600;3;16297838;32.5;;2026-11-22
+hardware;44;4;full;629;629;148;148;0;0;0;41;;600;3;35012225;70.9;;2026-11-22
+hardware;48;4;full;629;629;147;147;0;0;0;45;;600;3;73030752;148.4;;2026-11-22
+hardware;52;4;full;629;629;146;146;0;0;0;49;;600;3;147354341;304.0;;2026-11-22
+hardware;56;4;full;629;629;145;145;0;0;0;53;;600;3;286626618;602.4;;2026-11-22
+hardware;60;4;full;629;629;144;144;0;0;0;57;;600;3;537763635;1128.2;;2026-11-22
+hardware;64;4;full;629;629;143;141;0;2;0;;;600;3;944887665;2044.3;;2026-11-22
+hole;16;1;manhattan;463;463;462;462;0;;0;;5000000;;;406554;1.5;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hole;16;4;full;441;441;108;108;0;0;0;13;;600;3;50523;0.1;;2026-11-22
+hole;20;1;manhattan;463;463;462;462;0;;0;;5000000;;;1683188;7.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hole;20;4;full;441;441;107;107;0;0;0;17;;600;3;228893;0.5;;2026-11-22
+hole;24;1;manhattan;463;463;462;462;0;;0;;5000000;;;6173625;45.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hole;24;4;full;441;441;106;106;0;0;0;21;;600;3;837506;1.4;;2026-11-22
+hole;28;1;manhattan;463;443;878;869;9;;0;;5000000;;;55666073;188.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hole;28;4;full;441;441;105;105;0;0;0;25;;600;3;2707508;5.5;;2026-11-22
+hole;32;1;manhattan;443;441;502;501;1;;0;;5000000;;;61184350;169.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hole;32;4;full;441;441;104;104;0;0;0;29;;600;3;7823372;14.6;;2026-11-22
+hole;36;1;manhattan;441;441;440;440;0;;0;;5000000;;;156075311;394.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+hole;36;4;full;441;441;103;103;0;0;0;33;;600;3;21427716;43.3;;2026-11-22
+hole;40;1;manhattan;441;441;440;145;0;;295;;5000000;;;154637928;600.1;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-21
+hole;40;4;full;441;441;102;102;0;0;0;37;;600;3;55651993;102.2;;2026-11-22
+hole;44;4;full;441;439;141;140;1;0;0;41;;600;3;156152739;282.2;;2026-11-22
+hole;48;4;full;439;439;99;99;0;0;0;45;;600;3;318214521;511.6;;2026-11-22
+hole;52;4;full;439;439;98;96;0;2;0;;;600;3;623548822;1052.0;;2026-11-22
+key;16;1;manhattan;524;524;523;523;0;;0;;5000000;;;167323;0.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+key;16;4;full;522;522;128;128;0;0;0;13;;600;3;24662;0.1;;2026-11-22
+key;20;1;manhattan;524;524;523;523;0;;0;;5000000;;;611237;2.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+key;20;4;full;522;522;127;127;0;0;0;17;;600;3;89556;0.3;;2026-11-22
+key;24;1;manhattan;524;524;523;523;0;;0;;5000000;;;1879183;7.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+key;24;4;full;522;522;126;126;0;0;0;21;;600;3;281407;0.9;;2026-11-22
+key;28;1;manhattan;524;524;523;523;0;;0;;5000000;;;5373917;22.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+key;28;4;full;522;522;125;125;0;0;0;25;;600;3;791786;2.4;;2026-11-22
+key;32;1;manhattan;524;522;584;583;1;;0;;5000000;;;19327775;81.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+key;32;4;full;522;522;124;124;0;0;0;29;;600;3;2101823;6.3;;2026-11-22
+key;36;4;full;522;522;123;123;0;0;0;33;;600;3;5441162;15.7;;2026-11-22
+key;40;4;full;522;522;122;122;0;0;0;37;;600;3;12949859;38.0;;2026-11-22
+key;44;4;full;522;522;121;121;0;0;0;41;;600;3;29279697;84.1;;2026-11-22
+key;48;4;full;522;522;120;120;0;0;0;45;;600;3;63314974;185.0;;2026-11-22
+key;52;4;full;522;522;119;119;0;0;0;49;;600;3;132423117;396.6;;2026-11-22
+key;56;4;full;522;522;118;118;0;0;0;53;;600;3;270674536;811.3;;2026-11-22
+key;60;4;full;522;522;117;115;0;2;0;;;600;3;538217148;1663.6;;2026-11-22
+keys;16;1;manhattan;281;281;280;280;0;;0;;5000000;;;307956;1.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+keys;20;1;manhattan;281;281;280;280;0;;0;;5000000;;;1918030;10.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+keys;24;1;manhattan;281;281;280;280;0;;0;;5000000;;;10554912;42.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+keys;28;1;manhattan;281;281;280;280;0;;0;;5000000;;;49388680;220.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+keys;32;1;manhattan;281;281;280;140;0;;140;;5000000;;;151361998;600.1;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-20
+linux;16;1;manhattan;652;652;651;651;0;;0;;5000000;;;242670;0.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+linux;16;4;full;650;650;160;160;0;0;0;13;;600;3;79648;0.2;;2026-11-22
+linux;20;1;manhattan;652;652;651;651;0;;0;;5000000;;;911083;0.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+linux;20;4;full;650;650;159;159;0;0;0;17;;600;3;300784;0.5;;2026-11-22
+linux;24;1;manhattan;652;652;651;651;0;;0;;5000000;;;2991735;15.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+linux;24;4;full;650;650;158;158;0;0;0;21;;600;3;992212;1.6;;2026-11-22
+linux;28;1;manhattan;652;652;651;651;0;;0;;5000000;;;9054844;24.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+linux;28;4;full;650;650;157;157;0;0;0;25;;600;3;3011547;4.8;;2026-11-22
+linux;32;1;manhattan;652;652;651;651;0;;0;;5000000;;;24874432;73.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+linux;32;4;full;650;650;156;156;0;0;0;29;;600;3;8374511;15.2;;2026-11-22
+linux;36;4;full;650;650;155;155;0;0;0;33;;600;3;20742388;43.5;;2026-11-22
+linux;40;4;full;650;650;154;154;0;0;0;37;;600;3;46990246;108.1;;2026-11-22
+linux;44;4;full;650;650;153;153;0;0;0;41;;600;3;99733908;254.7;;2026-11-22
+linux;48;4;full;650;650;152;152;0;0;0;45;;600;3;96715147;225.8;;2026-11-22
+linux;52;4;full;650;650;151;151;0;0;0;49;;600;3;180846749;431.5;;2026-11-22
+linux;56;4;full;650;650;150;150;0;0;0;53;;600;3;331041577;790.4;;2026-11-22
+linux;60;4;full;650;650;149;149;0;0;0;57;;600;3;608967531;1488.7;;2026-11-22
+linux;64;4;full;650;650;148;148;0;0;0;61;;600;3;1117522832;2817.3;;2026-11-22
+linux;68;4;full;650;650;147;142;0;5;0;;;600;3;559838844;1056.6;;2026-11-22
+map;16;1;manhattan;2097;2097;2096;2096;0;;0;;5000000;;;2734361;18.5;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+map;16;4;full;2075;2073;909;908;1;0;0;13;;600;6;696519;6.8;;2026-11-21
+map;20;1;manhattan;2097;2095;2133;2132;1;;0;;5000000;;;16073761;107.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+map;20;4;full;2073;2073;515;515;0;0;0;17;;600;6;2207998;19.9;;2026-11-21
+map;24;1;manhattan;2095;2077;2390;2383;7;;0;;5000000;;;101328165;600.1;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-20
+map;24;4;full;2073;2073;514;514;0;0;0;21;;600;6;10931104;96.5;;2026-11-21
+map;28;1;manhattan;2077;2075;2076;628;1;;1447;;5000000;;;99753143;600.2;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-20
+map;28;4;full;2073;2063;879;857;22;0;0;25;;600;6;92970573;869.0;;2026-11-21
+map;32;1;manhattan;2075;2075;2074;443;0;;1631;;5000000;;;85669288;600.2;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-20
+map;32;4;full;2063;2033;1009;976;33;0;0;29;;600;6;571890621;5634.2;;2026-11-21
+map;36;4;full;2033;2001;842;777;47;18;0;;;600;6;1314227693;12951.3;;2026-11-22
+nowall;16;1;manhattan;420;420;419;419;0;;0;;5000000;;;750663;4.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+nowall;20;1;manhattan;420;420;419;419;0;;0;;5000000;;;3033504;15.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+nowall;24;1;manhattan;420;420;419;419;0;;0;;5000000;;;10633417;57.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+nowall;28;1;manhattan;420;420;419;419;0;;0;;5000000;;;33636346;181.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+nowall;32;1;manhattan;420;420;419;419;0;;0;;5000000;;;92129962;516.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+nowall;36;1;manhattan;420;420;419;230;0;;189;;5000000;;;139242181;600.3;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-21
+nowall;40;1;manhattan;420;420;419;58;0;;361;;5000000;;;115011494;600.2;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-21
+pavement;16;1;manhattan;512;512;511;511;0;;0;;5000000;;;737248;1.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+pavement;20;1;manhattan;512;512;511;511;0;;0;;5000000;;;3727098;5.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+pavement;24;1;manhattan;512;512;511;511;0;;0;;5000000;;;15795694;27.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+pavement;28;1;manhattan;512;512;511;511;0;;0;;5000000;;;59873891;104.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+pavement;32;1;manhattan;512;512;511;511;0;;0;;5000000;;;195190458;301.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-21
+pavement;36;1;manhattan;512;512;511;274;0;;237;;5000000;;;401997716;600.1;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-21
+pavement;36;4;full;512;512;120;120;0;0;0;33;;600;6;76098127;368.4;seconds: window time / 4 threads;2026-11-21
+pavement;40;1;manhattan;512;512;511;147;0;;364;;5000000;;;393501099;600.1;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-21
+pavement;40;4;full;512;512;119;119;0;0;0;37;;600;6;224170856;1097.4;seconds: window time / 4 threads;2026-11-21
+pavement;44;4;full;512;512;118;116;0;2;0;;;600;6;626378292;3145.3;seconds: window time / 4 threads;2026-11-21
+propulsion;16;1;manhattan;1964;1964;1963;1963;0;;0;;5000000;;;1712413;9.3;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+propulsion;16;4;full;1940;1940;482;482;0;0;0;13;;600;3;278197;1.8;;2026-11-23
+propulsion;20;1;manhattan;1964;1964;1963;1963;0;;0;;5000000;;;8116444;13.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+propulsion;20;4;full;1940;1940;481;481;0;0;0;17;;600;3;1351226;4.6;;2026-11-23
+propulsion;24;1;manhattan;1964;1962;2008;2007;1;;0;;5000000;;;29857288;99.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+propulsion;24;4;full;1940;1940;480;480;0;0;0;21;;600;3;5100318;15.4;;2026-11-23
+propulsion;28;1;manhattan;1962;1962;1961;1961;0;;0;;5000000;;;90232028;339.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+propulsion;28;4;full;1940;1940;479;479;0;0;0;25;;600;3;16207213;50.8;;2026-11-23
+propulsion;32;1;manhattan;1962;1962;1961;1383;0;;578;;5000000;;;189646868;600.1;old optimiser: node-limit hits not logged (counted as ruled out), run time limit, tail windows included;2026-11-19
+propulsion;32;4;full;1940;1940;478;478;0;0;0;29;;600;3;45920636;144.7;;2026-11-23
+propulsion;36;4;full;1940;1940;477;477;0;0;0;33;;600;3;119859010;403.6;;2026-11-23
+propulsion;40;4;full;1940;1940;476;476;0;0;0;37;;600;3;473276296;1742.8;;2026-11-23
+propulsion;44;4;full;1940;1940;475;475;0;0;0;41;;600;3;906178995;3320.0;;2026-11-23
+propulsion;48;4;full;1940;1940;474;472;0;2;0;;;600;3;1231064174;4678.7;;2026-11-23
+propulsion;52;4;full;1940;1940;473;465;0;8;0;;;600;3;2373446879;5450.5;;2026-11-24
+propulsion;56;4;full;1940;1940;472;408;0;25;39;;;600;3;3722267350;8729.4;run time limit;2026-11-24
+redhat;16;1;manhattan;287;285;311;310;1;;0;;5000000;;;148034;0.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+redhat;16;4;full;287;285;83;82;1;0;0;13;;600;6;19479;0.1;;2026-11-21
+redhat;20;1;manhattan;285;285;284;284;0;;0;;5000000;;;586351;1.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+redhat;20;4;full;285;285;68;68;0;0;0;17;;600;6;74830;0.2;;2026-11-21
+redhat;24;1;manhattan;285;285;284;284;0;;0;;5000000;;;2669276;8.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+redhat;24;4;full;285;285;67;67;0;0;0;21;;600;6;392433;1.1;;2026-11-21
+redhat;28;1;manhattan;285;283;334;333;1;;0;;5000000;;;16155893;53.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+redhat;28;4;full;285;283;81;80;1;0;0;25;;600;6;2692454;6.8;;2026-11-21
+redhat;32;1;manhattan;283;283;282;282;0;;0;;5000000;;;28131796;56.5;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+redhat;32;4;full;283;283;64;64;0;0;0;29;;600;6;4493231;10.7;;2026-11-21
+redhat;36;4;full;283;283;63;63;0;0;0;33;;600;6;11608815;26.6;;2026-11-21
+redhat;40;4;full;283;283;62;62;0;0;0;37;;600;6;27412385;67.4;;2026-11-21
+redhat;44;4;full;283;283;61;61;0;0;0;41;;600;6;63453353;166.5;;2026-11-21
+redhat;48;4;full;283;283;60;60;0;0;0;45;;600;6;140817423;385.1;;2026-11-21
+redhat;52;4;full;283;283;59;59;0;0;0;49;;600;6;298149486;900.8;;2026-11-21
+redhat;56;4;full;283;283;58;55;0;3;0;;;600;6;527094543;1395.9;;2026-11-21
+rotate;16;1;manhattan;213;213;212;212;0;;0;;5000000;;;107966;0.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rotate;20;1;manhattan;213;213;212;212;0;;0;;5000000;;;395665;1.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rotate;24;1;manhattan;213;213;212;212;0;;0;;5000000;;;1288488;2.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rotate;28;1;manhattan;213;213;212;212;0;;0;;5000000;;;3858186;9.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rotate;32;1;manhattan;213;213;212;212;0;;0;;5000000;;;10576076;25.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rush;16;1;manhattan;852;852;851;851;0;;0;;5000000;;;119500;0.4;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rush;16;4;full;852;852;210;210;0;0;0;13;;600;3;20080;0.1;;2026-11-22
+rush;20;1;manhattan;852;852;851;851;0;;0;;5000000;;;404341;0.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rush;20;4;full;852;852;209;209;0;0;0;17;;600;3;67424;0.1;;2026-11-22
+rush;24;1;manhattan;852;852;851;851;0;;0;;5000000;;;1077050;2.8;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rush;24;4;full;852;852;208;208;0;0;0;21;;600;3;182508;0.3;;2026-11-22
+rush;28;1;manhattan;852;852;851;851;0;;0;;5000000;;;2517999;5.5;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rush;28;4;full;852;852;207;207;0;0;0;25;;600;3;433888;0.6;;2026-11-22
+rush;32;1;manhattan;852;852;851;851;0;;0;;5000000;;;5454830;12.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+rush;32;4;full;852;852;206;206;0;0;0;29;;600;3;951229;1.2;;2026-11-22
+rush;36;4;full;852;852;205;205;0;0;0;33;;600;3;1936434;2.4;;2026-11-22
+rush;40;4;full;852;852;204;204;0;0;0;37;;600;3;3693412;4.6;;2026-11-22
+rush;44;4;full;852;852;203;203;0;0;0;41;;600;3;6768417;8.8;;2026-11-22
+rush;48;4;full;852;852;202;202;0;0;0;45;;600;3;12103464;15.8;;2026-11-22
+rush;52;4;full;852;852;201;201;0;0;0;49;;600;3;21316101;28.7;;2026-11-22
+rush;56;4;full;852;852;200;200;0;0;0;53;;600;3;36606947;50.0;;2026-11-22
+rush;60;4;full;852;852;199;199;0;0;0;57;;600;3;61740701;80.5;;2026-11-22
+rush;64;4;full;852;852;198;198;0;0;0;61;;600;3;102699269;135.8;;2026-11-22
+rush;68;4;full;852;852;197;197;0;0;0;65;;600;3;169437622;226.3;;2026-11-22
+rush;72;4;full;852;852;196;196;0;0;0;69;;600;3;273797507;370.8;;2026-11-22
+rush;76;4;full;852;852;195;195;0;0;0;73;;600;3;437906803;602.8;;2026-11-22
+rush;80;4;full;852;852;194;194;0;0;0;77;;600;3;692424630;963.5;;2026-11-22
+rush;84;4;full;852;852;193;193;0;0;0;81;;600;3;1077773070;1526.0;;2026-11-22
+rush;88;4;full;852;852;192;192;0;0;0;85;;600;3;1656841910;2395.6;;2026-11-22
+rush;92;4;full;852;852;191;185;0;6;0;;;600;3;2383574941;3553.7;;2026-11-22
+turtle;16;1;manhattan;620;620;619;619;0;;0;;5000000;;;513471;2.7;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+turtle;16;4;full;618;618;152;152;0;0;0;13;;600;3;84509;0.7;;2026-11-23
+turtle;20;1;manhattan;620;620;619;619;0;;0;;5000000;;;2280046;13.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+turtle;20;4;full;618;618;151;151;0;0;0;17;;600;3;371168;1.4;;2026-11-23
+turtle;24;1;manhattan;620;620;619;619;0;;0;;5000000;;;7823014;45.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+turtle;24;4;full;618;618;150;150;0;0;0;21;;600;3;1315306;4.6;;2026-11-23
+turtle;28;1;manhattan;620;620;619;619;0;;0;;5000000;;;23262214;116.2;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+turtle;28;4;full;618;618;149;149;0;0;0;25;;600;3;3853911;12.8;;2026-11-23
+turtle;32;1;manhattan;620;620;619;619;0;;0;;5000000;;;59620245;433.0;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-19
+turtle;32;4;full;618;618;148;148;0;0;0;29;;600;3;9696846;35.9;;2026-11-23
+turtle;36;4;full;618;618;147;147;0;0;0;33;;600;3;21509199;76.9;;2026-11-23
+turtle;40;4;full;618;618;146;146;0;0;0;37;;600;3;45696537;156.5;;2026-11-23
+turtle;44;4;full;618;618;145;145;0;0;0;41;;600;3;91186519;308.7;;2026-11-23
+turtle;48;4;full;618;618;144;144;0;0;0;45;;600;3;188838529;651.0;;2026-11-23
+turtle;52;4;full;618;618;143;143;0;0;0;49;;600;3;377624609;1347.9;;2026-11-23
+turtle;56;4;full;618;618;142;142;0;0;0;53;;600;3;736475081;2661.0;;2026-11-23
+turtle;60;4;full;618;618;141;139;0;2;0;;;600;3;1291823198;3999.8;;2026-11-23
+turtle;64;4;full;618;618;140;125;0;15;0;;;600;3;2274508515;6705.2;;2026-11-23
+warcraft;16;1;manhattan;573;573;572;572;0;;0;;5000000;;;140311;0.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+warcraft;20;1;manhattan;573;573;572;572;0;;0;;5000000;;;479390;2.1;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+warcraft;24;1;manhattan;573;573;572;572;0;;0;;5000000;;;1307971;4.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+warcraft;28;1;manhattan;573;573;572;572;0;;0;;5000000;;;3044813;12.9;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20
+warcraft;32;1;manhattan;573;573;572;572;0;;0;;5000000;;;6369218;29.6;old optimiser: node-limit hits not logged (counted as ruled out), tail windows included;2026-11-20

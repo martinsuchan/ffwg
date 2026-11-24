@@ -33,6 +33,7 @@ import {
 } from "./replayExport";
 import { ReplayExportDialog, type ReplayExportOptions } from "./ReplayExportDialog";
 import { t } from "../i18n";
+import { leaveLevelView, setBackHandler } from "../navigation";
 
 type PlayState = "paused" | "play" | "fast";
 
@@ -48,6 +49,8 @@ const IDLE_ROUNDS_BEFORE_STOP = 3;
 const FRAME_MS = 1000 / EXPORT_FPS;
 /** Depth of the export's black letterbox masks - below the step counter (1000). */
 const MASK_DEPTH = 999;
+/** Margin inside the bands above and below the room (docs/087). */
+const BAND_PAD = 6;
 
 type ReplayInitData = {
   levelData: LevelData;
@@ -207,6 +210,10 @@ export class ReplayScene extends Phaser.Scene {
 
   private stepText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
+  /** Heights of the hint band above the room and the button band below it
+   *  (world px, set in create()). */
+  private topBand = 0;
+  private bottomBand = 0;
 
   /** This entry's init data - the video export restarts the scene with it. */
   private initData!: ReplayInitData;
@@ -245,15 +252,41 @@ export class ReplayScene extends Phaser.Scene {
   }
 
   create(): void {
+    const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
+    const roomHeightPx = this.levelData.roomHeight * GRID_SCALE;
+
+    // The hint line sits in a band above the room and the media buttons in one
+    // below it, so neither covers the level - in a small room they hid a good
+    // part of it (docs/087). The top band fits the tallest of the lines it can
+    // show, wrapped to the room's width, so the room never jumps.
+    this.statusText = this.add
+      .text(BAND_PAD, 0, "", crispText({
+        fontFamily: "sans-serif",
+        fontSize: "16px",
+        color: "#ffffff",
+        padding: { x: 0, y: 2 },
+        wordWrap: { width: roomWidthPx - 2 * BAND_PAD },
+      }))
+      .setDepth(1000);
+    let lineHeight = 0;
+    for (const line of [
+      this.hintText(),
+      t("replay_solved", this.escLabel(), t("replay_restart")),
+      t("replay_died", this.escLabel(), t("replay_restart")),
+    ]) {
+      lineHeight = Math.max(lineHeight, this.statusText.setText(line).height);
+    }
+    this.topBand = Math.ceil(lineHeight) + 2 * BAND_PAD;
+    this.bottomBand = IconButton.HEIGHT + 2 * BAND_PAD;
+    this.statusText.setY(-this.topBand + BAND_PAD).setText(this.hintText());
+
     // Needed here too, not just LevelScene/WorldMapScene - the Pedometer's
     // "Replay" button launches this scene directly from the (differently-
     // sized) world map, without ever passing through LevelScene first.
-    // applyRenderScale sizes the framebuffer + camera zoom (docs/064).
-    applyRenderScale(
-      this,
-      this.levelData.roomWidth * GRID_SCALE,
-      this.levelData.roomHeight * GRID_SCALE,
-    );
+    // applyRenderScale sizes the framebuffer + camera zoom (docs/064); the
+    // camera scroll keeps world (0,0) at the room's corner, under the top band.
+    applyRenderScale(this, roomWidthPx, this.topBand + roomHeightPx + this.bottomBand);
+    this.cameras.main.setScroll(0, -this.topBand);
     // Replay shows the background still (amp 0 = WavyBackground's plain-image
     // path, no shader): the ripple made every exported frame differ and cost
     // ~40 % of the MP4 size (docs/079).
@@ -266,8 +299,7 @@ export class ReplayScene extends Phaser.Scene {
       { ...this.levelData.waves, amp: 0 },
     );
 
-    const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
-
+    // The step counter stays in the room: the video export shows it there.
     this.stepText = this.add
       .text(roomWidthPx - 8, 8, "", crispText({
         fontFamily: "sans-serif",
@@ -279,33 +311,17 @@ export class ReplayScene extends Phaser.Scene {
       .setOrigin(1, 0)
       .setDepth(1000);
 
-    this.statusText = this.add
-      .text(8, 8, this.hintText(), crispText({
-        fontFamily: "sans-serif",
-        fontSize: "16px",
-        color: "#ffffff",
-        backgroundColor: "#000000a0",
-        padding: { x: 6, y: 4 },
-      }))
-      .setDepth(1000);
-
     // The export steps the game itself (game.step), which still dispatches
     // queued key events - so R/Esc must be ignored while recording.
     this.input.keyboard!.on("keydown-R", () => {
       if (!this.recording) void this.startReplay();
     });
     this.input.keyboard!.on("keydown-ESC", () => {
-      if (this.recording) return;
-      if (this.returnTo === "worldmap") this.scene.start("worldmap");
-      // Hand poster/depth back so the level it returns to is fully restored
-      // (otherwise solving it afterwards would skip its recap poster).
-      else
-        this.scene.start("level", {
-          levelData: this.levelData,
-          poster: this.poster,
-          depth: this.depth,
-        });
+      if (!this.recording) this.leave(true);
     });
+    // Browser Back = Esc (docs/087). Mid-export too: leaving the scene aborts
+    // the export (its SHUTDOWN listener), as Back always did (docs/078).
+    setBackHandler(this, () => this.leave(false));
 
     this.audioManager = new AudioManager(this);
     this.createControls();
@@ -420,7 +436,7 @@ export class ReplayScene extends Phaser.Scene {
   private createControls(): void {
     const roomWidthPx = this.levelData.roomWidth * GRID_SCALE;
     const roomHeightPx = this.levelData.roomHeight * GRID_SCALE;
-    const y = roomHeightPx - 8 - IconButton.HEIGHT / 2; // bottom edge 8 px above the room's
+    const y = roomHeightPx + this.bottomBand / 2; // centred in the band below the room
 
     const specs: Array<{ key: PlayState | "step" | "export"; icon: IconKind; onClick: () => void }> = [
       { key: "paused", icon: "pause", onClick: () => this.setPlayState("paused") },
@@ -629,6 +645,23 @@ export class ReplayScene extends Phaser.Scene {
     const phases = roundPhases(this.engine.getActiveInfo(), renderModels, this.levelData.models, this.engine.wentOutThisRound());
     this.cyclesThisRound = phases;
     this.moveDurationMs = phases * CYCLE_MS;
+  }
+
+  /** Esc / browser Back: where this replay was opened from. `inApp`: left from
+   *  inside the replay, so a level's history entry for it goes too. */
+  private leave(inApp: boolean): void {
+    if (this.returnTo === "worldmap") {
+      this.scene.start("worldmap");
+      return;
+    }
+    if (inApp) leaveLevelView();
+    // Hand poster/depth back so the level it returns to is fully restored
+    // (otherwise solving it afterwards would skip its recap poster).
+    this.scene.start("level", {
+      levelData: this.levelData,
+      poster: this.poster,
+      depth: this.depth,
+    });
   }
 
   private escLabel(): string {

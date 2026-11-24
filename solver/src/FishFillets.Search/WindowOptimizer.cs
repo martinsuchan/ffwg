@@ -15,6 +15,99 @@ public sealed record OptimizeResult(string Moves, int OriginalLength, int Passes
     public bool TimedOut { get; init; }
 }
 
+/// <summary>
+/// One rung of a ladder (<see cref="WindowOptimizer.Ladder"/>): the window of
+/// <see cref="Window"/> moves from the ladder's start. <see cref="Expanded"/>
+/// counts the expansions (the physics). <see cref="Skipped"/> counts the nodes
+/// popped but not expanded again, because they were already complete.
+/// <see cref="Rescored"/> counts the stored states re-scored for this rung's
+/// target. A fresh search has neither of the last two.
+/// </summary>
+public sealed record LadderRung(
+    int Window, WindowOutcome Outcome, int Bound, string? Shortcut, long Expanded, long Skipped, long Rescored, int Stored, double Seconds);
+
+/// <summary>One start of the ladder experiment: the fresh windows and the incremental ladder.</summary>
+public sealed record LadderStart(int Start, IReadOnlyList<LadderRung> Fresh, IReadOnlyList<LadderRung> Incremental);
+
+/// <summary>How one window's search ended.</summary>
+public enum WindowOutcome
+{
+    /// <summary>A shorter path was found.</summary>
+    Shortcut,
+
+    /// <summary>Proven: no path shorter than the window exists between its two rooms.</summary>
+    NoShortcut,
+
+    /// <summary>Gave up at <see cref="WindowOptions.NodeLimit"/>; anything shorter than the reported bound is ruled out.</summary>
+    NodeLimit,
+
+    /// <summary>Gave up at <see cref="WindowOptions.WindowMemoryLimit"/>; as for the node limit.</summary>
+    MemoryLimit,
+
+    /// <summary>Gave up at <see cref="WindowOptions.WindowTimeLimit"/>; as for the node limit.</summary>
+    WindowTimeLimit,
+
+    /// <summary>The whole run stopped (<see cref="WindowOptions.TimeLimit"/>); not counted as searched.</summary>
+    Stopped,
+}
+
+/// <summary>
+/// The lower bound a window's search prunes with: the moves still needed to turn
+/// the current room into the window's target room. All are admissible, so they
+/// change how much is searched, never what is found.
+/// </summary>
+public enum WindowHeuristic
+{
+    /// <summary>None: plain breadth-first search. For tests.</summary>
+    None,
+
+    /// <summary>Each fish's straight-line (Manhattan) distance to its target cell, plus a turn; the sum over the fish.</summary>
+    Manhattan,
+
+    /// <summary>As <see cref="Manhattan"/>, but measured around the walls (<see cref="RelaxedDistance"/>), facing included.</summary>
+    Walls,
+
+    /// <summary>
+    /// <see cref="Walls"/>, or the item that is furthest from its target if that
+    /// is more. An item moves sideways or up only when a fish move pushes it, one
+    /// cell per move, and down for free. So an item that has to go dx across and
+    /// dy up needs at least |dx| + dy moves. One push can move several items, so
+    /// the items are combined by their maximum, and the fish and items by the
+    /// larger of the two.
+    /// </summary>
+    WallsAndItems,
+}
+
+/// <summary>The order a round's windows are searched in. It changes what a stopped run has covered, not the result of a finished one.</summary>
+public enum WindowOrder
+{
+    /// <summary>From the start of the solution to its end.</summary>
+    Sequential,
+
+    /// <summary>
+    /// Spread out: the first windows, one per thread, start at 1/(n+1), 2/(n+1)...
+    /// of the solution. Every later one starts in the middle of the widest stretch
+    /// of starts not yet taken. A run stopped at any point has sampled the whole
+    /// solution evenly, at a density that rises as it goes.
+    /// </summary>
+    Spread,
+}
+
+/// <summary>
+/// One window's search, as reported to <see cref="WindowOptions.WindowDone"/>.
+/// <see cref="Bound"/> is how far the search got: no path between the two rooms
+/// is shorter than it. It equals <see cref="Length"/> when a shortcut is ruled
+/// out, and is the shortcut's length when one is found.
+/// </summary>
+public sealed record WindowReport(
+    int Pass, int Start, int End, WindowOutcome Outcome, int Bound, long Nodes, int Stored, double Seconds, string Id)
+{
+    public int Length => End - Start;
+
+    /// <summary>Stopped by one of the per-window limits: searched as far as they allowed, not proven.</summary>
+    public bool HitLimit => Outcome is WindowOutcome.NodeLimit or WindowOutcome.MemoryLimit or WindowOutcome.WindowTimeLimit;
+}
+
 /// <summary>How <see cref="WindowOptimizer.Optimize(string, WindowOptions)"/> searches.</summary>
 public sealed record WindowOptions
 {
@@ -30,7 +123,33 @@ public sealed record WindowOptions
     /// <summary>Windows searched side by side. The result does not depend on it.</summary>
     public int Threads { get; init; } = 1;
 
-    /// <summary>Stop after this long, keeping whatever was found. Checked between windows.</summary>
+    /// <summary>The order each round's windows are searched in.</summary>
+    public WindowOrder Order { get; init; } = WindowOrder.Sequential;
+
+    /// <summary>The lower bound each window's search prunes with.</summary>
+    public WindowHeuristic Heuristic { get; init; } = WindowHeuristic.WallsAndItems;
+
+    /// <summary>
+    /// Per-window time budget, in processor time the window's thread used
+    /// (<see cref="ThreadClock"/>), so a sleeping or throttled machine does not
+    /// use it up; a window past it is abandoned, as at the node limit.
+    /// </summary>
+    public TimeSpan? WindowTimeLimit { get; init; }
+
+    /// <summary>
+    /// Per-window memory budget in bytes: the worker's state table and queue.
+    /// A window that would grow them past it is abandoned, as at the node limit.
+    /// </summary>
+    public long? WindowMemoryLimit { get; init; }
+
+    /// <summary>
+    /// Windows known to hold nothing within the current limits, from an earlier
+    /// run (by <see cref="WindowReport.Id"/>): skipped, like the windows a round
+    /// already found barren. This is what lets a stopped run be resumed.
+    /// </summary>
+    public Func<string, bool>? IsKnownBarren { get; init; }
+
+    /// <summary>Stop after this long, keeping whatever was found. Checked between windows and inside each.</summary>
     public TimeSpan? TimeLimit { get; init; }
 
     /// <summary>
@@ -48,8 +167,20 @@ public sealed record WindowOptions
     /// <summary>Called with a line for each round and each shortcut spliced in.</summary>
     public Action<string>? Progress { get; init; }
 
-    /// <summary>Called with the whole solution after every round that shortened it - to save it as it goes.</summary>
+    /// <summary>
+    /// Called with the whole solution each time it gets shorter - to save it as
+    /// it goes. That is after every round that spliced something in, and also
+    /// in the middle of a round, as soon as a window finds a shortcut: the
+    /// shortcuts found so far are spliced into a copy, which is replayed first.
+    /// Each solution reported is valid and shorter than the one before.
+    /// </summary>
     public Action<string>? Improved { get; init; }
+
+    /// <summary>
+    /// Called after each window's search, from the worker that ran it. With
+    /// more than one thread the calls are concurrent and in no fixed order.
+    /// </summary>
+    public Action<WindowReport>? WindowDone { get; init; }
 }
 
 /// <summary>
@@ -140,6 +271,8 @@ public sealed class WindowOptimizer
         int searchedWindows = 0;
         bool timedOut = false;
         var barren = new HashSet<string>(StringComparer.Ordinal);
+        int reportedLength = moves.Length;
+        string? reported = null;
         Func<bool>? outOfTime = options.TimeLimit is { } timeLimit ? () => stopwatch.Elapsed > timeLimit : null;
 
         Trajectory path = replay.Run(moves)
@@ -148,22 +281,89 @@ public sealed class WindowOptimizer
         int passes;
         for (passes = 1; ; passes++)
         {
+            int pass = passes;
             // This round's windows, minus the ones already known to hold nothing.
+            // Only full-length ones: the last ends at the end of the solution.
+            // A shorter window at the tail is inside it, and a window's search
+            // finds the shortest path between its two rooms, so it would find
+            // any shortcut the shorter one could. With a stride, the last full
+            // window is added even off the stride, so the tail is still covered.
             var windows = new List<(int I, int J, string Id)>();
-            for (int i = 0; i + 2 <= moves.Length; i += options.Stride)
+            void AddWindow(int i, int j)
             {
-                int j = Math.Min(i + options.Window, moves.Length);
                 string id = path.Keys[i] + "|" + path.Keys[j] + "|" + (j - i).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                if (!barren.Contains(id))
+                if (!barren.Contains(id) && options.IsKnownBarren?.Invoke(id) != true)
                 {
                     windows.Add((i, j, id));
                 }
             }
 
+            if (moves.Length >= 2)
+            {
+                int last = Math.Max(0, moves.Length - options.Window);
+                for (int i = 0; i <= last; i += options.Stride)
+                {
+                    AddWindow(i, Math.Min(i + options.Window, moves.Length));
+                }
+
+                if (last % options.Stride != 0)
+                {
+                    AddWindow(last, moves.Length);
+                }
+            }
+
+            // Windows are listed left to right; this is the order to search them in.
+            int[] order = options.Order == WindowOrder.Spread
+                ? SpreadOrder(windows.Count, options.Threads)
+                : Enumerable.Range(0, windows.Count).ToArray();
+
             var found = new string?[windows.Count];
             var searched = new bool[windows.Count];
             var nodes = new long[windows.Count];
             int next = -1;
+            string baseMoves = moves;
+            Trajectory basePath = path;
+            var partial = new object();
+            Replayer? partialReplay = null;
+
+            // The shortcuts found so far this round, spliced into a copy:
+            // reported at once if it replays and is shorter than the last
+            // report, so a run stopped mid-round keeps what it found.
+            void ReportFoundSoFar()
+            {
+                if (options.Improved is null)
+                {
+                    return;
+                }
+
+                lock (partial)
+                {
+                    string candidate = baseMoves;
+                    int reach = int.MaxValue;
+                    for (int k = windows.Count - 1; k >= 0; k--)
+                    {
+                        if (Volatile.Read(ref found[k]) is { } shorter && windows[k].J <= reach)
+                        {
+                            candidate = string.Concat(candidate.AsSpan(0, windows[k].I), shorter, candidate.AsSpan(windows[k].J));
+                            reach = windows[k].I;
+                        }
+                    }
+
+                    if (candidate.Length >= reportedLength)
+                    {
+                        return;
+                    }
+
+                    partialReplay ??= new Replayer(shared);
+                    if (partialReplay.Run(candidate) is { } replayed && replayed.EndsLike(basePath))
+                    {
+                        reportedLength = candidate.Length;
+                        reported = candidate;
+                        options.Progress?.Invoke($"  found so far this pass: {candidate.Length} moves (saved)");
+                        options.Improved(candidate);
+                    }
+                }
+            }
 
             void Work()
             {
@@ -175,19 +375,30 @@ public sealed class WindowOptimizer
 
                 try
                 {
-                    for (int k = Interlocked.Increment(ref next); k < windows.Count; k = Interlocked.Increment(ref next))
+                    for (int n = Interlocked.Increment(ref next); n < order.Length; n = Interlocked.Increment(ref next))
                     {
                         if (outOfTime is not null && outOfTime())
                         {
                             return;
                         }
 
-                        (int i, int j, _) = windows[k];
-                        found[k] = search.Search(path.States[i], path.States[j], j - i - 1, options.NodeLimit, outOfTime, out nodes[k], out bool stopped);
+                        int k = order[n];
+                        (int i, int j, string id) = windows[k];
+                        long began = Stopwatch.GetTimestamp();
+                        string? shortcut = search.Search(path.States[i], path.States[j], j - i - 1, options.NodeLimit, outOfTime, out nodes[k], out bool stopped);
+                        Volatile.Write(ref found[k], shortcut);
                         searched[k] = !stopped;
+                        options.WindowDone?.Invoke(new WindowReport(
+                            pass, i, j, search.LastOutcome, search.LastBound, nodes[k], search.LastStored,
+                            Stopwatch.GetElapsedTime(began).TotalSeconds, id));
                         if (stopped)
                         {
                             return;
+                        }
+
+                        if (shortcut is not null)
+                        {
+                            ReportFoundSoFar();
                         }
                     }
                 }
@@ -278,8 +489,10 @@ public sealed class WindowOptimizer
                 $"  pass {passes}: {searchedNow:N0} of {windows.Count:N0} new windows searched, {splicedNow} spliced, " +
                 $"{moves.Length} moves, {stopwatch.Elapsed.TotalSeconds:F1} s");
 
-            if (splicedNow > 0)
+            if (splicedNow > 0 && (moves.Length < reportedLength || (moves.Length == reportedLength && moves != reported)))
             {
+                reportedLength = moves.Length;
+                reported = moves;
                 options.Improved?.Invoke(moves);
             }
 
@@ -297,14 +510,146 @@ public sealed class WindowOptimizer
     }
 
     /// <summary>
+    /// The <see cref="WindowOrder.Spread"/> order of <paramref name="count"/>
+    /// windows: <paramref name="seeds"/> evenly spaced ones first, then always the
+    /// middle of the widest run of windows not yet taken (the leftmost one on a tie).
+    /// </summary>
+    internal static int[] SpreadOrder(int count, int seeds)
+    {
+        var result = new List<int>(count);
+        var taken = new bool[count];
+        var points = new List<int> { -1 };
+        seeds = Math.Clamp(seeds, 0, count);
+        for (int k = 1; k <= seeds; k++)
+        {
+            int p = (int)((long)k * count / (seeds + 1));
+            if (!taken[p])
+            {
+                taken[p] = true;
+                result.Add(p);
+                points.Add(p);
+            }
+        }
+
+        points.Add(count);
+        points.Sort();
+
+        // Gaps between taken windows, widest first, then leftmost.
+        var gaps = new PriorityQueue<(int Lo, int Hi), (int, int)>();
+        for (int g = 0; g + 1 < points.Count; g++)
+        {
+            gaps.Enqueue((points[g], points[g + 1]), (-(points[g + 1] - points[g]), points[g]));
+        }
+
+        while (gaps.TryDequeue(out (int Lo, int Hi) gap, out _))
+        {
+            if (gap.Hi - gap.Lo < 2)
+            {
+                continue;
+            }
+
+            int mid = gap.Lo + ((gap.Hi - gap.Lo) / 2);
+            result.Add(mid);
+            gaps.Enqueue((gap.Lo, mid), (-(mid - gap.Lo), gap.Lo));
+            gaps.Enqueue((mid, gap.Hi), (-(gap.Hi - mid), mid));
+        }
+
+        return result.ToArray();
+    }
+
+    /// <summary>
     /// One window's search on its own: the shortest path of at most
     /// <paramref name="limit"/> moves from <paramref name="from"/> to
     /// <paramref name="to"/>, or null - for tests that pin the search itself.
     /// </summary>
+    /// <summary>The window bound's estimate of the moves between two rooms, for tests that check it never overestimates.</summary>
+    internal Func<RoomSnapshot, RoomSnapshot, int> Estimator(WindowOptions? options = null)
+    {
+        var shared = new Shared(_level, _reduction ?? LevelReduction.Compute(_level), options ?? new WindowOptions());
+        var search = new WindowSearch(shared);
+        return search.Estimate;
+    }
+
     internal string? Shortcut(RoomSnapshot from, RoomSnapshot to, int limit, WindowOptions? options = null, long nodeLimit = 2_000_000)
     {
         var shared = new Shared(_level, _reduction ?? LevelReduction.Compute(_level), options ?? new WindowOptions());
         return new WindowSearch(shared).Search(from, to, limit, nodeLimit, out _);
+    }
+
+    /// <summary>
+    /// The ladder experiment (solver/docs/030). For each start <c>i</c>, the windows
+    /// <c>[i, i + W]</c> for W = <paramref name="window"/>, + <paramref name="grow"/>...
+    /// up to <paramref name="maxWindow"/>, searched twice:
+    /// <list type="bullet">
+    /// <item>fresh, one A* per window, as <c>improve --grow</c> does;</item>
+    /// <item>incrementally, on one table (<see cref="WindowSearch.Ladder"/>).</item>
+    /// </list>
+    /// Each stops at its first shortcut or limit. A fresh window's per-window
+    /// limits apply to it alone. The ladder's apply to the whole ladder: the
+    /// time budget of one start. With <paramref name="storePruned"/>, the ladder also
+    /// stores the children a rung leaves out (over its limit, or kept only as a
+    /// target), so no node is expanded twice, at the cost of a bigger table.
+    /// </summary>
+    public IReadOnlyList<LadderStart> Ladder(
+        string moves, IReadOnlyList<int> starts, int window, int grow, int maxWindow, WindowOptions options,
+        Action<LadderStart>? done = null, bool storePruned = false)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(window, 2);
+        ArgumentOutOfRangeException.ThrowIfLessThan(grow, 1);
+        LevelReduction reduction = _reduction ?? LevelReduction.Verified(_level, moves);
+        var shared = new Shared(_level, reduction, options);
+        Trajectory path = new Replayer(shared).Run(moves)
+            ?? throw new InvalidOperationException($"{_level.Name}: the input is not a valid move string for this level");
+
+        var results = new LadderStart?[starts.Count];
+        int next = -1;
+        void Work()
+        {
+            var search = new WindowSearch(shared);
+            for (int n = Interlocked.Increment(ref next); n < starts.Count; n = Interlocked.Increment(ref next))
+            {
+                int i = starts[n];
+                var sizes = new List<int>();
+                for (int w = window; w <= maxWindow && i + w <= moves.Length; w += grow)
+                {
+                    sizes.Add(w);
+                }
+
+                var fresh = new List<LadderRung>();
+                foreach (int w in sizes)
+                {
+                    long began = ThreadClock.Now();
+                    string? shortcut = search.Search(path.States[i], path.States[i + w], w - 1, options.NodeLimit, null, out long nodes, out _);
+                    fresh.Add(new LadderRung(w, search.LastOutcome, search.LastBound, shortcut, nodes, 0, 0, search.LastStored,
+                        (ThreadClock.Now() - began) / 1e7));
+                    if (search.LastOutcome != WindowOutcome.NoShortcut)
+                    {
+                        break;
+                    }
+                }
+
+                List<LadderRung> incremental = search.Ladder(
+                    path.States[i], [.. sizes.Select(w => path.States[i + w])], [.. sizes.Select(w => w - 1)], options.NodeLimit, storePruned);
+                var result = new LadderStart(i, fresh, incremental);
+                results[n] = result;
+                done?.Invoke(result);
+            }
+        }
+
+        int workers = Math.Clamp(options.Threads, 1, Math.Max(1, starts.Count));
+        var threads = new Thread[workers];
+        for (int t = 0; t < workers; t++)
+        {
+            threads[t] = new Thread(Work) { IsBackground = true, Name = $"ladder worker {t}" };
+            threads[t].Start();
+        }
+
+        foreach (Thread thread in threads)
+        {
+            thread.Join();
+        }
+
+        return [.. results.Select(r => r!)];
     }
 
     // ---------------------------------------------------------------- shared --
@@ -319,6 +664,8 @@ public sealed class WindowOptimizer
             Mobile = reduction.MobileModels;
             Codec = new StateKeyCodec(level, Mobile) { Canonical = options.MergeIdenticalItems };
             SkipReversals = options.SkipReversals;
+            WindowTicks = options.WindowTimeLimit is { } t ? t.Ticks : long.MaxValue;
+            WindowMemoryLimit = options.WindowMemoryLimit ?? long.MaxValue;
 
             var room = new Room(level);
             Symbols = new char[room.MoveSymbolCount];
@@ -337,11 +684,44 @@ public sealed class WindowOptimizer
             }
 
             FishModels = [.. level.Units.Select(u => u.Model)];
-            bool[] walls = RelaxedDistance.BuildWallGrid(level);
+            Heuristic = options.Heuristic;
+
+            // A fish can also leave through an output plug (windoze's spuntik),
+            // anywhere in the room, not only at the border: then no distance to
+            // the border bounds its way out.
+            FishLeaveAnywhere = level.Models.Any(m => m.OutDir != Dir.No);
+
+            // The proven-immobile items are walls too (as for the main solver's
+            // bound); the Manhattan setting keeps the bare walls it always had.
+            Walls = Heuristic == WindowHeuristic.Manhattan ? RelaxedDistance.BuildWallGrid(level) : reduction.Walls;
             ExitDistance = [.. FishModels
                 .Select(m => level.Models[m].Goal is GoalKind.Escape or GoalKind.Out
-                    ? RelaxedDistance.ToExit(level, m, walls, freeFall: false)
+                    ? RelaxedDistance.ToExit(level, m, Walls, freeFall: false)
                     : null)];
+
+            // The items, and for each the items whose target it may take: with
+            // identical items merged, an item may end where its twin was.
+            var fish = new HashSet<int>(FishModels);
+            ItemModels = [.. Mobile.Where(m => !fish.Contains(m))];
+            var slotOf = new Dictionary<int, int>();
+            for (int i = 0; i < ItemModels.Length; i++)
+            {
+                slotOf[ItemModels[i]] = i;
+            }
+
+            ItemShapes = [.. ItemModels.Select(m => level.Models[m].Shape)];
+            ItemTwins = [.. Enumerable.Range(0, ItemModels.Length).Select(i => new[] { i })];
+            if (options.MergeIdenticalItems)
+            {
+                foreach (int[] members in ItemSymmetry.Classes(level, Mobile))
+                {
+                    int[] slots = [.. members.Select(n => slotOf.TryGetValue(Mobile[n], out int slot) ? slot : -1).Where(x => x >= 0)];
+                    foreach (int slot in slots)
+                    {
+                        ItemTwins[slot] = slots;
+                    }
+                }
+            }
         }
 
         public Level Level { get; }
@@ -354,6 +734,28 @@ public sealed class WindowOptimizer
         public StateKeyCodec Codec { get; }
 
         public bool SkipReversals { get; }
+
+        public WindowHeuristic Heuristic { get; }
+
+        /// <summary>The level has an output plug, so a fish's way out has no bound.</summary>
+        public bool FishLeaveAnywhere { get; }
+
+        /// <summary>Cells that never change: the bound's relaxed room.</summary>
+        public bool[] Walls { get; }
+
+        /// <summary>The mobile models that are not fish.</summary>
+        public int[] ItemModels { get; }
+
+        public Shape[] ItemShapes { get; }
+
+        /// <summary>For each item (an index into <see cref="ItemModels"/>), the items whose target it may end on.</summary>
+        public int[][] ItemTwins { get; }
+
+        /// <summary>Per-window budget of thread processor time (<see cref="ThreadClock"/>, 100 ns ticks); long.MaxValue for none.</summary>
+        public long WindowTicks { get; }
+
+        /// <summary>Per-window memory budget in bytes; long.MaxValue for none.</summary>
+        public long WindowMemoryLimit { get; }
 
         public char[] Symbols { get; }
 
@@ -435,6 +837,9 @@ public sealed class WindowOptimizer
         private readonly byte[] _goal;
         private readonly ModelState[] _undo;
         private readonly (int X, int Y, bool IsLeft, bool IsOut)[] _goalFish;
+        private readonly RelaxedDistance?[] _fishToGoal;
+        private readonly (int X, int Y, bool IsOut)[] _goalItems;
+        private readonly Dictionary<(int Fish, int X, int Y, bool IsLeft), RelaxedDistance> _distanceCache = [];
 
         public WindowSearch(Shared shared)
         {
@@ -446,6 +851,38 @@ public sealed class WindowOptimizer
             _goal = new byte[shared.Codec.CompactSize];
             _undo = new ModelState[shared.Mobile.Length];
             _goalFish = new (int, int, bool, bool)[shared.FishModels.Length];
+            _fishToGoal = new RelaxedDistance?[shared.FishModels.Length];
+            _goalItems = new (int, int, bool)[shared.ItemModels.Length];
+
+            // What one stored state costs this window: the store's fields and
+            // key (13 + key bytes), its share of the bucket array (4-8) and of the
+            // queue (a 4-byte entry per push, one to two pushes a state).
+            _bytesPerState = shared.Codec.CompactSize + 13 + 8 + 8;
+        }
+
+        /// <summary>
+        /// The per-window memory limit counts the states this window stored, not
+        /// what the worker holds: its table keeps the capacity a bigger window
+        /// grew it to, and charging that to every later window stopped each of
+        /// them at its first check (corals at window 56, 2 GB).
+        /// </summary>
+        private readonly long _bytesPerState;
+
+        /// <summary>Walls-only distances to a fish's target cell; windows often share a target, so they are kept.</summary>
+        private RelaxedDistance DistanceTo(int fish, int x, int y, bool isLeft)
+        {
+            if (!_distanceCache.TryGetValue((fish, x, y, isLeft), out RelaxedDistance? d))
+            {
+                if (_distanceCache.Count >= 4096)
+                {
+                    _distanceCache.Clear();
+                }
+
+                d = RelaxedDistance.ToCell(_s.Level, _s.FishModels[fish], _s.Walls, x, y, isLeft);
+                _distanceCache[(fish, x, y, isLeft)] = d;
+            }
+
+            return d;
         }
 
         /// <summary>
@@ -465,20 +902,17 @@ public sealed class WindowOptimizer
         {
             nodes = 0;
             stopped = false;
+            long began = ThreadClock.Now();
+            LastStored = 0;
+            LastOutcome = WindowOutcome.NoShortcut;
+            LastBound = limit + 1;
             if (limit < 0)
             {
                 return null;
             }
 
             int[] mobile = _s.Mobile;
-            _room.RestoreFrom(to);
-            _room.WriteStateKey(_wide, mobile);
-            _s.Codec.Encode(_wide, _goal);
-            for (int i = 0; i < _s.FishModels.Length; i++)
-            {
-                ref readonly ModelState m = ref _room.State(_s.FishModels[i]);
-                _goalFish[i] = (m.X, m.Y, m.IsLeft, m.IsOut);
-            }
+            SetTarget(to);
 
             _room.RestoreFrom(from);
             int startH = Heuristic();
@@ -502,6 +936,7 @@ public sealed class WindowOptimizer
             {
                 if (f > limit)
                 {
+                    LastStored = _store.Count;
                     return null;
                 }
 
@@ -514,6 +949,9 @@ public sealed class WindowOptimizer
                 // Tested on popping, so the shortcut found is the shortest one.
                 if (_store.Key(node).SequenceEqual(_goal))
                 {
+                    LastStored = _store.Count;
+                    LastOutcome = WindowOutcome.Shortcut;
+                    LastBound = g;
                     return Reconstruct(node);
                 }
 
@@ -525,18 +963,255 @@ public sealed class WindowOptimizer
 
                 if (nodes >= nodeLimit)
                 {
+                    // Popped in order of f: every path shorter than f is ruled out.
+                    LastStored = _store.Count;
+                    LastOutcome = WindowOutcome.NodeLimit;
+                    LastBound = f;
                     return null;
                 }
 
-                if (stop is not null && (nodes & 4095) == 0 && stop())
+                if ((nodes & 4095) == 0)
                 {
-                    stopped = true;
-                    return null;
+                    WindowOutcome? cut =
+                        stop is not null && stop() ? WindowOutcome.Stopped
+                        : _s.WindowTicks != long.MaxValue && ThreadClock.Now() - began > _s.WindowTicks ? WindowOutcome.WindowTimeLimit
+                        : (long)_store.Count * _bytesPerState > _s.WindowMemoryLimit ? WindowOutcome.MemoryLimit
+                        : null;
+                    if (cut is { } why)
+                    {
+                        // As at the node limit, every path shorter than f is ruled out.
+                        stopped = why == WindowOutcome.Stopped;
+                        LastStored = _store.Count;
+                        LastOutcome = why;
+                        LastBound = f;
+                        return null;
+                    }
                 }
             }
 
+            LastStored = _store.Count;
             return null;
         }
+
+        /// <summary>Makes <paramref name="to"/> the target: its key, and where each fish and item has to be.</summary>
+        private void SetTarget(RoomSnapshot to)
+        {
+            int[] mobile = _s.Mobile;
+            _room.RestoreFrom(to);
+            _room.WriteStateKey(_wide, mobile);
+            _s.Codec.Encode(_wide, _goal);
+            for (int i = 0; i < _s.FishModels.Length; i++)
+            {
+                ref readonly ModelState m = ref _room.State(_s.FishModels[i]);
+                _goalFish[i] = (m.X, m.Y, m.IsLeft, m.IsOut);
+                _fishToGoal[i] = _s.Heuristic is WindowHeuristic.Walls or WindowHeuristic.WallsAndItems && !m.IsOut
+                    ? DistanceTo(i, m.X, m.Y, m.IsLeft)
+                    : null;
+            }
+
+            for (int i = 0; i < _s.ItemModels.Length; i++)
+            {
+                ref readonly ModelState m = ref _room.State(_s.ItemModels[i]);
+                _goalItems[i] = (m.X, m.Y, m.IsOut);
+            }
+        }
+
+        /// <summary>The bound's estimate of the moves from <paramref name="from"/> to <paramref name="to"/>, for tests.</summary>
+        internal int Estimate(RoomSnapshot from, RoomSnapshot to)
+        {
+            SetTarget(to);
+            _room.RestoreFrom(from);
+            return Heuristic();
+        }
+
+        /// <summary>How the last <see cref="Search(RoomSnapshot, RoomSnapshot, int, long, Func{bool}?, out long, out bool)"/> ended.</summary>
+        public WindowOutcome LastOutcome { get; private set; }
+
+        /// <summary>No path shorter than this exists, as far as the last search got (see <see cref="WindowReport.Bound"/>).</summary>
+        public int LastBound { get; private set; }
+
+        /// <summary>States the last search stored: the memory it needed.</summary>
+        public int LastStored { get; private set; }
+
+        // ------------------------------------------------------------ ladder --
+
+        // Per state, for the ladder only: expanded, with every child stored. Such a
+        // node's children are all in the table, so after a change of target it need
+        // not be expanded again. Chunked like the store; zeroed when a ladder starts.
+        private const int FlagShift = 14;
+        private const byte OpenFlag = 0;        // not expanded, or expanded with a child left out
+        private const byte CompleteFlag = 1;    // expanded, every child stored
+        private const byte TargetOnlyFlag = 2;  // stored only as a possible target (_storePruned): never expanded
+        private byte[][] _complete = [];
+        private bool _trackComplete;
+        private bool _storePruned;
+
+        private void SetFlag(int index, byte value)
+        {
+            int chunk = index >> FlagShift;
+            if (chunk >= _complete.Length)
+            {
+                Array.Resize(ref _complete, Math.Max(chunk + 1, _complete.Length * 2));
+            }
+
+            byte[] flags = _complete[chunk] ??= new byte[1 << FlagShift];
+            flags[index & ((1 << FlagShift) - 1)] = value;
+        }
+
+        private byte Flag(int index)
+        {
+            int chunk = index >> FlagShift;
+            return chunk < _complete.Length && _complete[chunk] is { } flags ? flags[index & ((1 << FlagShift) - 1)] : OpenFlag;
+        }
+
+        /// <summary>
+        /// One start, a ladder of targets further and further along the solution:
+        /// the window <c>[i, i + W]</c>, then <c>[i, i + W + grow]</c>... on ONE state
+        /// table. The costs from the start do not depend on the target, so the table
+        /// is kept. Each rung re-scores every stored state against the new target
+        /// and queues the ones within its limit. A node expanded with every child
+        /// stored is not expanded again. A node that had a child left out (over the
+        /// old limit, or kept only as the old target) is expanded again, and finds
+        /// its stored children at once.
+        /// The result of each rung is that of a fresh search: the target test is on
+        /// popping, in order of f, with the same admissible bound.
+        /// The ladder stops at the first shortcut or limit. Its per-window limits
+        /// apply to the whole ladder: time since it began, and the whole table.
+        /// </summary>
+        public List<LadderRung> Ladder(RoomSnapshot from, IReadOnlyList<RoomSnapshot> targets, IReadOnlyList<int> limits, long nodeLimit, bool storePruned)
+        {
+            var rungs = new List<LadderRung>(targets.Count);
+            int[] mobile = _s.Mobile;
+            long began = ThreadClock.Now();
+            long ladderNodes = 0;
+            _trackComplete = true;
+            _storePruned = storePruned;
+            try
+            {
+                _store.Clear();
+                _queue.Clear();
+                foreach (byte[]? flags in _complete)
+                {
+                    if (flags is not null)
+                    {
+                        Array.Clear(flags);
+                    }
+                }
+
+                _room.RestoreFrom(from);
+                _room.WriteStateKey(_wide, mobile);
+                _s.Codec.Encode(_wide, _compact);
+                int start = _store.FindOrAdd(_compact, out _);
+                _store.Parent(start) = -1;
+                _store.Cost(start) = 0;
+                _store.Move(start) = 0;
+
+                for (int r = 0; r < targets.Count; r++)
+                {
+                    long rungBegan = ThreadClock.Now();
+                    int limit = limits[r];
+                    SetTarget(targets[r]);
+                    _queue.Clear();
+
+                    // Re-score the table against this target.
+                    int count = _store.Count;
+                    for (int idx = 0; idx < count; idx++)
+                    {
+                        _s.Codec.Decode(_store.Key(idx), _wide);
+                        _room.RestoreMobile(_wide, mobile);
+                        int h = Heuristic();
+                        int g = _store.Cost(idx);
+                        _store.Estimate(idx) = (ushort)Math.Min(h, ushort.MaxValue);
+                        if (g + h <= limit)
+                        {
+                            _queue.Push(idx, g + h);
+                        }
+                    }
+
+                    LadderRung rung = RunRung(limit, nodeLimit, began, ref ladderNodes);
+                    rungs.Add(rung with
+                    {
+                        Rescored = count,
+                        Seconds = (ThreadClock.Now() - rungBegan) / 1e7,
+                    });
+                    if (rung.Outcome != WindowOutcome.NoShortcut)
+                    {
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                _trackComplete = false;
+                _storePruned = false;
+            }
+
+            LastStored = _store.Count;
+            return rungs;
+        }
+
+        /// <summary>The ladder's pop loop for one rung: <see cref="Search(RoomSnapshot, RoomSnapshot, int, long, Func{bool}?, out long, out bool)"/>'s, plus the skip of complete nodes.</summary>
+        private LadderRung RunRung(int limit, long nodeLimit, long began, ref long ladderNodes)
+        {
+            long expanded = 0, skipped = 0;
+            LadderRung Done(WindowOutcome outcome, int bound, string? shortcut = null) =>
+                new(limit + 1, outcome, bound, shortcut, expanded, skipped, 0, _store.Count, 0);
+
+            while (_queue.TryPop(out int node, out int f))
+            {
+                if (f > limit)
+                {
+                    return Done(WindowOutcome.NoShortcut, limit + 1);
+                }
+
+                int g = _store.Cost(node);
+                if (g + _store.Estimate(node) != f)
+                {
+                    continue;
+                }
+
+                if (_store.Key(node).SequenceEqual(_goal))
+                {
+                    return Done(WindowOutcome.Shortcut, g, Reconstruct(node));
+                }
+
+                byte flag = Flag(node);
+                if (flag != OpenFlag)
+                {
+                    // Complete: its children are stored, and were queued by the re-score.
+                    // Target-only: not the target, and never expanded.
+                    skipped++;
+                    continue;
+                }
+
+                expanded++;
+                ladderNodes++;
+                if (g < limit)
+                {
+                    Expand(node, g, limit);
+                }
+
+                if (ladderNodes >= nodeLimit)
+                {
+                    return Done(WindowOutcome.NodeLimit, f);
+                }
+
+                if ((expanded & 4095) == 0)
+                {
+                    WindowOutcome? cut =
+                        _s.WindowTicks != long.MaxValue && ThreadClock.Now() - began > _s.WindowTicks ? WindowOutcome.WindowTimeLimit
+                        : (long)_store.Count * (_bytesPerState + 1) > _s.WindowMemoryLimit ? WindowOutcome.MemoryLimit
+                        : null;
+                    if (cut is { } why)
+                    {
+                        return Done(why, f);
+                    }
+                }
+            }
+
+            return Done(WindowOutcome.NoShortcut, limit + 1);
+        }
+
 
         private void Expand(int node, int g, int limit)
         {
@@ -562,6 +1237,7 @@ public sealed class WindowOptimizer
             }
 
             bool restoreNeeded = false;
+            bool pruned = false; // a child left out for this target or limit (the ladder re-expands such a node)
             char[] symbols = _s.Symbols;
             for (int s = 0; s < symbols.Length; s++)
             {
@@ -591,8 +1267,10 @@ public sealed class WindowOptimizer
                 }
 
                 int h = Heuristic();
-                if (g + 1 + h > limit)
+                bool overLimit = g + 1 + h > limit;
+                if (overLimit && !_storePruned)
                 {
+                    pruned = true;
                     continue;
                 }
 
@@ -601,23 +1279,56 @@ public sealed class WindowOptimizer
 
                 // Neither fish can move again, or the turn kept only for the
                 // last move: worth keeping only as the target itself.
-                if ((s == goalOnly || _room.CannotMove()) && !_compact.AsSpan().SequenceEqual(_goal))
+                bool targetOnly = (s == goalOnly || _room.CannotMove()) && !_compact.AsSpan().SequenceEqual(_goal);
+                if (targetOnly && !_storePruned)
                 {
+                    pruned = true;
                     continue;
                 }
 
+                // From here on, with _storePruned (the ladder's second variant), a child
+                // over the limit or kept only as a target is stored but not queued: a
+                // later rung re-scores it, so this node needs no second expansion.
                 int child = _store.FindOrAdd(_compact, out bool added);
                 if (!added && g + 1 >= _store.Cost(child))
                 {
+                    if (_storePruned && !targetOnly && Flag(child) == TargetOnlyFlag)
+                    {
+                        // A state kept only as a target, now also reached by an ordinary
+                        // move: it may be expanded. Every path is a real one, so this only
+                        // gives the search routes the target-only rule had spared it.
+                        SetFlag(child, OpenFlag);
+                        int fc = _store.Cost(child) + _store.Estimate(child);
+                        if (fc <= limit)
+                        {
+                            _queue.Push(child, fc);
+                        }
+                    }
+
                     continue;
+                }
+
+                if (_trackComplete)
+                {
+                    // Reached more cheaply: its children's costs (and its own
+                    // reversal rule, from the move byte) change, so it is expanded again.
+                    SetFlag(child, targetOnly ? TargetOnlyFlag : OpenFlag);
                 }
 
                 _store.Parent(child) = node;
                 _store.Cost(child) = (ushort)(g + 1);
-                _store.Estimate(child) = (ushort)h;
+                _store.Estimate(child) = (ushort)Math.Min(h, ushort.MaxValue);
                 _store.Move(child) = (byte)(s
                     | (!_room.LastMoveWasFast ? 0 : _room.LastMoveWasTurn ? MadeByTurn : MadeByFishStep));
-                _queue.Push(child, g + 1 + h);
+                if (!overLimit && !targetOnly)
+                {
+                    _queue.Push(child, g + 1 + h);
+                }
+            }
+
+            if (_trackComplete)
+            {
+                SetFlag(node, pruned ? OpenFlag : CompleteFlag);
             }
         }
 
@@ -643,6 +1354,60 @@ public sealed class WindowOptimizer
         /// </summary>
         internal int Heuristic()
         {
+            if (_s.Heuristic == WindowHeuristic.None)
+            {
+                return 0;
+            }
+
+            int fish = FishBound();
+            if (fish >= Impossible || _s.Heuristic != WindowHeuristic.WallsAndItems)
+            {
+                return fish;
+            }
+
+            return Math.Max(fish, ItemBound());
+        }
+
+        /// <summary>The item furthest from any target it may take: |dx| + the rise, each a pushed move.</summary>
+        private int ItemBound()
+        {
+            int worst = 0;
+            for (int i = 0; i < _s.ItemModels.Length; i++)
+            {
+                ref readonly ModelState m = ref _room.State(_s.ItemModels[i]);
+                int best = Impossible;
+                foreach (int t in _s.ItemTwins[i])
+                {
+                    (int gx, int gy, bool gOut) = _goalItems[t];
+                    int d;
+                    if (m.IsOut || gOut)
+                    {
+                        // Gone for good if out now; if it has to leave, no bound is claimed.
+                        d = m.IsOut == gOut ? 0 : m.IsOut ? Impossible : 0;
+                    }
+                    else
+                    {
+                        // Only the way inside the room costs moves: an item that
+                        // touches the border slides out over it for free (going
+                        // out), so both ends are clamped to where it is wholly in.
+                        int maxX = _s.Level.Width - _s.ItemShapes[i].W, maxY = _s.Level.Height - _s.ItemShapes[i].H;
+                        int x0 = Math.Clamp(m.X, 0, Math.Max(0, maxX)), x1 = Math.Clamp(gx, 0, Math.Max(0, maxX));
+                        int y0 = Math.Clamp(m.Y, 0, Math.Max(0, maxY)), y1 = Math.Clamp(gy, 0, Math.Max(0, maxY));
+                        d = Math.Abs(x1 - x0) + Math.Max(0, y0 - y1);
+                    }
+
+                    best = Math.Min(best, d);
+                }
+
+                worst = Math.Max(worst, best);
+            }
+
+            return worst;
+        }
+
+        /// <summary>The fish's moves still needed, summed: each move moves one fish.</summary>
+        private int FishBound()
+        {
             int total = 0;
             for (int i = 0; i < _s.FishModels.Length; i++)
             {
@@ -657,9 +1422,19 @@ public sealed class WindowOptimizer
                         continue;
                     }
 
-                    if (isOut || _s.ExitDistance[i] is not { } exit)
+                    if (isOut)
                     {
-                        return Impossible; // out now but not in the target, or a fish that never leaves
+                        return Impossible; // out now but not in the target
+                    }
+
+                    if (_s.Heuristic != WindowHeuristic.Manhattan && _s.FishLeaveAnywhere)
+                    {
+                        continue; // it may leave through a plug, anywhere
+                    }
+
+                    if (_s.ExitDistance[i] is not { } exit)
+                    {
+                        return Impossible; // a fish that never leaves
                     }
 
                     int d = exit.At(x, y, isLeft);
@@ -669,6 +1444,21 @@ public sealed class WindowOptimizer
                     }
 
                     total += d;
+                    continue;
+                }
+
+                if (_fishToGoal[i] is { } toGoal)
+                {
+                    // Unreachable only where the shape does not fit the walls-only
+                    // room: a fish partly over the border, or a target there.
+                    // Moves keep a fish in its walls-only component, so that is the
+                    // only case - and it claims nothing.
+                    int d = toGoal.At(x, y, isLeft);
+                    if (d < RelaxedDistance.Unreachable)
+                    {
+                        total += d;
+                    }
+
                     continue;
                 }
 
